@@ -1,0 +1,15 @@
+{
+  "name": "steelops-monorepo",
+  "private": true,
+  "workspaces": [
+    "apps/frontend",
+    "packages/contracts"
+  ],
+  "scripts": {
+    "dev:frontend": "npm --workspace @steelops/frontend run dev",
+    "build:frontend": "npm --workspace @steelops/frontend run build",
+    "lint": "npm --workspace @steelops/contracts run lint && npm --workspace @steelops/frontend run lint",
+    "format": "npm --workspace @steelops/contracts run format && npm --workspace @steelops/frontend run format"
+  }
+}
+

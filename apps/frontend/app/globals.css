@@ -1,0 +1,16 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-sans: "Manrope";
+}
+
+body {
+  @apply bg-background bg-hero-grid text-foreground antialiased;
+}
+
+* {
+  @apply border-border;
+}
+

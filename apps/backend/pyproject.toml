@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "steelops-backend"
+version = "0.1.0"
+description = "SteelOps inbound control tower backend"
+requires-python = ">=3.11"
+dependencies = [
+  "alembic>=1.13,<2.0",
+  "celery[redis]>=5.4,<6.0",
+  "fastapi>=0.115,<1.0",
+  "httpx>=0.28,<1.0",
+  "openpyxl>=3.1,<4.0",
+  "psycopg[binary]>=3.2,<4.0",
+  "pydantic-settings>=2.6,<3.0",
+  "python-multipart>=0.0.20,<1.0",
+  "python-dotenv>=1.0,<2.0",
+  "sqlalchemy>=2.0,<3.0",
+  "uvicorn[standard]>=0.32,<1.0"
+]
+
+[project.optional-dependencies]
+dev = [
+  "httpx>=0.28,<1.0",
+  "pytest>=8.3,<9.0",
+  "pytest-asyncio>=0.24,<1.0",
+  "ruff>=0.11,<0.12"
+]
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
