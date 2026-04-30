@@ -8,6 +8,8 @@ import type {
   ExceptionListResponse,
   InlandMonitoringItem,
   MovementDetailResponse,
+  MicrosoftConnection,
+  MicrosoftDataSource,
   PilotReadinessResponse,
   PortMonitoringItem,
   Shipment,
@@ -139,6 +141,14 @@ export async function getSupplierDetail(supplierId: string): Promise<SupplierDet
 
 export async function getSupplierPerformanceSummary(): Promise<SupplierPerformanceSummary | null> {
   return getAuthenticatedJson<SupplierPerformanceSummary>("/api/v1/suppliers/performance/summary");
+}
+
+export async function getMicrosoftConnections(): Promise<MicrosoftConnection[]> {
+  return (await getAuthenticatedJson<MicrosoftConnection[]>("/api/v1/microsoft/connections")) ?? [];
+}
+
+export async function getMicrosoftDataSources(): Promise<MicrosoftDataSource[]> {
+  return (await getAuthenticatedJson<MicrosoftDataSource[]>("/api/v1/microsoft/data-sources")) ?? [];
 }
 
 export async function getExceptions(params?: {

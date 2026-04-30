@@ -131,11 +131,11 @@ def calculate_stock_cover_detail(
     impact_explanation = impact_explanation_for(target.calculation)
     assumptions = [
         (
-            "Inbound pipeline uses deterministic shipment-state weighting instead of a raw "
-            "active total."
+            "Days to line stop uses available stock only; blocked and inbound stock do not "
+            "protect continuity until received."
         ),
-        "Delivered and cancelled shipments are excluded from inbound protection.",
-        "Low-confidence or stale movement signals reduce effective inbound protection.",
+        "Inbound pipeline is shown for visibility, not counted as usable cover.",
+        "Delivered and cancelled shipments are excluded from inbound visibility.",
     ]
     return StockCoverDetailResponse(
         row=target,
@@ -431,7 +431,7 @@ def build_row(
     daily_consumption = snapshot.daily_consumption_mt
     if daily_consumption <= 0:
         calculation = StockCoverBreakdown(
-            current_stock_mt=quantize_decimal(snapshot.available_to_consume_mt),
+            current_stock_mt=quantize_decimal(snapshot.on_hand_mt),
             inbound_pipeline_mt=quantize_decimal(effective_inbound_pipeline_mt),
             raw_inbound_pipeline_mt=quantize_decimal(raw_inbound_pipeline_mt),
             effective_inbound_pipeline_mt=quantize_decimal(effective_inbound_pipeline_mt),
@@ -467,9 +467,10 @@ def build_row(
         )
         return stock_cover_row(plant, material, snapshot_time, calculation)
 
-    current_stock_mt = snapshot.available_to_consume_mt
-    total_considered_mt = current_stock_mt + effective_inbound_pipeline_mt
-    days_of_cover = quantize_decimal(total_considered_mt / daily_consumption)
+    current_stock_mt = snapshot.on_hand_mt
+    usable_stock_mt = snapshot.available_to_consume_mt
+    total_considered_mt = usable_stock_mt
+    days_of_cover = quantize_decimal(usable_stock_mt / daily_consumption)
     threshold_days = threshold.threshold_days if threshold else None
     warning_days = threshold.warning_days if threshold else None
     status = risk_status(days_of_cover, threshold_days, warning_days)
@@ -664,14 +665,10 @@ def confidence_reasons(row: StockCoverRow, shipments: list[WeightedShipment]) ->
         low_confidence = [shipment for shipment in shipments if shipment.confidence == "low"]
         stale = [shipment for shipment in shipments if shipment.freshness_label == "stale"]
         if low_confidence or stale:
-            reasons.append(
-                "Low-confidence or stale shipment signals reduced effective inbound "
-                "protection."
-            )
+            reasons.append("Low-confidence or stale shipment signals reduced effective inbound visibility.")
         reasons.append(
-            f"Raw inbound is {row.calculation.raw_inbound_pipeline_mt} MT, but effective "
-            "inbound is "
-            f"{row.calculation.effective_inbound_pipeline_mt} MT after weighting."
+            f"Raw inbound visibility is {row.calculation.raw_inbound_pipeline_mt} MT; effective "
+            f"inbound visibility is {row.calculation.effective_inbound_pipeline_mt} MT after weighting."
         )
     else:
         reasons.append("No inbound shipments contribute to the pipeline estimate.")
@@ -708,7 +705,7 @@ def recommendation_why_for(calculation: StockCoverBreakdown) -> list[str]:
     if calculation.confidence_level == "low":
         reasons.append("Confidence is low, so the recommendation favors immediate operational validation.")
     if calculation.effective_inbound_pipeline_mt < calculation.raw_inbound_pipeline_mt:
-        reasons.append("Effective inbound protection is lower than the raw pipeline after shipment weighting.")
+        reasons.append("Effective inbound visibility is lower than the raw pipeline after shipment weighting.")
     return reasons
 
 

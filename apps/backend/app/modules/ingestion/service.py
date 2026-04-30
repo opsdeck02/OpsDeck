@@ -4,10 +4,11 @@ import csv
 import hashlib
 import io
 import json
+import logging
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
@@ -41,17 +42,21 @@ from app.modules.ingestion.schemas import (
 from app.modules.suppliers.service import find_supplier_by_name
 from app.schemas.context import RequestContext
 
+logger = logging.getLogger(__name__)
+
 SUPPORTED_FILE_TYPES = {"shipment", "stock", "threshold"}
 UPLOAD_DIR = Path("uploaded_files")
 
 ALIASES = {
     "shipment_id": {"shipmentid", "shipment", "shipmentref", "reference", "shipmentreference"},
     "plant_code": {"plantcode", "plant", "plantid", "plantname"},
-    "material_code": {"materialcode", "material", "materialid", "materialname"},
+    "material_code": {"materialcode", "material", "materialid"},
+    "material_name": {"materialname"},
     "supplier_name": {"suppliername", "supplier", "vendor"},
     "quantity_mt": {"quantitymt", "quantity", "qtymt", "mt", "inboundqtytons", "inboundquantitytons"},
     "planned_eta": {"plannedeta", "originaleta", "eta", "dispatchdate", "shipmentdate"},
     "current_eta": {"currenteta", "latesteta", "revisedeta", "expectedarrivaldate", "arrivaldate"},
+    "delay_days": {"delaydays", "delay", "delays", "etadelaydays", "etadelay", "delayindays"},
     "current_state": {"currentstate", "state", "status", "shipmentstate", "shipmentstatus"},
     "source_of_truth": {"sourceoftruth", "source", "datasource"},
     "latest_update_at": {"latestupdateat", "lastupdatedat", "updatedat", "lastupdated", "eventtime"},
@@ -62,10 +67,14 @@ ALIASES = {
     "destination_port": {"destinationport", "destination", "dischargeport"},
     "eta_confidence": {"etaconfidence", "confidence"},
     "on_hand_mt": {"onhandmt", "onhand", "stockmt", "stock", "currentstocktons", "currentstock"},
-    "quality_held_mt": {"qualityheldmt", "qualityheld", "heldmt", "blockedstocktons", "blockedstock"},
+    "quality_held_mt": {"qualityheldmt", "qualityheld", "heldmt", "blockedstocktons", "blockedstock", "blockedstocktons"},
     "available_to_consume_mt": {"availabletoconsumemt", "availablemt", "available", "availableunrestrictedtons"},
     "daily_consumption_mt": {"dailyconsumptionmt", "dailyconsumption", "consumptionmt", "dailyconsumptiontons"},
-    "snapshot_time": {"snapshottime", "snapshotat", "asof", "asoftime"},
+    "snapshot_time": {"snapshottime", "snapshotat", "asof", "asoftime", "lastupdatedat"},
+    "in_transit_open_tons": {"intransitopentons"},
+    "days_to_line_stop": {"daystolinestop"},
+    "risk_status": {"riskstatus"},
+    "next_inbound_eta_days": {"nextinboundetadays"},
     "threshold_days": {"thresholddays", "threshold", "criticaldays", "criticalcoverdays"},
     "warning_days": {"warningdays", "warning", "warningcoverdays", "mincoverdays"},
 }
@@ -78,7 +87,6 @@ REQUIRED_FIELDS = {
         "supplier_name",
         "quantity_mt",
         "planned_eta",
-        "current_eta",
         "current_state",
         "latest_update_at",
     },
@@ -90,6 +98,43 @@ REQUIRED_FIELDS = {
         "available_to_consume_mt",
         "daily_consumption_mt",
         "snapshot_time",
+    },
+    "threshold": {"plant_code", "material_code", "threshold_days", "warning_days"},
+}
+
+HEADER_FIELDS_BY_FILE_TYPE = {
+    "shipment": {
+        "shipment_id",
+        "plant_code",
+        "material_code",
+        "supplier_name",
+        "quantity_mt",
+        "planned_eta",
+        "current_eta",
+        "delay_days",
+        "current_state",
+        "source_of_truth",
+        "latest_update_at",
+        "vessel_name",
+        "imo_number",
+        "mmsi",
+        "origin_port",
+        "destination_port",
+        "eta_confidence",
+    },
+    "stock": {
+        "plant_code",
+        "material_code",
+        "material_name",
+        "on_hand_mt",
+        "quality_held_mt",
+        "available_to_consume_mt",
+        "daily_consumption_mt",
+        "snapshot_time",
+        "in_transit_open_tons",
+        "days_to_line_stop",
+        "risk_status",
+        "next_inbound_eta_days",
     },
     "threshold": {"plant_code", "material_code", "threshold_days", "warning_days"},
 }
@@ -396,8 +441,10 @@ def parse_csv(
         raise ValueError("Missing header row")
     header_index = detect_header_row(file_type, rows)
     headers = ["" if value is None else str(value) for value in rows[header_index]]
+    log_missing_required_headers(file_type, headers, header_index)
     data_rows = (dict(zip(headers, row, strict=False)) for row in rows[header_index + 1 :])
     return normalize_records(
+        file_type,
         headers,
         data_rows,
         start_row=header_index + 2,
@@ -419,8 +466,10 @@ def parse_xlsx(
         raise ValueError("Missing header row")
     header_index = detect_header_row(file_type, rows)
     headers = ["" if value is None else str(value) for value in rows[header_index]]
+    log_missing_required_headers(file_type, headers, header_index)
     records = (dict(zip(headers, row, strict=False)) for row in rows[header_index + 1 :])
     return normalize_records(
+        file_type,
         headers,
         records,
         start_row=header_index + 2,
@@ -443,6 +492,22 @@ def detect_header_row(file_type: str, rows: list[Iterable[Any]]) -> int:
     return best_index
 
 
+def log_missing_required_headers(file_type: str, headers: Iterable[str], header_index: int) -> None:
+    matched_fields = {
+        match.field
+        for header in headers
+        if (match := best_header_match(str(header), required_fields=REQUIRED_FIELDS[file_type])).field
+    }
+    missing = sorted(REQUIRED_FIELDS[file_type] - matched_fields)
+    if missing:
+        logger.warning(
+            "Parser detected header row %s for %s but required columns are missing: %s",
+            header_index + 1,
+            file_type,
+            ", ".join(missing),
+        )
+
+
 def header_row_score(file_type: str, headers: Iterable[str]) -> float:
     required = REQUIRED_FIELDS[file_type]
     matched_fields = {
@@ -455,6 +520,7 @@ def header_row_score(file_type: str, headers: Iterable[str]) -> float:
 
 
 def normalize_records(
+    file_type: str,
     headers: Iterable[str],
     records: Iterable[dict[str, Any]],
     start_row: int,
@@ -463,7 +529,7 @@ def normalize_records(
 ) -> list[ParsedRow]:
     overrides = {str(key): str(value) for key, value in (mapping_overrides or {}).items() if value}
     header_map = {
-        header: overrides.get(header) or canonical_header(header)
+        header: overrides.get(header) or canonical_header(header, file_type=file_type)
         for header in headers
     }
     parsed_rows: list[ParsedRow] = []
@@ -484,8 +550,9 @@ def normalize_records(
     return parsed_rows
 
 
-def canonical_header(header: str) -> str | None:
-    return best_header_match(header).field
+def canonical_header(header: str, file_type: str | None = None) -> str | None:
+    required_fields = HEADER_FIELDS_BY_FILE_TYPE.get(file_type) if file_type else None
+    return best_header_match(header, required_fields=required_fields).field
 
 
 def build_header_mapping_suggestion(file_type: str, header: str) -> HeaderMappingSuggestion:
@@ -606,11 +673,14 @@ def normalize_rows(
 
 
 def missing_required_errors(file_type: str, data: dict[str, str]) -> list[str]:
-    return [
+    errors = [
         f"Missing required field: {field}"
         for field in sorted(REQUIRED_FIELDS[file_type])
         if not data.get(field)
     ]
+    if file_type == "shipment" and not data.get("current_eta") and not data.get("delay_days"):
+        errors.append("Missing required field: current_eta or delay_days")
+    return errors
 
 
 def resolve_plant(db: Session, tenant_id: int, value: str) -> Plant:
@@ -697,6 +767,13 @@ def parse_datetime(value: str, field: str) -> datetime:
     return parsed
 
 
+def resolve_current_eta(data: dict[str, str], planned_eta: datetime) -> datetime:
+    if data.get("current_eta"):
+        return parse_datetime(data["current_eta"], "current_eta")
+    delay_days = parse_decimal(data["delay_days"], "delay_days")
+    return planned_eta + timedelta(days=float(delay_days))
+
+
 def parse_state(value: str) -> ShipmentState:
     normalized = value.strip().lower().replace(" ", "_").replace("-", "_")
     state_aliases = {
@@ -773,8 +850,8 @@ def upsert_shipment(db: Session, context: RequestContext, data: dict[str, str]) 
     plant = resolve_plant(db, context.tenant_id, data["plant_code"])
     material = resolve_material(db, context.tenant_id, data["material_code"])
     state = parse_state(data["current_state"])
-    current_eta = parse_datetime(data["current_eta"], "current_eta")
     planned_eta = parse_datetime(data["planned_eta"], "planned_eta")
+    current_eta = resolve_current_eta(data, planned_eta)
     latest_update_at = parse_datetime(data["latest_update_at"], "latest_update_at")
     eta_confidence = (
         parse_decimal(data["eta_confidence"], "eta_confidence")

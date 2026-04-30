@@ -30,6 +30,7 @@ class LastSyncSummary(BaseModel):
     new_critical_risks_count: int
     resolved_risks_count: int
     newly_breached_actions_count: int
+    source_type: str | None = None
 
 
 class AutomatedDataFreshness(BaseModel):
@@ -56,6 +57,10 @@ class ExecutiveRiskItem(BaseModel):
     threshold_days: Decimal | None
     status: str
     confidence: str
+    current_stock_mt: Decimal | None
+    usable_stock_mt: Decimal | None
+    blocked_stock_mt: Decimal | None
+    next_inbound_eta: datetime | None
     raw_inbound_pipeline_mt: Decimal
     effective_inbound_pipeline_mt: Decimal
     inbound_protection_indicator: str

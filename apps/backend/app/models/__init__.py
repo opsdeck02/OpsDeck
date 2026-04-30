@@ -2,6 +2,9 @@ from app.models.data_source import ExternalDataSource
 from app.models.ingestion import IngestionJob, UploadedFile
 from app.models.material import Material
 from app.models.membership import TenantMembership
+from app.models.microsoft_connection import MicrosoftConnection
+from app.models.microsoft_data_source import MicrosoftDataSource
+from app.models.microsoft_oauth_state import MicrosoftOAuthState
 from app.models.operations import (
     AuditLog,
     ExceptionCase,
@@ -28,6 +31,9 @@ __all__ = [
     "InlandMovement",
     "LineStopIncident",
     "Material",
+    "MicrosoftConnection",
+    "MicrosoftDataSource",
+    "MicrosoftOAuthState",
     "Plant",
     "PlantMaterialThreshold",
     "PortEvent",

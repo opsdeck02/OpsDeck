@@ -17,6 +17,8 @@ from app.models import (
     ExceptionCase,
     InlandMovement,
     Material,
+    MicrosoftConnection,
+    MicrosoftDataSource,
     Plant,
     PlantMaterialThreshold,
     PortEvent,
@@ -317,6 +319,36 @@ def seed_dashboard_data(db: Session) -> None:
             ),
         ]
     )
+    connection = MicrosoftConnection(
+        tenant_id=tenant_a.id,
+        microsoft_user_id="ms-user-1",
+        microsoft_tenant_id="ms-tenant-1",
+        display_name="Ops Lead",
+        email="ops@example.com",
+        access_token="encrypted-access",
+        refresh_token="encrypted-refresh",
+        token_expires_at=now + timedelta(hours=1),
+        scope="Files.Read User.Read offline_access",
+        connected_at=now - timedelta(hours=2),
+        is_active=True,
+    )
+    db.add(connection)
+    db.flush()
+    db.add(
+        MicrosoftDataSource(
+            tenant_id=tenant_a.id,
+            microsoft_connection_id=connection.id,
+            drive_id="drive-1",
+            item_id="stock-item-1",
+            file_type="stock",
+            sync_frequency_minutes=60,
+            last_successful_sync_at=now - timedelta(minutes=15),
+            last_sync_attempted_at=now - timedelta(minutes=15),
+            sync_status="success",
+            is_active=True,
+            display_name="stock_snapshot.xlsx",
+        )
+    )
     db.commit()
 
 
@@ -345,6 +377,15 @@ def test_correct_aggregation_of_kpis(client: TestClient) -> None:
     assert body["kpis"]["open_exceptions"] == 2
     assert body["kpis"]["unassigned_exceptions"] == 1
     assert Decimal(body["kpis"]["total_estimated_value_at_risk"]) == expected_total
+
+
+def test_microsoft_data_sources_count_as_automated_freshness(client: TestClient) -> None:
+    response = client.get("/api/v1/dashboard/executive", headers=auth_headers(client))
+    assert response.status_code == 200
+    freshness = response.json()["automated_data_freshness"]
+    assert freshness is not None
+    assert freshness["last_sync_summary"]["last_sync_status"] == "success"
+    assert freshness["data_freshness_status"] == "fresh"
 
 
 def test_correct_filtering_of_top_risks(client: TestClient) -> None:

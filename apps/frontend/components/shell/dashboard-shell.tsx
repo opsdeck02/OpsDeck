@@ -110,7 +110,7 @@ export function DashboardShell({
     : navItems.filter((item) => role && item.roles.includes(role));
 
   return (
-    <div className="min-h-screen px-4 py-6 sm:px-6 lg:px-10">
+    <div className="min-h-screen overflow-x-hidden px-4 py-6 sm:px-6 lg:px-10">
       <div className="mx-auto flex max-w-7xl flex-col gap-6">
         <header className="flex flex-col gap-4 rounded-3xl border bg-card/90 px-5 py-4 shadow-panel backdrop-blur md:flex-row md:items-center md:justify-between">
           <div className="flex items-center gap-4">
@@ -132,7 +132,7 @@ export function DashboardShell({
             <LogoutButton />
           </div>
         </header>
-        <div className="grid gap-5 lg:grid-cols-[220px_1fr]">
+        <div className="grid min-w-0 gap-5 lg:grid-cols-[220px_minmax(0,1fr)]">
           <nav className="h-fit rounded-3xl border bg-card/85 p-3 shadow-panel">
             {visibleItems.map((item) => (
               <Link
@@ -144,7 +144,7 @@ export function DashboardShell({
               </Link>
             ))}
           </nav>
-          <div>{children}</div>
+          <div className="min-w-0">{children}</div>
         </div>
       </div>
     </div>

@@ -12,6 +12,10 @@ class Settings(BaseSettings):
     celery_broker_url: str = "redis://localhost:6379/0"
     celery_result_backend: str = "redis://localhost:6379/1"
     secret_key: str = "change-me"
+    microsoft_client_id: str = ""
+    microsoft_client_secret: str = ""
+    microsoft_redirect_uri: str = "http://localhost:8000/api/v1/microsoft/callback"
+    encryption_key: str = ""
     access_token_expire_minutes: int = 60 * 8
     cors_origins: list[str] = ["http://localhost:3000"]
 

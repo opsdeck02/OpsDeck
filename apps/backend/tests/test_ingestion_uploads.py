@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import io
 from collections.abc import Generator
 
 import pytest
 from fastapi.testclient import TestClient
+from openpyxl import Workbook
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -93,7 +95,7 @@ def login(client: TestClient) -> dict[str, str]:
         "/api/v1/auth/login",
         json={"email": "logistics@test.local", "password": "Password123!"},
     )
-    assert response.status_code == 200
+    assert response.status_code == 200, response.json()
     token = response.json()["access_token"]
     return {"Authorization": f"Bearer {token}", "X-Tenant-Slug": "tenant-a"}
 
@@ -107,13 +109,28 @@ def upload_csv(client: TestClient, headers: dict[str, str], file_type: str, csv_
     )
 
 
+def upload_xlsx(client: TestClient, headers: dict[str, str], file_type: str, content: bytes):
+    return client.post(
+        "/api/v1/ingestion/uploads",
+        headers=headers,
+        data={"file_type": file_type},
+        files={
+            "file": (
+                "stock_snapshot.xlsx",
+                content,
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+        },
+    )
+
+
 def test_valid_shipment_upload(
     client_and_session: tuple[TestClient, sessionmaker[Session]],
 ) -> None:
     client, SessionLocal = client_and_session
     response = upload_csv(client, login(client), "shipment", shipment_csv("SHP-001"))
 
-    assert response.status_code == 200
+    assert response.status_code == 200, response.json()
     body = response.json()
     assert body["rows_received"] == 1
     assert body["rows_accepted"] == 1
@@ -141,6 +158,62 @@ def test_valid_stock_upload(client_and_session: tuple[TestClient, sessionmaker[S
     assert response.json()["summary_counts"]["created"] == 1
     with SessionLocal() as db:
         assert db.scalar(select(func.count()).select_from(StockSnapshot)) == 1
+
+
+def test_stock_xlsx_detects_headers_on_row_three(
+    client_and_session: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, SessionLocal = client_and_session
+
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.append(["Stock snapshot export"])
+    sheet.append(["Generated from customer workbook"])
+    sheet.append(
+        [
+            "last_updated_at",
+            "plant_code",
+            "material_code",
+            "material_name",
+            "current_stock_tons",
+            "available_unrestricted_tons",
+            "blocked_stock_tons",
+            "in_transit_open_tons",
+            "daily_consumption_tons",
+            "days_to_line_stop",
+            "risk_status",
+            "next_inbound_eta_days",
+        ]
+    )
+    sheet.append(
+        [
+            "2026-04-15T08:00:00Z",
+            "JAM",
+            "COKING_COAL",
+            "Coking coal",
+            10000,
+            9000,
+            1000,
+            2500,
+            500,
+            18,
+            "safe",
+            4,
+        ]
+    )
+    output = io.BytesIO()
+    workbook.save(output)
+
+    response = upload_xlsx(client, login(client), "stock", output.getvalue())
+
+    assert response.status_code == 200, response.json()
+    assert response.json()["rows_accepted"] == 1
+    with SessionLocal() as db:
+        snapshot = db.scalar(select(StockSnapshot))
+        assert snapshot is not None
+        assert str(snapshot.on_hand_mt) == "10000.000"
+        assert str(snapshot.available_to_consume_mt) == "9000.000"
+        assert str(snapshot.quality_held_mt) == "1000.000"
 
 
 def test_invalid_stock_upload_rejects_zero_daily_consumption(
@@ -222,6 +295,29 @@ def test_shipment_upload_accepts_dispatched_state_and_date_only_eta(
         shipment = db.scalar(select(Shipment).where(Shipment.shipment_id == "SHP-DISPATCHED"))
         assert shipment is not None
         assert shipment.current_state == "in_transit"
+
+
+def test_shipment_upload_can_derive_current_eta_from_delay_days(
+    client_and_session: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, SessionLocal = client_and_session
+    response = upload_csv(
+        client,
+        login(client),
+        "shipment",
+        "\n".join(
+            [
+                "shipment_id,plant_code,material_code,supplier_name,quantity_mt,planned_eta,delay_days,current_state,latest_update_at",
+                "SHP-DELAY-DAYS,JAM,COKING_COAL,Supplier A,74000,2026-04-20T08:00:00Z,2.5,in_transit,2026-04-15T09:00:00Z",
+            ]
+        ),
+    )
+
+    assert response.status_code == 200, response.json()
+    with SessionLocal() as db:
+        shipment = db.scalar(select(Shipment).where(Shipment.shipment_id == "SHP-DELAY-DAYS"))
+        assert shipment is not None
+        assert shipment.current_eta.isoformat() == "2026-04-22T20:00:00"
 
 
 def test_delete_uploaded_data_clears_tenant_ingestion_artifacts(

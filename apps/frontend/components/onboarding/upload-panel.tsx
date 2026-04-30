@@ -24,6 +24,7 @@ const fieldLabels: Record<string, string> = {
   quantity_mt: "Quantity MT",
   planned_eta: "Planned ETA",
   current_eta: "Current ETA",
+  delay_days: "Delay days",
   current_state: "Shipment status",
   source_of_truth: "Source of truth (system-filled)",
   latest_update_at: "Latest update time",

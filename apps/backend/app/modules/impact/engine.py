@@ -93,7 +93,7 @@ def calculate_impact(
             f"Value at risk = exposed MT x configured value/MT "
             f"({quantize_decimal(config['value_per_mt'])})."
         ),
-        f"Effective inbound pipeline considered: {quantize_decimal(effective_inbound_pipeline_mt)} MT.",
+        f"Effective inbound visibility shown: {quantize_decimal(effective_inbound_pipeline_mt)} MT.",
     ]
 
     return ImpactEstimate(
@@ -114,7 +114,7 @@ def severity_days_for(
     warning_days: Decimal | None,
 ) -> Decimal:
     if status == "critical" and threshold_days is not None:
-        return max(Decimal("0"), threshold_days - days_of_cover)
+        return max(Decimal("1"), threshold_days - days_of_cover)
     if status == "warning" and warning_days is not None:
         return max(Decimal("0"), warning_days - days_of_cover)
     return Decimal("0")

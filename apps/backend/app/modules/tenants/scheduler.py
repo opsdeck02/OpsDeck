@@ -7,8 +7,9 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 
 from app.db.session import SessionLocal
-from app.models import ExternalDataSource, Role, TenantMembership
+from app.models import ExternalDataSource, MicrosoftConnection, MicrosoftDataSource, Role, TenantMembership
 from app.modules.auth.constants import TENANT_ADMIN
+from app.modules.microsoft.service import sync_microsoft_data_source
 from app.modules.tenants.service import classify_data_freshness
 from app.modules.tenants.sync_service import sync_loaded_data_source
 from app.schemas.context import RequestContext
@@ -41,7 +42,7 @@ def process_due_data_sources_once(now: datetime | None = None) -> None:
             )
         )
         for source in sources:
-            if not is_source_due(source, current_time):
+            if not is_external_source_due(source, current_time):
                 continue
             try:
                 context = RequestContext(
@@ -63,8 +64,39 @@ def process_due_data_sources_once(now: datetime | None = None) -> None:
                 )
                 db.rollback()
 
+        microsoft_sources = list(
+            db.scalars(
+                select(MicrosoftDataSource)
+                .join(
+                    MicrosoftConnection,
+                    MicrosoftConnection.id == MicrosoftDataSource.microsoft_connection_id,
+                )
+                .where(
+                    MicrosoftDataSource.is_active.is_(True),
+                    MicrosoftDataSource.sync_status != "syncing",
+                    MicrosoftConnection.is_active.is_(True),
+                )
+                .order_by(MicrosoftDataSource.created_at.asc())
+            )
+        )
+        for source in microsoft_sources:
+            if not is_microsoft_source_due(source, current_time):
+                continue
+            try:
+                sync_microsoft_data_source(db, source)
+            except Exception:
+                logger.exception(
+                    "Microsoft data-source scheduled sync failed for source %s",
+                    source.id,
+                )
+                db.rollback()
+
 
 def is_source_due(source: ExternalDataSource, now: datetime | None = None) -> bool:
+    return is_external_source_due(source, now)
+
+
+def is_external_source_due(source: ExternalDataSource, now: datetime | None = None) -> bool:
     current_time = now or datetime.now(UTC)
     freshness_status, age_minutes = classify_data_freshness(
         source.last_synced_at,
@@ -72,6 +104,20 @@ def is_source_due(source: ExternalDataSource, now: datetime | None = None) -> bo
         now=current_time,
     )
     if source.last_synced_at is None:
+        return True
+    if age_minutes is None:
+        return freshness_status != "fresh"
+    return age_minutes >= source.sync_frequency_minutes
+
+
+def is_microsoft_source_due(source: MicrosoftDataSource, now: datetime | None = None) -> bool:
+    current_time = now or datetime.now(UTC)
+    freshness_status, age_minutes = classify_data_freshness(
+        source.last_successful_sync_at,
+        source.sync_frequency_minutes,
+        now=current_time,
+    )
+    if source.last_successful_sync_at is None:
         return True
     if age_minutes is None:
         return freshness_status != "fresh"

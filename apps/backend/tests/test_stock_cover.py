@@ -85,7 +85,7 @@ def seed_stock_cover_data(db: Session) -> None:
 
     plants = {
         code: Plant(tenant_id=tenant_a.id, code=code, name=f"Plant {code}", location="India")
-        for code in ("P1", "P2", "P3", "P4", "P5")
+        for code in ("P1", "P2", "P3", "P4", "P5", "P6")
     }
     plants["B1"] = Plant(tenant_id=tenant_b.id, code="B1", name="Tenant B Plant", location="India")
     materials = {
@@ -96,7 +96,7 @@ def seed_stock_cover_data(db: Session) -> None:
             category="raw",
             uom="MT",
         )
-        for code in ("M1", "M2", "M3", "M4", "M5")
+        for code in ("M1", "M2", "M3", "M4", "M5", "M6")
     }
     materials["B1"] = Material(
         tenant_id=tenant_b.id,
@@ -136,6 +136,13 @@ def seed_stock_cover_data(db: Session) -> None:
                 tenant_id=tenant_a.id,
                 plant_id=plants["P4"].id,
                 material_id=materials["M4"].id,
+                threshold_days=Decimal("5"),
+                warning_days=Decimal("8"),
+            ),
+            PlantMaterialThreshold(
+                tenant_id=tenant_a.id,
+                plant_id=plants["P6"].id,
+                material_id=materials["M6"].id,
                 threshold_days=Decimal("5"),
                 warning_days=Decimal("8"),
             ),
@@ -192,6 +199,16 @@ def seed_stock_cover_data(db: Session) -> None:
                 available_to_consume_mt=Decimal("1200"),
                 daily_consumption_mt=Decimal("100"),
                 snapshot_time=now - timedelta(hours=5),
+            ),
+            StockSnapshot(
+                tenant_id=tenant_a.id,
+                plant_id=plants["P6"].id,
+                material_id=materials["M6"].id,
+                on_hand_mt=Decimal("743.31"),
+                quality_held_mt=Decimal("743.31"),
+                available_to_consume_mt=Decimal("0"),
+                daily_consumption_mt=Decimal("1200"),
+                snapshot_time=now - timedelta(hours=1),
             ),
             StockSnapshot(
                 tenant_id=tenant_b.id,
@@ -381,14 +398,25 @@ def test_normal_stock_cover_calculation(client: TestClient) -> None:
     assert safe_row["calculation"]["linked_shipment_count"] == 1
     assert safe_row["calculation"]["raw_inbound_pipeline_mt"] == "500.00"
     assert safe_row["calculation"]["effective_inbound_pipeline_mt"] == "385.00"
-    assert safe_row["calculation"]["days_of_cover"] == "13.85"
+    assert safe_row["calculation"]["total_considered_mt"] == "1000.00"
+    assert safe_row["calculation"]["days_of_cover"] == "10.00"
+
+
+def test_current_stock_uses_on_hand_even_when_available_is_zero(client: TestClient) -> None:
+    response = client.get("/api/v1/stock/cover", headers=auth_headers(client))
+    row = stock_row(response.json(), "P6", "M6")
+    assert row["calculation"]["current_stock_mt"] == "743.31"
+    assert row["calculation"]["total_considered_mt"] == "0.00"
+    assert row["calculation"]["days_of_cover"] == "0.00"
+    assert row["calculation"]["status"] == "critical"
+    assert Decimal(row["calculation"]["estimated_value_at_risk"]) > Decimal("0")
 
 
 def test_warning_threshold_case(client: TestClient) -> None:
     response = client.get("/api/v1/stock/cover", headers=auth_headers(client))
     warning_row = stock_row(response.json(), "P2", "M2")
-    assert warning_row["calculation"]["status"] == "safe"
-    assert warning_row["calculation"]["days_of_cover"] == "10.70"
+    assert warning_row["calculation"]["status"] == "warning"
+    assert warning_row["calculation"]["days_of_cover"] == "6.50"
 
 
 def test_critical_threshold_case(client: TestClient) -> None:
@@ -425,7 +453,7 @@ def test_missing_threshold_behavior(client: TestClient) -> None:
 def test_tenant_isolation_behavior(client: TestClient) -> None:
     response = client.get("/api/v1/stock/cover", headers=auth_headers(client))
     body = response.json()
-    assert body["total_combinations"] == 5
+    assert body["total_combinations"] == 6
     assert all(row["plant_code"] != "B1" for row in body["rows"])
 
 

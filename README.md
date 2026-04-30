@@ -1,4 +1,4 @@
-# SteelOps Control Tower Monorepo
+# OpsDeck Control Tower Monorepo
 
 Production-oriented MVP V1 monorepo for a steel-specific raw-material inbound control tower. This repository includes:
 
@@ -103,3 +103,4 @@ docs/           Architecture notes
 - The backend modules are intentionally separated so ingestion, stock, rules, exceptions, and dashboard logic can evolve independently.
 - See `docs/architecture.md` for the architecture note and extension points for AIS/email ingestion.
 - See `docs/erd.md` for the MVP V1 entity relationship diagram and database constraints.
+- See `docs/microsoft-setup.md` for Microsoft Graph OAuth app registration, permissions, and redirect URI setup.

@@ -90,7 +90,7 @@ def recommend_action(
             action_priority=priority,
             why=[
                 "A contributing shipment is already at port or discharging.",
-                "Effective inbound protection is still weak.",
+                "Effective inbound recovery visibility is still weak.",
             ],
         )
 
@@ -103,19 +103,19 @@ def recommend_action(
             action_priority=priority,
             why=[
                 "The combination is already below the critical threshold.",
-                "Effective inbound protection is materially below the raw inbound pipeline.",
+                "Effective inbound recovery visibility is materially below the raw inbound pipeline.",
             ],
         )
 
     if inbound_protection_indicator != "strong":
         return ActionRecommendation(
             recommended_action_code="review_recovery_plan",
-            recommended_action_text="Review alternate recovery options and demand protection plan",
+            recommended_action_text="Review alternate recovery options and demand reduction plan",
             owner_role_recommended="buyer_user",
             action_deadline_hours=deadline,
             action_priority=priority,
             why=[
-                "Inbound protection is not strong enough to comfortably cover risk.",
+                "Inbound recovery visibility is not strong enough to comfortably cover risk.",
             ],
         )
 

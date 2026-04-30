@@ -49,10 +49,10 @@ export default async function StockCoverDetailPage({
             <CardTitle>Calculation breakdown</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3 text-sm">
-            <Breakdown label="Current stock" value={displayTonnes(calc.current_stock_mt)} />
-            <Breakdown label="Raw inbound pipeline" value={displayTonnes(calc.raw_inbound_pipeline_mt)} />
-            <Breakdown label="Effective inbound pipeline" value={displayTonnes(calc.effective_inbound_pipeline_mt)} />
-            <Breakdown label="Total considered" value={displayTonnes(calc.total_considered_mt)} />
+            <Breakdown label="Current / total stock" value={displayTonnes(calc.current_stock_mt)} />
+            <Breakdown label="Available usable stock" value={displayTonnes(calc.total_considered_mt)} />
+            <Breakdown label="Raw inbound pipeline (not usable yet)" value={displayTonnes(calc.raw_inbound_pipeline_mt)} />
+            <Breakdown label="Effective inbound visibility" value={displayTonnes(calc.effective_inbound_pipeline_mt)} />
             <Breakdown label="Daily consumption" value={displayTonnes(calc.daily_consumption_mt)} />
             <Breakdown label="Warning threshold" value={displayDays(calc.warning_days)} />
             <Breakdown label="Critical threshold" value={displayDays(calc.threshold_days)} />

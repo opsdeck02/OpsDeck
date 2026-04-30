@@ -1,14 +1,19 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from uuid import UUID
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.db.base import Base
-from app.models import ExternalDataSource, Tenant
-from app.modules.tenants.scheduler import is_source_due, process_due_data_sources_once
+from app.models import ExternalDataSource, MicrosoftConnection, MicrosoftDataSource, Tenant
+from app.modules.tenants.scheduler import (
+    is_microsoft_source_due,
+    is_source_due,
+    process_due_data_sources_once,
+)
 from app.modules.tenants.service import classify_data_freshness
 from app.modules.tenants.sync_service import compute_change_signals
 
@@ -118,3 +123,82 @@ def test_is_source_due() -> None:
     )
     assert is_source_due(source, datetime(2026, 4, 21, 11, 0, tzinfo=UTC)) is True
     assert is_source_due(source, datetime(2026, 4, 21, 10, 30, tzinfo=UTC)) is False
+
+
+def test_scheduler_triggers_due_microsoft_sync(monkeypatch) -> None:
+    engine = create_engine(
+        "sqlite+pysqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    testing_session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    Base.metadata.create_all(bind=engine)
+
+    with testing_session() as db:
+        tenant = Tenant(name="Tenant A", slug="tenant-a", plan_tier="paid")
+        db.add(tenant)
+        db.flush()
+        connection = MicrosoftConnection(
+            tenant_id=tenant.id,
+            microsoft_user_id="ms-user",
+            microsoft_tenant_id="ms-tenant",
+            display_name="Ops Lead",
+            email="ops@example.com",
+            access_token="encrypted-access",
+            refresh_token="encrypted-refresh",
+            token_expires_at=datetime.now(UTC) + timedelta(hours=1),
+            scope="Files.Read User.Read",
+            connected_at=datetime.now(UTC) - timedelta(days=1),
+            is_active=True,
+        )
+        db.add(connection)
+        db.flush()
+        db.add(
+            MicrosoftDataSource(
+                tenant_id=tenant.id,
+                microsoft_connection_id=connection.id,
+                drive_id="drive",
+                item_id="item",
+                file_type="stock",
+                sync_frequency_minutes=15,
+                last_successful_sync_at=datetime.now(UTC) - timedelta(minutes=30),
+                sync_status="success",
+                is_active=True,
+            )
+        )
+        db.commit()
+
+    called_ids: list[str] = []
+
+    def fake_sync(db, source):
+        called_ids.append(str(source.id))
+        source.sync_status = "success"
+        source.last_successful_sync_at = datetime.now(UTC)
+        db.commit()
+        return {}
+
+    from app.modules.tenants import scheduler
+
+    monkeypatch.setattr(scheduler, "SessionLocal", testing_session)
+    monkeypatch.setattr(scheduler, "sync_microsoft_data_source", fake_sync)
+
+    process_due_data_sources_once()
+
+    assert len(called_ids) == 1
+    Base.metadata.drop_all(bind=engine)
+
+
+def test_is_microsoft_source_due() -> None:
+    source = MicrosoftDataSource(
+        tenant_id=1,
+        microsoft_connection_id=UUID("00000000-0000-0000-0000-000000000001"),
+        drive_id="drive",
+        item_id="item",
+        file_type="stock",
+        sync_frequency_minutes=15,
+        is_active=True,
+        sync_status="success",
+        last_successful_sync_at=datetime(2026, 4, 21, 10, 0, tzinfo=UTC),
+    )
+    assert is_microsoft_source_due(source, datetime(2026, 4, 21, 10, 15, tzinfo=UTC)) is True
+    assert is_microsoft_source_due(source, datetime(2026, 4, 21, 10, 10, tzinfo=UTC)) is False

@@ -23,6 +23,7 @@ export interface LastSyncSummary {
   new_critical_risks_count: number;
   resolved_risks_count: number;
   newly_breached_actions_count: number;
+  source_type?: string | null;
 }
 
 export interface AutomatedDataFreshness {
@@ -49,6 +50,10 @@ export interface ExecutiveRiskItem {
   threshold_days: string | null;
   status: string;
   confidence: string;
+  current_stock_mt: string | null;
+  usable_stock_mt: string | null;
+  blocked_stock_mt: string | null;
+  next_inbound_eta: string | null;
   raw_inbound_pipeline_mt: string;
   effective_inbound_pipeline_mt: string;
   inbound_protection_indicator: string;
@@ -198,6 +203,69 @@ export interface SupplierPayload {
   contact_name?: string | null;
   contact_email?: string | null;
   is_active?: boolean;
+}
+
+export interface MicrosoftConnection {
+  id: string;
+  tenant_id: number;
+  microsoft_user_id: string;
+  microsoft_tenant_id: string;
+  display_name: string;
+  email: string;
+  scope: string;
+  auth_error: string | null;
+  is_active: boolean;
+  connected_at: string;
+  last_token_refresh_at: string | null;
+}
+
+export interface MicrosoftDataSource {
+  id: string;
+  tenant_id: number;
+  microsoft_connection_id: string;
+  drive_id: string;
+  item_id: string;
+  site_id: string | null;
+  file_type: "shipment" | "stock" | "threshold";
+  sheet_name: string | null;
+  column_mapping: Record<string, string> | null;
+  sync_frequency_minutes: number;
+  last_successful_sync_at: string | null;
+  last_sync_attempted_at: string | null;
+  last_sync_error: string | null;
+  sync_status: "idle" | "syncing" | "success" | "error" | "auth_error";
+  is_active: boolean;
+  display_name: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MicrosoftFile {
+  item_id: string;
+  drive_id: string;
+  name: string;
+  size: number | null;
+  modified_at: string | null;
+  web_url: string | null;
+  is_sharepoint: boolean;
+}
+
+export interface MicrosoftSharePointSite {
+  site_id: string;
+  name: string;
+  display_name: string;
+}
+
+export interface MicrosoftDrive {
+  drive_id: string;
+  name: string;
+}
+
+export interface MicrosoftSyncResult {
+  rows_ingested: number;
+  file_type: string;
+  status: string;
+  detail: Record<string, unknown>;
 }
 
 export interface PilotReadinessCheck {

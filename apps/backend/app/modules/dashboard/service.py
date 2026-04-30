@@ -5,7 +5,7 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import AuditLog, ExternalDataSource, IngestionJob, UploadedFile
+from app.models import AuditLog, ExternalDataSource, IngestionJob, MicrosoftDataSource, UploadedFile
 from app.modules.exceptions.service import list_exceptions, serialize_exception
 from app.modules.shipments.confidence import assess_freshness, ensure_utc
 from app.modules.shipments.movement import list_inland_monitoring, list_port_monitoring
@@ -44,7 +44,7 @@ def build_executive_dashboard(
     port_items = list_port_monitoring(db, context)
     inland_items = list_inland_monitoring(db, context)
 
-    top_risks = build_top_risks(stock_summary.rows)
+    top_risks = build_top_risks(stock_summary.rows, shipment_items)
     critical_open = [
         executive_exception_item(item)
         for item in serialized_exceptions
@@ -119,7 +119,7 @@ def build_automated_data_freshness(
     db: Session,
     context: RequestContext,
 ) -> AutomatedDataFreshness | None:
-    sources = list(
+    external_sources = list(
         db.scalars(
             select(ExternalDataSource)
             .where(
@@ -128,15 +128,51 @@ def build_automated_data_freshness(
             )
         )
     )
+    microsoft_sources = list(
+        db.scalars(
+            select(MicrosoftDataSource).where(
+                MicrosoftDataSource.tenant_id == context.tenant_id,
+                MicrosoftDataSource.is_active.is_(True),
+            )
+        )
+    )
+    sources = [
+        {
+            "last_synced_at": source.last_synced_at,
+            "created_at": source.created_at,
+            "sync_status": source.last_sync_status,
+            "sync_frequency_minutes": source.sync_frequency_minutes,
+            "new_critical_risks_count": source.new_critical_risks_count,
+            "resolved_risks_count": source.resolved_risks_count,
+            "newly_breached_actions_count": source.newly_breached_actions_count,
+            "source_type": "external_url",
+            "source_key": f"external:{source.dataset_type}:{source.source_name}",
+        }
+        for source in external_sources
+    ] + [
+        {
+            "last_synced_at": source.last_successful_sync_at,
+            "created_at": source.created_at,
+            "sync_status": source.sync_status,
+            "sync_frequency_minutes": source.sync_frequency_minutes,
+            "new_critical_risks_count": 0,
+            "resolved_risks_count": 0,
+            "newly_breached_actions_count": 0,
+            "source_type": "microsoft_graph",
+            "source_key": f"microsoft:{source.file_type}:{source.display_name or source.item_id}",
+        }
+        for source in microsoft_sources
+    ]
+    sources = latest_sources_by_key(sources)
     if not sources:
         return None
 
     latest_source = max(
         sources,
-        key=lambda source: source.last_synced_at or source.created_at,
+        key=lambda source: source["last_synced_at"] or source["created_at"],
     )
     freshness_states = [
-        classify_data_freshness(source.last_synced_at, source.sync_frequency_minutes)
+        classify_data_freshness(source["last_synced_at"], source["sync_frequency_minutes"])
         for source in sources
     ]
     status_priority = {"fresh": 0, "aging": 1, "stale": 2}
@@ -146,15 +182,28 @@ def build_automated_data_freshness(
     )
     return AutomatedDataFreshness(
         last_sync_summary=LastSyncSummary(
-            last_synced_at=latest_source.last_synced_at,
-            last_sync_status=latest_source.last_sync_status,
-            new_critical_risks_count=latest_source.new_critical_risks_count,
-            resolved_risks_count=latest_source.resolved_risks_count,
-            newly_breached_actions_count=latest_source.newly_breached_actions_count,
+            last_synced_at=latest_source["last_synced_at"],
+            last_sync_status=latest_source["sync_status"],
+            new_critical_risks_count=latest_source["new_critical_risks_count"],
+            resolved_risks_count=latest_source["resolved_risks_count"],
+            newly_breached_actions_count=latest_source["newly_breached_actions_count"],
+            source_type=latest_source["source_type"],
         ),
         data_freshness_status=worst_status,
         data_freshness_age_minutes=worst_age,
     )
+
+
+def latest_sources_by_key(sources: list[dict]) -> list[dict]:
+    latest: dict[str, dict] = {}
+    for source in sources:
+        key = source["source_key"]
+        existing = latest.get(key)
+        source_time = source["last_synced_at"] or source["created_at"]
+        existing_time = (existing["last_synced_at"] or existing["created_at"]) if existing else None
+        if existing is None or source_time > existing_time:
+            latest[key] = source
+    return list(latest.values())
 
 
 def build_pilot_readiness(
@@ -262,7 +311,7 @@ def build_pilot_readiness(
     )
 
 
-def build_top_risks(rows: list) -> list[ExecutiveRiskItem]:
+def build_top_risks(rows: list, shipments: list) -> list[ExecutiveRiskItem]:
     filtered = [
         row
         for row in rows
@@ -288,6 +337,13 @@ def build_top_risks(rows: list) -> list[ExecutiveRiskItem]:
             threshold_days=row.calculation.threshold_days,
             status=row.calculation.status,
             confidence=row.calculation.confidence_level,
+            current_stock_mt=row.calculation.current_stock_mt,
+            usable_stock_mt=row.calculation.total_considered_mt,
+            blocked_stock_mt=blocked_stock_for(
+                row.calculation.current_stock_mt,
+                row.calculation.total_considered_mt,
+            ),
+            next_inbound_eta=next_inbound_eta_for(row, shipments),
             raw_inbound_pipeline_mt=row.calculation.raw_inbound_pipeline_mt,
             effective_inbound_pipeline_mt=row.calculation.effective_inbound_pipeline_mt,
             inbound_protection_indicator=protection_indicator(
@@ -311,6 +367,25 @@ def build_top_risks(rows: list) -> list[ExecutiveRiskItem]:
         )
         for row in filtered[:10]
     ]
+
+
+def blocked_stock_for(current_stock: Decimal | None, usable_stock: Decimal | None) -> Decimal | None:
+    if current_stock is None or usable_stock is None:
+        return None
+    return max(current_stock - usable_stock, Decimal("0"))
+
+
+def next_inbound_eta_for(row, shipments: list):
+    active_states = {"planned", "on_water", "at_port", "discharging", "in_transit", "delayed"}
+    etas = [
+        shipment.current_eta
+        for shipment in shipments
+        if shipment.plant_id == row.plant_id
+        and shipment.material_id == row.material_id
+        and shipment.shipment_state in active_states
+        and shipment.current_eta is not None
+    ]
+    return min(etas) if etas else None
 
 
 def sum_critical_value_at_risk(rows: list) -> Decimal:

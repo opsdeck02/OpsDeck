@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { getCurrentUser, getPilotReadiness } from "@/lib/api";
+import { getCurrentUser, getMicrosoftConnections, getMicrosoftDataSources, getPilotReadiness } from "@/lib/api";
 import { canAccessPilotAdmin } from "@/lib/roles";
 
 export const dynamic = "force-dynamic";
@@ -14,7 +14,11 @@ export default async function PilotAdminPage() {
     redirect("/dashboard");
   }
 
-  const readiness = await getPilotReadiness();
+  const [readiness, microsoftConnections, microsoftSources] = await Promise.all([
+    getPilotReadiness(),
+    getMicrosoftConnections(),
+    getMicrosoftDataSources(),
+  ]);
 
   return (
     <div className="grid gap-5">
@@ -41,6 +45,17 @@ export default async function PilotAdminPage() {
         <Kpi label="Open exceptions" value={readiness?.counts.open_exceptions ?? 0} />
         <Kpi label="Stale signals" value={readiness?.counts.stale_signals ?? 0} />
       </section>
+
+      <Card className="bg-card/90 shadow-panel">
+        <CardHeader>
+          <CardTitle>Microsoft connection status</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-3 text-sm md:grid-cols-3">
+          <StatusLine label="Connected accounts" value={microsoftConnections.length} ready={microsoftConnections.some((item) => item.is_active)} />
+          <StatusLine label="Active Graph sources" value={microsoftSources.filter((item) => item.is_active).length} ready={microsoftSources.some((item) => item.sync_status === "success")} />
+          <StatusLine label="Reconnect required" value={microsoftConnections.filter((item) => item.auth_error).length + microsoftSources.filter((item) => item.sync_status === "auth_error").length} ready={!microsoftConnections.some((item) => item.auth_error) && !microsoftSources.some((item) => item.sync_status === "auth_error")} />
+        </CardContent>
+      </Card>
 
       <Card className="bg-card/90 shadow-panel">
         <CardHeader>
@@ -105,6 +120,18 @@ function Kpi({ label, value }: { label: string; value: number }) {
         <p className="text-3xl font-semibold tracking-tight">{value}</p>
       </CardContent>
     </Card>
+  );
+}
+
+function StatusLine({ label, value, ready }: { label: string; value: number; ready: boolean }) {
+  return (
+    <div className="rounded-xl bg-muted px-4 py-3">
+      <div className="flex items-center justify-between gap-2">
+        <p className="font-medium">{label}</p>
+        <Badge variant={ready ? "default" : "outline"}>{ready ? "ready" : "attention"}</Badge>
+      </div>
+      <p className="mt-2 text-2xl font-semibold">{value}</p>
+    </div>
   );
 }
 

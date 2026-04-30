@@ -27,28 +27,34 @@ export default async function DashboardPage() {
   const canExportStock = canManageOperationalWorkflow(role);
   const canManageOperations = canManageOperationalWorkflow(role);
   const lineStopOptions = dedupeComboOptions(stockSummary?.rows ?? []);
+  const topRisks = executive?.top_risks ?? [];
+  const criticalRisks = kpis?.critical_risks ?? 0;
+  const shortestDaysToLineStop = shortestDays(topRisks);
+  const dataFreshnessLabel = executive?.automated_data_freshness?.data_freshness_status
+    ?? executive?.stock_freshness.freshness_label
+    ?? "unknown";
 
   return (
-    <main>
-      <div className="flex flex-col gap-8">
-        <section className="overflow-hidden rounded-3xl border bg-card/85 shadow-panel backdrop-blur">
-          <div className="flex flex-col gap-6 px-6 py-8 lg:flex-row lg:items-end lg:justify-between lg:px-10">
-            <div className="max-w-2xl space-y-4">
+    <main className="min-w-0">
+      <div className="flex min-w-0 flex-col gap-6">
+        <section className="overflow-hidden rounded-2xl border bg-card/85 shadow-panel backdrop-blur">
+          <div className="flex flex-col gap-5 px-6 py-6 lg:flex-row lg:items-center lg:justify-between lg:px-8">
+            <div className="max-w-3xl space-y-3">
               <Badge variant="outline">Inbound Control Tower</Badge>
               <div className="space-y-2">
-                <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
+                <h1 className="max-w-4xl text-2xl font-semibold tracking-tight sm:text-3xl">
                   Executive view of continuity risk, actions, and pilot readiness.
                 </h1>
-                <p className="text-sm text-mutedForeground sm:text-base">
+                <p className="text-sm text-mutedForeground">
                   Leadership snapshot of where risk exists, what is being done, and what needs attention next.
                 </p>
               </div>
             </div>
-            <div className="rounded-2xl bg-primary px-5 py-4 text-primaryForeground shadow-panel">
+            <div className="shrink-0 rounded-2xl bg-primary px-5 py-4 text-primaryForeground shadow-panel">
               <p className="text-xs uppercase tracking-[0.22em] text-primaryForeground/70">
                 Active tenant
               </p>
-              <p className="mt-2 text-2xl font-semibold">
+              <p className="mt-2 text-xl font-semibold">
                 {activeTenant}
               </p>
               <a
@@ -72,42 +78,68 @@ export default async function DashboardPage() {
           </Card>
         ) : null}
 
-        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        {criticalRisks > 0 ? (
+          <section className="rounded-2xl border border-red-300 bg-red-50 px-5 py-3 text-red-950 shadow-panel">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+              <div className="rounded-xl bg-red-600 p-2.5 text-white">
+                <AlertTriangle className="h-5 w-5" />
+              </div>
+              <div>
+                <h2 className="text-lg font-semibold">Plant continuity risk active</h2>
+                <p className="mt-1 text-sm text-red-900">
+                  {criticalRisks} critical materials may stop operations within threshold.
+                </p>
+              </div>
+            </div>
+          </section>
+        ) : null}
+
+        <section className="grid min-w-0 gap-4 md:grid-cols-2 xl:grid-cols-5">
           {[
-            { label: "Tracked combinations", value: String(kpis?.tracked_combinations ?? 0), trend: "plant/material scope" },
             { label: "Critical risks", value: String(kpis?.critical_risks ?? 0), trend: "immediate continuity threat" },
             { label: "Warning risks", value: String(kpis?.warning_risks ?? 0), trend: "requires active monitoring" },
-            { label: "Open exceptions", value: String(kpis?.open_exceptions ?? 0), trend: `${kpis?.unassigned_exceptions ?? 0} unassigned` },
             {
               label: "Critical value at risk",
               value: displayCurrency(kpis?.total_estimated_value_at_risk ?? "0"),
-              trend: "estimated impact across critical items",
+              trend: "impact across critical items",
+            },
+            {
+              label: "Shortest days to line stop",
+              value: displayDays(shortestDaysToLineStop),
+              trend: "based only on available stock",
+            },
+            {
+              label: "Data freshness",
+              value: dataFreshnessLabel,
+              trend: executive?.automated_data_freshness
+                ? `age ${executive.automated_data_freshness.data_freshness_age_minutes ?? "unknown"} min`
+                : "stock snapshot status",
             },
           ].map((metric, index) => {
             const Icon = icons[index % icons.length];
             return (
-              <Card key={metric.label} className="bg-card/90 shadow-panel">
-                <CardHeader className="flex flex-row items-start justify-between space-y-0">
-                  <div>
-                    <CardTitle className="text-sm font-medium text-mutedForeground">
+              <Card key={metric.label} className="relative min-w-0 overflow-hidden rounded-2xl bg-card/90 shadow-panel">
+                <CardHeader className="min-w-0 space-y-3 px-4 pb-2 pt-4">
+                  <div className="absolute right-4 top-4 rounded-xl bg-muted p-2.5 text-primary">
+                    <Icon className="h-4 w-4" />
+                  </div>
+                  <div className="min-w-0 pr-12">
+                    <CardTitle className="text-sm font-medium leading-snug text-mutedForeground">
                       {metric.label}
                     </CardTitle>
-                    <p className="mt-3 text-3xl font-semibold tracking-tight">{metric.value}</p>
-                  </div>
-                  <div className="rounded-xl bg-muted p-3 text-primary">
-                    <Icon className="h-5 w-5" />
+                    <p className="mt-2 break-words text-2xl font-semibold leading-tight tracking-tight">{metric.value}</p>
                   </div>
                 </CardHeader>
-                <CardContent>
-                  <p className="text-sm text-mutedForeground">{metric.trend}</p>
+                <CardContent className="px-4 pb-4">
+                  <p className="break-words text-sm leading-snug text-mutedForeground">{metric.trend}</p>
                 </CardContent>
               </Card>
             );
           })}
         </section>
 
-        <section className="grid gap-5 lg:grid-cols-[1.2fr_0.8fr]">
-          <Card className="bg-card/90 shadow-panel">
+        <section className="grid min-w-0 gap-5 lg:grid-cols-[minmax(0,1.2fr)_minmax(280px,0.8fr)]">
+          <Card className="min-w-0 bg-card/90 shadow-panel">
             <CardHeader>
               <div className="flex items-center justify-between gap-3">
                 <CardTitle>Top at-risk combinations</CardTitle>
@@ -121,74 +153,75 @@ export default async function DashboardPage() {
                 ) : null}
               </div>
               <p className="text-sm text-mutedForeground">
-                Highest-priority plant/material continuity risks using refined effective inbound protection.
+                Highest-priority plant/material continuity risks using available stock only.
               </p>
+              <div className="mt-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+                Blocked or in-transit inventory is not counted as usable cover until available.
+              </div>
             </CardHeader>
             <CardContent>
-              <div className="overflow-hidden rounded-2xl border">
-                <table className="w-full text-left text-sm">
-                  <thead className="bg-muted text-mutedForeground">
-                    <tr>
-                      <th className="px-4 py-3 font-medium">Plant</th>
-                      <th className="px-4 py-3 font-medium">Material</th>
-                      <th className="px-4 py-3 font-medium">Cover</th>
-                      <th className="px-4 py-3 font-medium">Days of cover</th>
-                      <th className="px-4 py-3 font-medium">Threshold</th>
-                      <th className="px-4 py-3 font-medium">Status</th>
-                      <th className="px-4 py-3 font-medium">Impact</th>
-                      <th className="px-4 py-3 font-medium">Confidence</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(executive?.top_risks ?? []).map((row) => (
-                      <tr key={`${row.plant_id}-${row.material_id}`} className="border-t bg-card">
-                        <td className="px-4 py-3 font-medium">
-                          <Link
-                            href={`/dashboard/stock-cover/${row.plant_id}/${row.material_id}`}
-                            className="text-primary hover:underline"
-                          >
-                            {row.plant_name}
-                          </Link>
-                        </td>
-                        <td className="px-4 py-3">{row.material_name}</td>
-                        <td className="px-4 py-3">
-                          {displayTonnes(row.effective_inbound_pipeline_mt)} / {displayTonnes(row.raw_inbound_pipeline_mt)}
-                        </td>
-                        <td className="px-4 py-3">{displayDays(row.days_of_cover)}</td>
-                        <td className="px-4 py-3">
-                          {displayDays(row.threshold_days)}
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="space-y-2">
-                            <StatusBadge status={row.status} />
-                            <Badge variant="outline">{formatUrgency(row.urgency_band)}</Badge>
-                          </div>
-                        </td>
-                        <td className="px-4 py-3 text-mutedForeground">
-                          <p className="font-medium text-foreground">
-                            {displayCurrency(row.estimated_value_at_risk)}
-                          </p>
-                          <p>{displayTonnes(row.estimated_production_exposure_mt)} exposed</p>
-                          <p className="text-xs text-mutedForeground/80">
-                            {formatAssumptionLine(row.value_per_mt_used, row.criticality_multiplier_used)}
-                          </p>
-                        </td>
-                        <td className="px-4 py-3">
-                          <Badge variant="outline">{row.confidence}</Badge>
-                        </td>
-                      </tr>
-                    ))}
-                    {(executive?.top_risks ?? []).length === 0 ? (
-                      <tr>
-                        <td className="px-4 py-8 text-center text-mutedForeground" colSpan={8}>
-                          {stockSummary && stockSummary.total_combinations > 0
-                            ? `${stockSummary.total_combinations} plant/material combinations loaded. All are currently safe, so no warning or critical risks are flagged.`
-                            : "No warning or critical combinations are currently flagged."}
-                        </td>
-                      </tr>
-                    ) : null}
-                  </tbody>
-                </table>
+              <div className="space-y-3">
+                {topRisks.map((row) => (
+                  <div
+                    key={`${row.plant_id}-${row.material_id}`}
+                    className="min-w-0 rounded-2xl border bg-card p-4"
+                  >
+                    <div className="flex min-w-0 flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+                      <div className="min-w-0">
+                        <Link
+                          href={`/dashboard/stock-cover/${row.plant_id}/${row.material_id}`}
+                          className="break-words text-base font-semibold text-primary hover:underline"
+                        >
+                          {row.material_name}
+                        </Link>
+                        <p className="mt-1 break-words text-sm text-mutedForeground">{row.plant_name}</p>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <StatusBadge status={row.status} />
+                        <Badge variant="outline">{rootCauseFor(row)}</Badge>
+                      </div>
+                    </div>
+                    <div className="mt-4 grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                      <RiskMetric
+                        label="Available stock"
+                        value={displayTonnes(row.usable_stock_mt)}
+                        helper="usable now"
+                        prominent
+                      />
+                      <RiskMetric label="Blocked stock" value={displayTonnes(row.blocked_stock_mt)} />
+                      <RiskMetric
+                        label="In-transit"
+                        value={displayTonnes(row.raw_inbound_pipeline_mt)}
+                        helper={`next ${formatDate(row.next_inbound_eta)}`}
+                      />
+                      <RiskMetric
+                        label="Line stop"
+                        value={displayDays(row.days_of_cover)}
+                        helper={`threshold ${displayDays(row.threshold_days)}`}
+                      />
+                    </div>
+                    <div className="mt-4 grid min-w-0 gap-3 border-t pt-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,0.85fr)]">
+                      <DecisionField label="Why" value={rootCauseFor(row)} />
+                      <DecisionField label="Action" value={actionFor(row)} />
+                      <div className="min-w-0">
+                        <p className="text-xs uppercase tracking-[0.18em] text-mutedForeground">Value at risk</p>
+                        <p className="mt-1 font-semibold text-foreground">
+                          {displayCurrency(row.estimated_value_at_risk)}
+                        </p>
+                        <p className="mt-1 break-words text-xs text-mutedForeground">
+                          {displayTonnes(row.estimated_production_exposure_mt)} exposed · {formatAssumptionLine(row.value_per_mt_used, row.criticality_multiplier_used)}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                {topRisks.length === 0 ? (
+                  <div className="rounded-2xl border bg-card px-4 py-8 text-center text-sm text-mutedForeground">
+                    {stockSummary && stockSummary.total_combinations > 0
+                      ? `${stockSummary.total_combinations} plant/material combinations loaded. All are currently safe, so no warning or critical risks are flagged.`
+                      : "No warning or critical combinations are currently flagged."}
+                  </div>
+                ) : null}
               </div>
               {(executive?.top_risks ?? []).length === 0 && (stockSummary?.rows.length ?? 0) > 0 ? (
                 <div className="mt-4 rounded-2xl border bg-muted/40 p-4 text-sm">
@@ -355,6 +388,37 @@ function SupplierPerformanceCard({
   );
 }
 
+function RiskMetric({
+  label,
+  value,
+  helper,
+  prominent = false,
+}: {
+  label: string;
+  value: string;
+  helper?: string;
+  prominent?: boolean;
+}) {
+  return (
+    <div className="min-w-0 rounded-xl bg-muted px-3 py-3">
+      <p className="text-xs uppercase tracking-[0.16em] text-mutedForeground">{label}</p>
+      <p className={`mt-1 break-words font-semibold ${prominent ? "text-lg text-foreground" : "text-foreground"}`}>
+        {value}
+      </p>
+      {helper ? <p className="mt-1 break-words text-xs text-mutedForeground">{helper}</p> : null}
+    </div>
+  );
+}
+
+function DecisionField({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0">
+      <p className="text-xs uppercase tracking-[0.18em] text-mutedForeground">{label}</p>
+      <p className="mt-1 break-words font-medium text-foreground">{value}</p>
+    </div>
+  );
+}
+
 function SupplierMasterSummaryCard({
   summary,
 }: {
@@ -455,13 +519,14 @@ function AutomatedFreshnessCard({
   summary,
 }: {
   summary: {
-    last_sync_summary: {
-      last_synced_at: string | null;
-      last_sync_status: string | null;
-      new_critical_risks_count: number;
-      resolved_risks_count: number;
-      newly_breached_actions_count: number;
-    };
+      last_sync_summary: {
+        last_synced_at: string | null;
+        last_sync_status: string | null;
+        new_critical_risks_count: number;
+        resolved_risks_count: number;
+        newly_breached_actions_count: number;
+        source_type?: string | null;
+      };
     data_freshness_status: string;
     data_freshness_age_minutes: number | null;
   } | null;
@@ -491,11 +556,17 @@ function AutomatedFreshnessCard({
                 Age: {summary.data_freshness_age_minutes !== null ? `${summary.data_freshness_age_minutes} min` : "Not synced yet"}
               </p>
             </div>
-            <div className="rounded-xl bg-muted px-4 py-3 text-mutedForeground">
-              <p>+{summary.last_sync_summary.new_critical_risks_count} new critical risks</p>
-              <p>-{summary.last_sync_summary.resolved_risks_count} risks resolved</p>
-              <p>{summary.last_sync_summary.newly_breached_actions_count} actions now breached</p>
-            </div>
+            {summary.last_sync_summary.source_type === "microsoft_graph" ? (
+              <div className="rounded-xl bg-muted px-4 py-3 text-mutedForeground">
+                Microsoft Graph sync recalculates stock risk and value at risk live. Delta counters are shown for legacy URL sync sources only.
+              </div>
+            ) : (
+              <div className="rounded-xl bg-muted px-4 py-3 text-mutedForeground">
+                <p>+{summary.last_sync_summary.new_critical_risks_count} new critical risks</p>
+                <p>-{summary.last_sync_summary.resolved_risks_count} risks resolved</p>
+                <p>{summary.last_sync_summary.newly_breached_actions_count} actions now breached</p>
+              </div>
+            )}
           </>
         )}
       </CardContent>
@@ -616,13 +687,89 @@ function MovementCard({ title, items }: { title: string; items: Array<{ shipment
 function StatusBadge({ status }: { status: string }) {
   const className =
     status === "critical"
-      ? "border-accent bg-muted text-primary"
+      ? "border-red-300 bg-red-50 text-red-700"
       : status === "warning"
-        ? "border-accent bg-muted text-primary"
+        ? "border-amber-300 bg-amber-50 text-amber-700"
         : status === "insufficient_data"
           ? "border bg-card text-mutedForeground"
-          : "border-accent bg-muted text-accent";
-  return <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${className}`}>{status.replace("_", " ")}</span>;
+          : "border-green-300 bg-green-50 text-green-700";
+  const label = status === "safe" ? "healthy" : status.replace("_", " ");
+  return <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${className}`}>{label}</span>;
+}
+
+function shortestDays(
+  rows: Array<{ days_of_cover: string | null; status: string }>,
+) {
+  const days = rows
+    .filter((row) => row.status === "critical" || row.status === "warning")
+    .map((row) => parseNumeric(row.days_of_cover))
+    .filter((value): value is number => value !== null);
+  if (days.length === 0) {
+    return null;
+  }
+  return String(Math.min(...days));
+}
+
+function rootCauseFor(row: {
+  usable_stock_mt: string | null;
+  blocked_stock_mt: string | null;
+  raw_inbound_pipeline_mt: string;
+  days_of_cover: string | null;
+  threshold_days: string | null;
+  next_inbound_eta: string | null;
+}) {
+  const available = parseNumeric(row.usable_stock_mt) ?? 0;
+  const blocked = parseNumeric(row.blocked_stock_mt) ?? 0;
+  const days = parseNumeric(row.days_of_cover);
+  const threshold = parseNumeric(row.threshold_days);
+  const nextEta = row.next_inbound_eta ? new Date(row.next_inbound_eta) : null;
+  const lineStopDate = days !== null ? new Date(Date.now() + days * 24 * 60 * 60 * 1000) : null;
+
+  if (available <= 0) {
+    return "No usable stock";
+  }
+  if (blocked > available) {
+    return "Blocked inventory";
+  }
+  if (nextEta && lineStopDate && nextEta > lineStopDate) {
+    return "Inbound too late";
+  }
+  if (threshold !== null && days !== null && days <= threshold) {
+    return "Below critical cover";
+  }
+  return "Monitor cover";
+}
+
+function actionFor(row: {
+  usable_stock_mt: string | null;
+  blocked_stock_mt: string | null;
+  raw_inbound_pipeline_mt: string;
+  days_of_cover: string | null;
+  threshold_days: string | null;
+  next_inbound_eta: string | null;
+}) {
+  const cause = rootCauseFor(row);
+  if (cause === "Blocked inventory") {
+    return "Release blocked stock";
+  }
+  if (cause === "Inbound too late") {
+    return "Expedite inbound shipment";
+  }
+  if (cause === "Below critical cover") {
+    return "Expedite inbound shipment";
+  }
+  if (cause === "No usable stock") {
+    const blocked = parseNumeric(row.blocked_stock_mt) ?? 0;
+    const inbound = parseNumeric(row.raw_inbound_pipeline_mt) ?? 0;
+    if (blocked > 0) {
+      return "Release blocked stock";
+    }
+    if (inbound > 0) {
+      return "Expedite inbound shipment";
+    }
+    return "Activate alternate supplier";
+  }
+  return "Substitute material if allowed";
 }
 
 function displayTonnes(value: string | null) {
@@ -630,6 +777,14 @@ function displayTonnes(value: string | null) {
     return "—";
   }
   return `${Number(value).toLocaleString()} MT`;
+}
+
+function parseNumeric(value: string | null) {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
 }
 
 function displayCurrency(value: string | null) {
@@ -674,6 +829,7 @@ function formatDate(value: string | null) {
   return new Intl.DateTimeFormat("en", {
     dateStyle: "medium",
     timeStyle: "short",
+    timeZone: "Asia/Kolkata",
   }).format(new Date(value));
 }
 
