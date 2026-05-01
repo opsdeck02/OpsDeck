@@ -13,5 +13,8 @@ COPY packages/contracts ./packages/contracts
 
 WORKDIR /app/apps/frontend
 
+RUN npm run build
+
 EXPOSE 3000
 
+CMD npm run start -- -p ${PORT:-3000}
