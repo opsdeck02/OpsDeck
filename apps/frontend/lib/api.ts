@@ -22,6 +22,7 @@ import type {
   TenantCreatePayload,
   TenantCreateResponse,
   TenantDetail,
+  TenantPlanSummary,
   TenantSummary,
   TenantUser,
 } from "@steelops/contracts";
@@ -45,6 +46,10 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
 
 export async function getPilotReadiness(): Promise<PilotReadinessResponse | null> {
   return getAuthenticatedJson<PilotReadinessResponse>("/api/v1/dashboard/pilot-readiness");
+}
+
+export async function getTenantPlan(): Promise<TenantPlanSummary | null> {
+  return getAuthenticatedJson<TenantPlanSummary>("/api/v1/tenants/plan");
 }
 
 export async function getShipments(params?: {

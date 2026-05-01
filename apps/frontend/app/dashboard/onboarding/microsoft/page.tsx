@@ -4,7 +4,7 @@ import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 
 import { MicrosoftFilePicker } from "@/app/dashboard/onboarding/components/MicrosoftFilePicker";
-import type { MappingPreview, MicrosoftConnection, MicrosoftFile } from "@steelops/contracts";
+import type { MappingPreview, MicrosoftConnection, MicrosoftFile, TenantPlanSummary } from "@steelops/contracts";
 
 const fileTypes = [
   { value: "shipment", label: "Shipment" },
@@ -42,6 +42,7 @@ const fieldLabels: Record<string, string> = {
 };
 
 export default function MicrosoftOnboardingPage() {
+  const [automatedSourcesEnabled, setAutomatedSourcesEnabled] = useState<boolean | null>(null);
   const [connections, setConnections] = useState<MicrosoftConnection[]>([]);
   const [selectedConnectionId, setSelectedConnectionId] = useState("");
   const [selectedFile, setSelectedFile] = useState<MicrosoftFile | null>(null);
@@ -58,8 +59,24 @@ export default function MicrosoftOnboardingPage() {
   const [isPending, startTransition] = useTransition();
 
   useEffect(() => {
-    void loadConnections();
+    void loadTenantPlan();
   }, []);
+
+  useEffect(() => {
+    if (automatedSourcesEnabled) {
+      void loadConnections();
+    }
+  }, [automatedSourcesEnabled]);
+
+  async function loadTenantPlan() {
+    const response = await fetch("/api/tenant-plan", { cache: "no-store" });
+    if (!response.ok) {
+      setAutomatedSourcesEnabled(false);
+      return;
+    }
+    const body = (await response.json()) as TenantPlanSummary;
+    setAutomatedSourcesEnabled(body.capabilities.automated_data_sources);
+  }
 
   async function loadConnections() {
     const response = await fetch("/api/microsoft/connections", { cache: "no-store" });
@@ -174,6 +191,39 @@ export default function MicrosoftOnboardingPage() {
   }
 
   const selectedConnection = connections.find((item) => item.id === selectedConnectionId);
+
+  if (automatedSourcesEnabled === null) {
+    return (
+      <div className="grid gap-5">
+        <div>
+          <p className="text-sm uppercase tracking-[0.18em] text-mutedForeground">Data source</p>
+          <h1 className="text-2xl font-semibold">Checking plan access</h1>
+        </div>
+        <section className="rounded-md border bg-card p-5">
+          <p className="text-sm text-mutedForeground">Loading onboarding options...</p>
+        </section>
+      </div>
+    );
+  }
+
+  if (automatedSourcesEnabled === false) {
+    return (
+      <div className="grid gap-5">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-sm uppercase tracking-[0.18em] text-mutedForeground">Pilot onboarding</p>
+            <h1 className="text-2xl font-semibold">Manual upload only</h1>
+          </div>
+          <Link className="rounded-md border px-3 py-2 text-sm" href="/dashboard/onboarding">Back</Link>
+        </div>
+        <section className="rounded-md border bg-card p-5">
+          <p className="text-sm text-mutedForeground">
+            Microsoft 365 auto-sync is included in paid and enterprise plans. Pilot tenants can upload CSV or XLSX files manually from the onboarding page.
+          </p>
+        </section>
+      </div>
+    );
+  }
 
   return (
     <div className="grid gap-5">

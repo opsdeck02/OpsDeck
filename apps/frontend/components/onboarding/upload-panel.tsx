@@ -43,7 +43,11 @@ const fieldLabels: Record<string, string> = {
   warning_days: "Warning days",
 };
 
-export function UploadPanel() {
+export function UploadPanel({
+  automatedSourcesEnabled = true,
+}: {
+  automatedSourcesEnabled?: boolean;
+}) {
   const [fileType, setFileType] = useState("shipment");
   const [uploadMode, setUploadMode] = useState<"file" | "url">("file");
   const [file, setFile] = useState<File | null>(null);
@@ -72,17 +76,29 @@ export function UploadPanel() {
 
   useEffect(() => {
     void loadHistory();
-    void loadDataSources();
-  }, []);
+    if (automatedSourcesEnabled) {
+      void loadDataSources();
+    } else {
+      setDataSources([]);
+    }
+  }, [automatedSourcesEnabled]);
+
+  useEffect(() => {
+    if (!automatedSourcesEnabled && uploadMode === "url") {
+      setUploadMode("file");
+      setMappingPreview(null);
+      setMappingOverrides({});
+    }
+  }, [automatedSourcesEnabled, uploadMode]);
 
   useEffect(() => {
     if (uploadMode === "file" && file) {
       void previewMapping(fileType, file);
     }
-    if (uploadMode === "url" && sourceUrl.trim()) {
+    if (automatedSourcesEnabled && uploadMode === "url" && sourceUrl.trim()) {
       void previewUrlMapping();
     }
-  }, [fileType, uploadMode]);
+  }, [automatedSourcesEnabled, fileType, uploadMode]);
 
   async function loadHistory() {
     const response = await fetch("/api/ingestion/history", { cache: "no-store" });
@@ -95,6 +111,10 @@ export function UploadPanel() {
   }
 
   async function loadDataSources() {
+    if (!automatedSourcesEnabled) {
+      setDataSources([]);
+      return;
+    }
     const response = await fetch("/api/tenant-data-sources", { cache: "no-store" });
     if (!response.ok) {
       setDataSources([]);
@@ -190,7 +210,7 @@ export function UploadPanel() {
 
   function uploadFile(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (uploadMode === "url") {
+    if (uploadMode === "url" && automatedSourcesEnabled) {
       uploadUrl();
       return;
     }
@@ -226,6 +246,10 @@ export function UploadPanel() {
   }
 
   function uploadUrl() {
+    if (!automatedSourcesEnabled) {
+      setError("URL ingestion is included in paid and enterprise plans.");
+      return;
+    }
     if (!sourceUrl.trim()) {
       setError("Paste a Google Sheets or Excel/OneDrive URL first.");
       return;
@@ -295,6 +319,10 @@ export function UploadPanel() {
   }
 
   function saveDataSource() {
+    if (!automatedSourcesEnabled) {
+      setError("Automated URL sources are included in paid and enterprise plans.");
+      return;
+    }
     let mappingConfig: Record<string, unknown> = {};
     if (dataSourceForm.mapping_config_text.trim()) {
       try {
@@ -334,6 +362,10 @@ export function UploadPanel() {
   }
 
   function runSyncNow(sourceId: number) {
+    if (!automatedSourcesEnabled) {
+      setError("Automated URL sync is included in paid and enterprise plans.");
+      return;
+    }
     setError(null);
     startTransition(async () => {
       const response = await fetch(`/api/tenant-data-sources/${sourceId}`, { method: "POST" });
@@ -385,72 +417,81 @@ export function UploadPanel() {
               />
             </label>
           ) : null}
-          <div className="rounded-2xl border bg-muted/40 p-4">
-            <p className="font-medium">Upload mode</p>
-            <p className="mt-1 text-sm text-mutedForeground">
-              Choose one path: manual file upload or direct URL upload.
-            </p>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setUploadMode("file");
-                  setMappingPreview(null);
-                  setMappingOverrides({});
-                }}
-                className={`rounded-2xl border px-4 py-2 text-xs font-semibold ${uploadMode === "file" ? "bg-primary text-primaryForeground" : ""}`}
-              >
-                Manual file
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setUploadMode("url");
-                  setMappingPreview(null);
-                  setMappingOverrides({});
-                }}
-                className={`rounded-2xl border px-4 py-2 text-xs font-semibold ${uploadMode === "url" ? "bg-primary text-primaryForeground" : ""}`}
-              >
-                URL upload
-              </button>
-            </div>
-            {uploadMode === "url" ? (
-              <div className="mt-3 grid gap-3">
-                <select
-                  value={sourceType}
-                  onChange={(event) => setSourceType(event.target.value as "google_sheets" | "excel_online")}
-                  className="rounded-2xl border bg-card px-4 py-3 text-sm"
+          {automatedSourcesEnabled ? (
+            <div className="rounded-2xl border bg-muted/40 p-4">
+              <p className="font-medium">Upload mode</p>
+              <p className="mt-1 text-sm text-mutedForeground">
+                Choose one path: manual file upload or direct URL upload.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUploadMode("file");
+                    setMappingPreview(null);
+                    setMappingOverrides({});
+                  }}
+                  className={`rounded-2xl border px-4 py-2 text-xs font-semibold ${uploadMode === "file" ? "bg-primary text-primaryForeground" : ""}`}
                 >
-                  <option value="excel_online">Excel / OneDrive direct link</option>
-                  <option value="google_sheets">Google Sheets public link</option>
-                </select>
-                <div className="grid gap-3 md:grid-cols-[1fr_auto]">
-                  <input
-                    value={sourceUrl}
-                    onChange={(event) => setSourceUrl(event.target.value)}
-                    placeholder="Paste OneDrive, Google Drive, SharePoint, CSV, or XLSX URL"
-                    className="rounded-2xl border bg-card px-4 py-3 text-sm"
-                  />
-                  <button
-                    type="button"
-                    onClick={previewUrlMapping}
-                    disabled={isPending}
-                    className="rounded-2xl border px-4 py-3 text-sm font-medium disabled:opacity-60"
-                  >
-                    Preview mapping
-                  </button>
-                </div>
-                <div className="flex flex-wrap items-center gap-2 text-xs text-mutedForeground">
-                  <span className="rounded-full border bg-card px-3 py-1 font-medium text-primary">
-                    {uploadUrlDetection.label}
-                  </span>
-                  <span>
-                    Paste any OneDrive, Google Drive, or SharePoint share link. Ensure &apos;Anyone with the link can view&apos; is enabled.
-                  </span>
-                </div>
+                  Manual file
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUploadMode("url");
+                    setMappingPreview(null);
+                    setMappingOverrides({});
+                  }}
+                  className={`rounded-2xl border px-4 py-2 text-xs font-semibold ${uploadMode === "url" ? "bg-primary text-primaryForeground" : ""}`}
+                >
+                  URL upload
+                </button>
               </div>
-            ) : null}
-          </div>
+              {uploadMode === "url" ? (
+                <div className="mt-3 grid gap-3">
+                  <select
+                    value={sourceType}
+                    onChange={(event) => setSourceType(event.target.value as "google_sheets" | "excel_online")}
+                    className="rounded-2xl border bg-card px-4 py-3 text-sm"
+                  >
+                    <option value="excel_online">Excel / OneDrive direct link</option>
+                    <option value="google_sheets">Google Sheets public link</option>
+                  </select>
+                  <div className="grid gap-3 md:grid-cols-[1fr_auto]">
+                    <input
+                      value={sourceUrl}
+                      onChange={(event) => setSourceUrl(event.target.value)}
+                      placeholder="Paste OneDrive, Google Drive, SharePoint, CSV, or XLSX URL"
+                      className="rounded-2xl border bg-card px-4 py-3 text-sm"
+                    />
+                    <button
+                      type="button"
+                      onClick={previewUrlMapping}
+                      disabled={isPending}
+                      className="rounded-2xl border px-4 py-3 text-sm font-medium disabled:opacity-60"
+                    >
+                      Preview mapping
+                    </button>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-mutedForeground">
+                    <span className="rounded-full border bg-card px-3 py-1 font-medium text-primary">
+                      {uploadUrlDetection.label}
+                    </span>
+                    <span>
+                      Paste any OneDrive, Google Drive, or SharePoint share link. Ensure &apos;Anyone with the link can view&apos; is enabled.
+                    </span>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          ) : (
+            <div className="rounded-2xl border bg-muted/40 p-4">
+              <p className="font-medium">Manual onboarding</p>
+              <p className="mt-1 text-sm text-mutedForeground">
+                Pilot tenants can upload CSV or XLSX files manually. URL ingestion and Microsoft 365 auto-sync are included in paid and enterprise plans.
+              </p>
+            </div>
+          )}
           <div className="rounded-2xl border p-4">
             <p className="font-medium">Column mapping review</p>
             <p className="mt-1 text-sm text-mutedForeground">
@@ -523,129 +564,131 @@ export function UploadPanel() {
               )}
             </div>
           </div>
-          <div className="rounded-2xl border p-4">
-            <p className="font-medium">URL source for automated ingestion</p>
-            <p className="mt-1 text-sm text-mutedForeground">
-              Save a Google Sheets or Excel Online URL here if you want the same dataset to sync without manual file uploads.
-            </p>
-            <div className="mt-3 grid gap-3">
-              <div className="grid gap-3 md:grid-cols-2">
-                <select
-                  value={dataSourceForm.source_type}
-                  onChange={(event) =>
-                    setDataSourceForm((current) => ({
-                      ...current,
-                      source_type: event.target.value as "google_sheets" | "excel_online",
-                    }))
-                  }
-                  className="rounded-2xl border bg-card px-4 py-3 text-sm"
-                >
-                  <option value="google_sheets">Google Sheets</option>
-                  <option value="excel_online">Excel Online</option>
-                </select>
-                <select
-                  value={dataSourceForm.dataset_type}
-                  onChange={(event) =>
-                    setDataSourceForm((current) => ({
-                      ...current,
-                      dataset_type: event.target.value as "shipments" | "stock" | "thresholds",
-                    }))
-                  }
-                  className="rounded-2xl border bg-card px-4 py-3 text-sm"
-                >
-                  <option value="shipments">Shipments</option>
-                  <option value="stock">Stock</option>
-                  <option value="thresholds">Thresholds</option>
-                </select>
-              </div>
-              <input
-                value={dataSourceForm.source_name}
-                onChange={(event) => setDataSourceForm((current) => ({ ...current, source_name: event.target.value }))}
-                placeholder="Source name"
-                className="rounded-2xl border bg-card px-4 py-3 text-sm"
-              />
-              <input
-                value={dataSourceForm.source_url}
-                onChange={(event) => setDataSourceForm((current) => ({ ...current, source_url: event.target.value }))}
-                placeholder="OneDrive, Google Drive, SharePoint, CSV, or XLSX URL"
-                className="rounded-2xl border bg-card px-4 py-3 text-sm"
-              />
-              <div className="flex flex-wrap items-center gap-2 text-xs text-mutedForeground">
-                <span className="rounded-full border bg-card px-3 py-1 font-medium text-primary">
-                  {dataSourceUrlDetection.label}
-                </span>
-                <span>
-                  Paste any OneDrive, Google Drive, or SharePoint share link. Ensure &apos;Anyone with the link can view&apos; is enabled.
-                </span>
-              </div>
-              <textarea
-                value={dataSourceForm.mapping_config_text}
-                onChange={(event) =>
-                  setDataSourceForm((current) => ({ ...current, mapping_config_text: event.target.value }))
-                }
-                placeholder={'Optional source config JSON\n{"sheet_gid":"0"}'}
-                className="min-h-24 rounded-2xl border bg-card px-4 py-3 text-sm"
-              />
-              <div className="grid gap-3 md:grid-cols-[1fr_auto]">
-                <input
-                  value={dataSourceForm.sync_frequency_minutes}
-                  onChange={(event) =>
-                    setDataSourceForm((current) => ({ ...current, sync_frequency_minutes: event.target.value }))
-                  }
-                  className="rounded-2xl border bg-card px-4 py-3 text-sm"
-                  placeholder="Sync frequency minutes"
-                />
-                <button
-                  type="button"
-                  onClick={saveDataSource}
-                  disabled={isPending}
-                  className="rounded-2xl border px-4 py-3 text-sm font-medium disabled:opacity-60"
-                >
-                  {editingSourceId ? "Update URL source" : "Save URL source"}
-                </button>
-              </div>
-            </div>
-            <div className="mt-3 space-y-3">
-              {dataSources.map((source) => (
-                <div key={source.id} className="rounded-2xl border bg-card p-3 text-sm">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="font-medium">{source.source_name}</p>
-                      <p className="text-mutedForeground">{source.source_type} for {source.dataset_type}</p>
-                    </div>
-                    <span className="rounded-full bg-muted px-3 py-1 text-xs">{source.last_sync_status ?? "not_started"}</span>
-                  </div>
-                  <p className="mt-2 break-all text-mutedForeground">{source.source_url}</p>
-                  <div className="mt-3 flex flex-wrap gap-3">
-                    <button
-                      type="button"
-                      onClick={() => runSyncNow(source.id)}
-                      className="rounded-2xl bg-primary px-4 py-2 text-xs font-semibold text-primaryForeground"
-                    >
-                      Run sync now
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => populateDataSourceForm(source)}
-                      className="rounded-2xl border px-4 py-2 text-xs font-semibold"
-                    >
-                      Edit
-                    </button>
-                  </div>
+          {automatedSourcesEnabled ? (
+            <div className="rounded-2xl border p-4">
+              <p className="font-medium">URL source for automated ingestion</p>
+              <p className="mt-1 text-sm text-mutedForeground">
+                Save a Google Sheets or Excel Online URL here if you want the same dataset to sync without manual file uploads.
+              </p>
+              <div className="mt-3 grid gap-3">
+                <div className="grid gap-3 md:grid-cols-2">
+                  <select
+                    value={dataSourceForm.source_type}
+                    onChange={(event) =>
+                      setDataSourceForm((current) => ({
+                        ...current,
+                        source_type: event.target.value as "google_sheets" | "excel_online",
+                      }))
+                    }
+                    className="rounded-2xl border bg-card px-4 py-3 text-sm"
+                  >
+                    <option value="google_sheets">Google Sheets</option>
+                    <option value="excel_online">Excel Online</option>
+                  </select>
+                  <select
+                    value={dataSourceForm.dataset_type}
+                    onChange={(event) =>
+                      setDataSourceForm((current) => ({
+                        ...current,
+                        dataset_type: event.target.value as "shipments" | "stock" | "thresholds",
+                      }))
+                    }
+                    className="rounded-2xl border bg-card px-4 py-3 text-sm"
+                  >
+                    <option value="shipments">Shipments</option>
+                    <option value="stock">Stock</option>
+                    <option value="thresholds">Thresholds</option>
+                  </select>
                 </div>
-              ))}
-              {dataSources.length === 0 ? (
-                <p className="text-sm text-mutedForeground">No URL sources saved yet.</p>
-              ) : null}
+                <input
+                  value={dataSourceForm.source_name}
+                  onChange={(event) => setDataSourceForm((current) => ({ ...current, source_name: event.target.value }))}
+                  placeholder="Source name"
+                  className="rounded-2xl border bg-card px-4 py-3 text-sm"
+                />
+                <input
+                  value={dataSourceForm.source_url}
+                  onChange={(event) => setDataSourceForm((current) => ({ ...current, source_url: event.target.value }))}
+                  placeholder="OneDrive, Google Drive, SharePoint, CSV, or XLSX URL"
+                  className="rounded-2xl border bg-card px-4 py-3 text-sm"
+                />
+                <div className="flex flex-wrap items-center gap-2 text-xs text-mutedForeground">
+                  <span className="rounded-full border bg-card px-3 py-1 font-medium text-primary">
+                    {dataSourceUrlDetection.label}
+                  </span>
+                  <span>
+                    Paste any OneDrive, Google Drive, or SharePoint share link. Ensure &apos;Anyone with the link can view&apos; is enabled.
+                  </span>
+                </div>
+                <textarea
+                  value={dataSourceForm.mapping_config_text}
+                  onChange={(event) =>
+                    setDataSourceForm((current) => ({ ...current, mapping_config_text: event.target.value }))
+                  }
+                  placeholder={'Optional source config JSON\n{"sheet_gid":"0"}'}
+                  className="min-h-24 rounded-2xl border bg-card px-4 py-3 text-sm"
+                />
+                <div className="grid gap-3 md:grid-cols-[1fr_auto]">
+                  <input
+                    value={dataSourceForm.sync_frequency_minutes}
+                    onChange={(event) =>
+                      setDataSourceForm((current) => ({ ...current, sync_frequency_minutes: event.target.value }))
+                    }
+                    className="rounded-2xl border bg-card px-4 py-3 text-sm"
+                    placeholder="Sync frequency minutes"
+                  />
+                  <button
+                    type="button"
+                    onClick={saveDataSource}
+                    disabled={isPending}
+                    className="rounded-2xl border px-4 py-3 text-sm font-medium disabled:opacity-60"
+                  >
+                    {editingSourceId ? "Update URL source" : "Save URL source"}
+                  </button>
+                </div>
+              </div>
+              <div className="mt-3 space-y-3">
+                {dataSources.map((source) => (
+                  <div key={source.id} className="rounded-2xl border bg-card p-3 text-sm">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="font-medium">{source.source_name}</p>
+                        <p className="text-mutedForeground">{source.source_type} for {source.dataset_type}</p>
+                      </div>
+                      <span className="rounded-full bg-muted px-3 py-1 text-xs">{source.last_sync_status ?? "not_started"}</span>
+                    </div>
+                    <p className="mt-2 break-all text-mutedForeground">{source.source_url}</p>
+                    <div className="mt-3 flex flex-wrap gap-3">
+                      <button
+                        type="button"
+                        onClick={() => runSyncNow(source.id)}
+                        className="rounded-2xl bg-primary px-4 py-2 text-xs font-semibold text-primaryForeground"
+                      >
+                        Run sync now
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => populateDataSourceForm(source)}
+                        className="rounded-2xl border px-4 py-2 text-xs font-semibold"
+                      >
+                        Edit
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                {dataSources.length === 0 ? (
+                  <p className="text-sm text-mutedForeground">No URL sources saved yet.</p>
+                ) : null}
+              </div>
             </div>
-          </div>
+          ) : null}
           <div className="flex flex-wrap gap-3">
             <button
               type="submit"
               disabled={isPending}
               className="rounded-2xl bg-primary px-5 py-3 text-sm font-semibold text-primaryForeground disabled:opacity-60"
             >
-              {isPending ? "Uploading..." : uploadMode === "url" ? "Upload URL" : "Upload file"}
+              {isPending ? "Uploading..." : automatedSourcesEnabled && uploadMode === "url" ? "Upload URL" : "Upload file"}
             </button>
             {fileTypes.map((type) => (
               <a
