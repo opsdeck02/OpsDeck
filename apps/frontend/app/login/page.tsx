@@ -12,12 +12,7 @@ export default function LoginPage() {
           <Badge variant="outline">OpsDeck MVP</Badge>
           <div className="space-y-2">
             <CardTitle className="text-3xl tracking-tight">Sign in to the control tower</CardTitle>
-            <p className="text-sm text-mutedForeground">
-              Tenant demo accounts use{" "}
-              <span className="font-semibold text-foreground">Password123!</span>. The seeded
-              superadmin uses{" "}
-              <span className="font-semibold text-foreground">SuperAdmin123!</span>.
-            </p>
+            <p className="text-sm text-mutedForeground">Use the credentials provided by your OpsDeck administrator.</p>
           </div>
         </CardHeader>
         <CardContent>

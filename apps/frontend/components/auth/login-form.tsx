@@ -4,19 +4,9 @@ import { useState, useTransition } from "react";
 
 import { login } from "@/lib/client-api";
 
-const demoUsers = [
-  "admin@demo.opsdeck.local",
-  "superadmin@opsdeck.local",
-  "buyer@demo.opsdeck.local",
-  "logistics@demo.opsdeck.local",
-  "planner@demo.opsdeck.local",
-  "management@demo.opsdeck.local",
-  "sponsor@demo.opsdeck.local",
-];
-
 export function LoginForm() {
-  const [email, setEmail] = useState(demoUsers[0]);
-  const [password, setPassword] = useState("Password123!");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
@@ -58,12 +48,9 @@ export function LoginForm() {
           type="password"
           value={password}
           onChange={(event) => setPassword(event.target.value)}
+          placeholder="Enter your password"
           className="w-full rounded-2xl border bg-card px-4 py-3 text-sm outline-none transition focus:border-primary"
         />
-        <p className="text-xs text-muted-foreground">
-          Demo tenant users use <code>Password123!</code>. Superadmin uses{" "}
-          <code>SuperAdmin123!</code>.
-        </p>
       </div>
       {error ? <p className="rounded-xl bg-muted px-4 py-3 text-sm text-primary">{error}</p> : null}
       <button
