@@ -209,7 +209,7 @@ export async function getTenantDetails(tenantId: number): Promise<TenantDetail |
 
 export async function createTenant(payload: TenantCreatePayload): Promise<TenantCreateResponse | null> {
   const cookieStore = cookies();
-  const token = cookieStore.get("steelops_token")?.value;
+  const token = cookieStore.get("__Host-opsdeck-session")?.value;
   if (!token) return null;
 
   try {
@@ -231,7 +231,7 @@ export async function createTenant(payload: TenantCreatePayload): Promise<Tenant
 
 export async function activateTenant(tenantId: number): Promise<{ id: number; name: string; slug: string; is_active: boolean } | null> {
   const cookieStore = cookies();
-  const token = cookieStore.get("steelops_token")?.value;
+  const token = cookieStore.get("__Host-opsdeck-session")?.value;
   if (!token) return null;
 
   try {
@@ -251,7 +251,7 @@ export async function activateTenant(tenantId: number): Promise<{ id: number; na
 
 export async function deactivateTenant(tenantId: number): Promise<{ id: number; name: string; slug: string; is_active: boolean } | null> {
   const cookieStore = cookies();
-  const token = cookieStore.get("steelops_token")?.value;
+  const token = cookieStore.get("__Host-opsdeck-session")?.value;
   if (!token) return null;
 
   try {
@@ -271,7 +271,7 @@ export async function deactivateTenant(tenantId: number): Promise<{ id: number; 
 
 export async function deleteTenant(tenantId: number): Promise<boolean> {
   const cookieStore = cookies();
-  const token = cookieStore.get("steelops_token")?.value;
+  const token = cookieStore.get("__Host-opsdeck-session")?.value;
   if (!token) return false;
 
   try {
@@ -290,7 +290,7 @@ export async function deleteTenant(tenantId: number): Promise<boolean> {
 
 async function getAuthenticatedJson<T>(path: string): Promise<T | null> {
   const cookieStore = cookies();
-  const token = cookieStore.get("steelops_token")?.value;
+  const token = cookieStore.get("__Host-opsdeck-session")?.value;
   const tenantSlug = cookieStore.get("steelops_tenant")?.value;
 
   if (!token) {

@@ -7,7 +7,7 @@ export async function POST(
   _request: NextRequest,
   { params }: { params: { supplierId: string } },
 ) {
-  const token = cookies().get("steelops_token")?.value;
+  const token = cookies().get("__Host-opsdeck-session")?.value;
   const tenantSlug = cookies().get("steelops_tenant")?.value;
   if (!token) {
     return NextResponse.json({ detail: "Not authenticated" }, { status: 401 });

@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 const baseUrl = process.env.INTERNAL_API_BASE_URL ?? "http://localhost:8000";
 
 export async function GET() {
-  const token = cookies().get("steelops_token")?.value;
+  const token = cookies().get("__Host-opsdeck-session")?.value;
   const tenantSlug = cookies().get("steelops_tenant")?.value;
   if (!token) {
     return NextResponse.json({ detail: "Not authenticated" }, { status: 401 });

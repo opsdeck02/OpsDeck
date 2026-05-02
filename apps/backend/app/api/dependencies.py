@@ -93,8 +93,10 @@ def get_request_context(
         selected_membership = memberships[0]
 
     if selected_membership is None:
+        # Cross-tenant probes must not reveal whether the tenant exists.
+        not_found_status = status.HTTP_404_NOT_FOUND if x_tenant_slug else status.HTTP_403_FORBIDDEN
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
+            status_code=not_found_status,
             detail="No active membership for requested tenant",
         )
 

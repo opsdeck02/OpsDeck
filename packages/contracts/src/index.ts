@@ -360,6 +360,7 @@ export interface CurrentUser {
 
 export interface LoginResponse {
   access_token: string;
+  refresh_token?: string | null;
   token_type: "bearer";
   user: CurrentUser;
 }

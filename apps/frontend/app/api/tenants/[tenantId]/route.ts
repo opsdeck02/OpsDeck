@@ -7,7 +7,7 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: { tenantId: string } },
 ) {
-  const token = cookies().get("steelops_token")?.value;
+  const token = cookies().get("__Host-opsdeck-session")?.value;
 
   if (!token) {
     return NextResponse.json({ detail: "Not authenticated" }, { status: 401 });
@@ -30,7 +30,7 @@ export async function DELETE(
   _request: Request,
   { params }: { params: { tenantId: string } },
 ) {
-  const token = cookies().get("steelops_token")?.value;
+  const token = cookies().get("__Host-opsdeck-session")?.value;
 
   if (!token) {
     return NextResponse.json({ detail: "Not authenticated" }, { status: 401 });

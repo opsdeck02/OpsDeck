@@ -16,7 +16,7 @@ export async function POST(request: NextRequest) {
 }
 
 async function proxy(path: string, init?: RequestInit) {
-  const token = cookies().get("steelops_token")?.value;
+  const token = cookies().get("__Host-opsdeck-session")?.value;
   const tenantSlug = cookies().get("steelops_tenant")?.value;
   if (!token) {
     return NextResponse.json({ detail: "Not authenticated" }, { status: 401 });

@@ -7,7 +7,7 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: { plantId: string; materialId: string } },
 ) {
-  const token = cookies().get("steelops_token")?.value;
+  const token = cookies().get("__Host-opsdeck-session")?.value;
   const tenantSlug = cookies().get("steelops_tenant")?.value;
 
   if (!token) {

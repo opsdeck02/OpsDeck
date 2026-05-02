@@ -26,26 +26,36 @@ export async function POST(request: NextRequest) {
 
     const body = (await apiResponse.json()) as LoginResponse;
     const activeMembership = body.user.memberships[0];
-    const response = NextResponse.json(body);
-
-    response.cookies.set("steelops_token", body.access_token, {
-      httpOnly: true,
-      sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
-      path: "/",
-      maxAge: 60 * 60 * 8,
+    const response = NextResponse.json({
+      ...body,
+      // Keep the response shape stable, but never expose raw JWTs to browser JS.
+      access_token: "",
+      refresh_token: null,
     });
-    if (activeMembership) {
-      response.cookies.set("steelops_tenant", activeMembership.tenant_slug, {
+
+    response.cookies.set("__Host-opsdeck-session", body.access_token, {
+      httpOnly: true,
+      sameSite: "strict",
+      secure: true,
+      path: "/",
+      maxAge: 15 * 60,
+    });
+    if (body.refresh_token) {
+      response.cookies.set("__Host-opsdeck-refresh", body.refresh_token, {
         httpOnly: true,
-        sameSite: "lax",
-        secure: process.env.NODE_ENV === "production",
+        sameSite: "strict",
+        secure: true,
         path: "/",
-        maxAge: 60 * 60 * 8,
+        maxAge: 7 * 24 * 60 * 60,
       });
-    } else {
-      response.cookies.delete("steelops_tenant");
     }
+    response.cookies.set("steelops_tenant", activeMembership?.tenant_slug ?? "", {
+      httpOnly: true,
+      sameSite: "strict",
+      secure: true,
+      path: "/",
+      maxAge: activeMembership ? 7 * 24 * 60 * 60 : 0,
+    });
 
     return response;
   } catch {

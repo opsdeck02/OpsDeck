@@ -20,7 +20,7 @@ export async function DELETE(request: NextRequest, context: { params: { path: st
 }
 
 async function proxy(request: NextRequest, path: string[]) {
-  const token = cookies().get("steelops_token")?.value;
+  const token = cookies().get("__Host-opsdeck-session")?.value;
   const tenantSlug = cookies().get("steelops_tenant")?.value;
   if (!token) {
     return NextResponse.json({ detail: "Not authenticated" }, { status: 401 });

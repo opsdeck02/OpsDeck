@@ -19,6 +19,6 @@ class TenantUserOut(BaseModel):
 class TenantUserCreateRequest(BaseModel):
     email: str
     full_name: str
-    password: str = Field(min_length=8)
+    password: str = Field(min_length=10)
     role: str
     tenant_id: int | None = None

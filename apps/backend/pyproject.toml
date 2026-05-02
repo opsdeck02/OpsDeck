@@ -9,6 +9,7 @@ description = "SteelOps inbound control tower backend"
 requires-python = ">=3.11"
 dependencies = [
   "alembic>=1.13,<2.0",
+  "bcrypt>=4.1,<5.0",
   "celery[redis]>=5.4,<6.0",
   "cryptography>=42.0,<46.0",
   "fastapi>=0.115,<1.0",

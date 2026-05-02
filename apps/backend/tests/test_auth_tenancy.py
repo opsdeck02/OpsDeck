@@ -202,7 +202,7 @@ def test_user_cannot_access_tenant_without_membership(client: TestClient) -> Non
         headers={"Authorization": f"Bearer {token}", "X-Tenant-Slug": "tenant-b"},
     )
 
-    assert response.status_code == 403
+    assert response.status_code == 404
 
 
 def test_role_guard_allows_logistics_and_blocks_sponsor(client: TestClient) -> None:
@@ -241,4 +241,4 @@ def test_expired_tenant_is_auto_deactivated_and_blocked_from_access(client: Test
         "/api/v1/shipments",
         headers={"Authorization": f"Bearer {token}", "X-Tenant-Slug": "tenant-a"},
     )
-    assert shipments_response.status_code == 403
+    assert shipments_response.status_code == 404
