@@ -15,6 +15,7 @@ export default async function MovementsPage({
     shipment_id?: string;
     confidence?: string;
     delayed_only?: string;
+    view?: string;
   };
 }) {
   const filters = {
@@ -30,6 +31,48 @@ export default async function MovementsPage({
     getInlandMonitoring(filters),
     searchParams?.shipment_id ? getMovementDetail(searchParams.shipment_id) : Promise.resolve(null),
   ]);
+  const activeView = searchParams?.view === "port" || searchParams?.view === "inland" ? searchParams.view : null;
+  const portViewHref = buildMovementHref(searchParams, "port");
+  const inlandViewHref = buildMovementHref(searchParams, "inland");
+  const combinedViewHref = buildMovementHref(searchParams, null);
+  const portTable = (
+    <MonitoringTable
+      headers={["Shipment", "Plant", "Material", "Port status", "Waiting", "Freshness", "Confidence"]}
+      rows={portRows.map((row) => [
+        <Link key={`${row.shipment_id}-link`} href={`/dashboard/shipments/${row.shipment_id}`} className="text-primary hover:underline">
+          {row.shipment_id}
+        </Link>,
+        row.plant_name,
+        row.material_name,
+        stateBadge(row.port_status, row.likely_port_delay),
+        `${Number(row.waiting_time_days).toFixed(2)} d`,
+        freshnessBadge(row.freshness.freshness_label),
+        <Badge key={`${row.shipment_id}-confidence`} variant="outline">
+          {row.confidence}
+        </Badge>,
+      ])}
+      empty="No port-monitoring records matched the current filters."
+    />
+  );
+  const inlandTable = (
+    <MonitoringTable
+      headers={["Shipment", "Plant", "Material", "Dispatch status", "Expected arrival", "Freshness", "Confidence"]}
+      rows={inlandRows.map((row) => [
+        <Link key={`${row.shipment_id}-link`} href={`/dashboard/shipments/${row.shipment_id}`} className="text-primary hover:underline">
+          {row.shipment_id}
+        </Link>,
+        row.plant_name,
+        row.material_name,
+        stateBadge(row.dispatch_status, row.inland_delay_flag),
+        formatDate(row.expected_arrival),
+        freshnessBadge(row.freshness.freshness_label),
+        <Badge key={`${row.shipment_id}-confidence`} variant="outline">
+          {row.confidence}
+        </Badge>,
+      ])}
+      empty="No inland-monitoring records matched the current filters."
+    />
+  );
 
   return (
     <div className="grid gap-5">
@@ -155,57 +198,52 @@ export default async function MovementsPage({
         </Card>
       ) : null}
 
-      <div className="grid gap-5 xl:grid-cols-2">
+      {activeView ? (
         <Card className="bg-card/90 shadow-panel">
-          <CardHeader>
-            <CardTitle>Port view</CardTitle>
+          <CardHeader className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <CardTitle>{activeView === "port" ? "Port view" : "Inland view"}</CardTitle>
+              <p className="mt-1 text-sm text-mutedForeground">
+                Full-page monitoring table. Scroll sideways if all columns do not fit on screen.
+              </p>
+            </div>
+            <Link className="rounded-2xl border px-4 py-2 text-sm font-medium" href={combinedViewHref}>
+              Back to combined view
+            </Link>
           </CardHeader>
-          <CardContent>
-            <MonitoringTable
-              headers={["Shipment", "Plant", "Material", "Port status", "Waiting", "Freshness", "Confidence"]}
-              rows={portRows.map((row) => [
-                <Link key={`${row.shipment_id}-link`} href={`/dashboard/shipments/${row.shipment_id}`} className="text-primary hover:underline">
-                  {row.shipment_id}
-                </Link>,
-                row.plant_name,
-                row.material_name,
-                stateBadge(row.port_status, row.likely_port_delay),
-                `${Number(row.waiting_time_days).toFixed(2)} d`,
-                freshnessBadge(row.freshness.freshness_label),
-                <Badge key={`${row.shipment_id}-confidence`} variant="outline">
-                  {row.confidence}
-                </Badge>,
-              ])}
-              empty="No port-monitoring records matched the current filters."
-            />
-          </CardContent>
+          <CardContent>{activeView === "port" ? portTable : inlandTable}</CardContent>
         </Card>
+      ) : (
+        <div className="grid gap-5 xl:grid-cols-2">
+          <Card className="bg-card/90 shadow-panel">
+            <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <CardTitle>
+                <Link href={portViewHref} className="hover:text-primary hover:underline">
+                  Port view
+                </Link>
+              </CardTitle>
+              <Link className="rounded-2xl border px-3 py-2 text-xs font-semibold" href={portViewHref}>
+                Open full page
+              </Link>
+            </CardHeader>
+            <CardContent>{portTable}</CardContent>
+          </Card>
 
-        <Card className="bg-card/90 shadow-panel">
-          <CardHeader>
-            <CardTitle>Inland view</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <MonitoringTable
-              headers={["Shipment", "Plant", "Material", "Dispatch status", "Expected arrival", "Freshness", "Confidence"]}
-              rows={inlandRows.map((row) => [
-                <Link key={`${row.shipment_id}-link`} href={`/dashboard/shipments/${row.shipment_id}`} className="text-primary hover:underline">
-                  {row.shipment_id}
-                </Link>,
-                row.plant_name,
-                row.material_name,
-                stateBadge(row.dispatch_status, row.inland_delay_flag),
-                formatDate(row.expected_arrival),
-                freshnessBadge(row.freshness.freshness_label),
-                <Badge key={`${row.shipment_id}-confidence`} variant="outline">
-                  {row.confidence}
-                </Badge>,
-              ])}
-              empty="No inland-monitoring records matched the current filters."
-            />
-          </CardContent>
-        </Card>
-      </div>
+          <Card className="bg-card/90 shadow-panel">
+            <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <CardTitle>
+                <Link href={inlandViewHref} className="hover:text-primary hover:underline">
+                  Inland view
+                </Link>
+              </CardTitle>
+              <Link className="rounded-2xl border px-3 py-2 text-xs font-semibold" href={inlandViewHref}>
+                Open full page
+              </Link>
+            </CardHeader>
+            <CardContent>{inlandTable}</CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }
@@ -252,12 +290,12 @@ function MonitoringTable({
   empty: string;
 }) {
   return (
-    <div className="overflow-hidden rounded-2xl border">
-      <table className="w-full text-left text-sm">
+    <div className="overflow-x-auto rounded-2xl border">
+      <table className="min-w-[960px] w-full text-left text-sm">
         <thead className="bg-muted text-mutedForeground">
           <tr>
             {headers.map((header) => (
-              <th key={header} className="px-4 py-3 font-medium">
+              <th key={header} className="whitespace-nowrap px-4 py-3 font-medium">
                 {header}
               </th>
             ))}
@@ -267,7 +305,7 @@ function MonitoringTable({
           {rows.map((row, rowIndex) => (
             <tr key={rowIndex} className="border-t bg-card">
               {row.map((cell, cellIndex) => (
-                <td key={cellIndex} className="px-4 py-3">
+                <td key={cellIndex} className="whitespace-nowrap px-4 py-3">
                   {cell}
                 </td>
               ))}
@@ -309,6 +347,30 @@ function freshnessBadge(label: string) {
       {label}
     </span>
   );
+}
+
+function buildMovementHref(
+  searchParams: {
+    plant_id?: string;
+    material_id?: string;
+    shipment_id?: string;
+    confidence?: string;
+    delayed_only?: string;
+    view?: string;
+  } | undefined,
+  view: "port" | "inland" | null,
+) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(searchParams ?? {})) {
+    if (key !== "view" && value) {
+      params.set(key, value);
+    }
+  }
+  if (view) {
+    params.set("view", view);
+  }
+  const query = params.toString();
+  return query ? `/dashboard/movements?${query}` : "/dashboard/movements";
 }
 
 function formatDate(value?: string | null) {
