@@ -83,11 +83,6 @@ const navItems: Array<{ href: string; label: string; roles: RoleName[] }> = [
     label: "Users",
     roles: ["tenant_admin"],
   },
-  {
-    href: "/dashboard/rules",
-    label: "Rules",
-    roles: ["tenant_admin", "planner_user"],
-  },
 ];
 
 const superadminNavItems = [
