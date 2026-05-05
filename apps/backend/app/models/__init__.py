@@ -20,10 +20,12 @@ from app.models.shipment import Shipment, ShipmentUpdate
 from app.models.supplier import Supplier
 from app.models.tenant import Tenant
 from app.models.threshold import PlantMaterialThreshold
+from app.models.tracking import Container, ShipmentContainer, TrackingEvent, TrackingSource
 from app.models.user import User
 
 __all__ = [
     "AuditLog",
+    "Container",
     "ExternalDataSource",
     "ExceptionCase",
     "ExceptionComment",
@@ -39,11 +41,14 @@ __all__ = [
     "PortEvent",
     "Role",
     "Shipment",
+    "ShipmentContainer",
     "ShipmentUpdate",
     "StockSnapshot",
     "Supplier",
     "Tenant",
     "TenantMembership",
+    "TrackingEvent",
+    "TrackingSource",
     "UploadedFile",
     "User",
 ]

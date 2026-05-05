@@ -379,6 +379,12 @@ export interface Shipment {
   destination_port: string | null;
   planned_eta: string;
   current_eta: string;
+  latest_eta: string | null;
+  delay_days: number | null;
+  delay_status: string;
+  current_milestone: string | null;
+  current_location: string | null;
+  last_tracking_update_at: string | null;
   shipment_state: string;
   confidence: string;
   latest_status_source: string;
@@ -420,6 +426,66 @@ export interface IngestionJob {
   rows_accepted: number;
   rows_rejected: number;
   error_message: string | null;
+}
+
+export interface CarrierOption {
+  code: string;
+  name: string;
+}
+
+export interface CarrierDetection {
+  owner_prefix: string;
+  carrier_code: string | null;
+  carrier_name: string | null;
+  confidence: string;
+  requires_manual_selection: boolean;
+  options: CarrierOption[];
+}
+
+export interface TrackingEvent {
+  event_type: string;
+  event_datetime: string;
+  location_name: string | null;
+  location_code: string | null;
+  transport_mode: "ocean" | "rail" | "truck" | "barge" | "port";
+  vessel_name: string | null;
+  voyage_no: string | null;
+  source: string;
+  raw_payload: Record<string, unknown>;
+}
+
+export interface ContainerSearchResponse {
+  container_no: string;
+  carrier_detection: CarrierDetection;
+  tracking_source: string;
+  events: TrackingEvent[];
+  latest_event: TrackingEvent | null;
+  latest_eta: string | null;
+}
+
+export interface ShipmentOption {
+  id: number;
+  shipment_id: string;
+  plant_name: string;
+  material_name: string;
+  planned_eta: string;
+  current_eta: string;
+}
+
+export interface LinkedShipmentStatus {
+  shipment_id: number;
+  shipment_ref: string;
+  container_no: string;
+  carrier_code: string;
+  tracking_source: string;
+  planned_eta: string | null;
+  latest_eta: string | null;
+  delay_days: number | null;
+  delay_status: string;
+  current_milestone: string | null;
+  current_location: string | null;
+  last_tracking_update_at: string | null;
+  linked_at: string;
 }
 
 export interface HeaderMappingSuggestion {

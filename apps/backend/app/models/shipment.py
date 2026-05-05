@@ -3,7 +3,7 @@ from decimal import Decimal
 
 import uuid
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Index, Numeric, String, UniqueConstraint, Uuid
+from sqlalchemy import DateTime, Enum, ForeignKey, Index, Integer, Numeric, String, UniqueConstraint, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -39,6 +39,12 @@ class Shipment(TenantScopedMixin, TimestampMixin, Base):
     destination_port: Mapped[str | None] = mapped_column(String(255))
     planned_eta: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     current_eta: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    latest_eta: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    delay_days: Mapped[int | None] = mapped_column(Integer)
+    delay_status: Mapped[str] = mapped_column(String(20), nullable=False, default="unknown")
+    current_milestone: Mapped[str | None] = mapped_column(String(80))
+    current_location: Mapped[str | None] = mapped_column(String(255))
+    last_tracking_update_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     eta_confidence: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
     current_state: Mapped[ShipmentState] = mapped_column(
         Enum(

@@ -18,6 +18,12 @@ class ShipmentListItem(BaseModel):
     destination_port: str | None
     planned_eta: datetime
     current_eta: datetime
+    latest_eta: datetime | None = None
+    delay_days: int | None = None
+    delay_status: str = "unknown"
+    current_milestone: str | None = None
+    current_location: str | None = None
+    last_tracking_update_at: datetime | None = None
     shipment_state: str
     confidence: str
     latest_status_source: str

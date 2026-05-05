@@ -45,6 +45,18 @@ const navItems: Array<{ href: string; label: string; roles: RoleName[] }> = [
     ],
   },
   {
+    href: "/dashboard/port-inland",
+    label: "Port & Inland",
+    roles: [
+      "tenant_admin",
+      "buyer_user",
+      "logistics_user",
+      "planner_user",
+      "management_user",
+      "sponsor_user",
+    ],
+  },
+  {
     href: "/dashboard/suppliers",
     label: "Suppliers",
     roles: [

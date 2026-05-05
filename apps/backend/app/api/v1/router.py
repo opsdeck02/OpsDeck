@@ -12,12 +12,14 @@ from app.modules.shipments.router import router as shipments_router
 from app.modules.stock.router import router as stock_router
 from app.modules.suppliers.router import router as suppliers_router
 from app.modules.tenants.router import router as tenants_router
+from app.modules.tracking.router import router as tracking_router
 from app.modules.users.router import router as users_router
 
 api_router = APIRouter()
 api_router.include_router(health_router)
 api_router.include_router(auth_router)
 api_router.include_router(tenants_router)
+api_router.include_router(tracking_router)
 api_router.include_router(users_router)
 api_router.include_router(ingestion_router)
 api_router.include_router(line_stops_router)
