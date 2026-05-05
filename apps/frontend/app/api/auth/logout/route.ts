@@ -1,9 +1,18 @@
 import { NextResponse } from "next/server";
 
+const expiredCookieOptions = {
+  httpOnly: true,
+  sameSite: "strict" as const,
+  secure: true,
+  path: "/",
+  maxAge: 0,
+  expires: new Date(0),
+};
+
 export async function POST() {
   const response = NextResponse.json({ ok: true });
-  response.cookies.delete("__Host-opsdeck-session");
-  response.cookies.delete("__Host-opsdeck-refresh");
-  response.cookies.delete("steelops_tenant");
+  response.cookies.set("__Host-opsdeck-session", "", expiredCookieOptions);
+  response.cookies.set("__Host-opsdeck-refresh", "", expiredCookieOptions);
+  response.cookies.set("steelops_tenant", "", expiredCookieOptions);
   return response;
 }
