@@ -1,18 +1,36 @@
 """add container tracking
 
-Revision ID: 0011_container_tracking
-Revises: 0010_microsoft_integration
+Revision ID: 0011
+Revises: 0010
 Create Date: 2026-05-05 00:00:00.000000
 """
 
-from alembic import op
 import sqlalchemy as sa
 
+from alembic import op
 
-revision = "0011_container_tracking"
-down_revision = "0010_microsoft_integration"
+revision = "0011"
+down_revision = "0010"
 branch_labels = None
 depends_on = None
+
+
+def timestamps() -> list[sa.Column]:
+    return [
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            onupdate=sa.func.now(),
+            nullable=False,
+        ),
+    ]
 
 
 def upgrade() -> None:
@@ -35,10 +53,9 @@ def upgrade() -> None:
         sa.Column("code", sa.String(length=40), nullable=False),
         sa.Column("name", sa.String(length=120), nullable=False),
         sa.Column("provider_type", sa.String(length=40), nullable=False),
-        sa.Column("is_active", sa.Boolean(), nullable=False),
+        sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.true()),
         sa.Column("tenant_id", sa.Integer(), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        *timestamps(),
         sa.ForeignKeyConstraint(["tenant_id"], ["tenants.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("tenant_id", "code", name="uq_tracking_sources_tenant_code"),
@@ -51,8 +68,7 @@ def upgrade() -> None:
         sa.Column("tracking_source", sa.String(length=40), nullable=True),
         sa.Column("detection_confidence", sa.String(length=20), nullable=False),
         sa.Column("tenant_id", sa.Integer(), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        *timestamps(),
         sa.ForeignKeyConstraint(["tenant_id"], ["tenants.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("tenant_id", "container_no", name="uq_containers_tenant_container_no"),
@@ -67,8 +83,7 @@ def upgrade() -> None:
         sa.Column("tracking_source", sa.String(length=40), nullable=False),
         sa.Column("linked_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("tenant_id", sa.Integer(), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        *timestamps(),
         sa.ForeignKeyConstraint(["container_id"], ["containers.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["shipment_id"], ["shipments.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["tenant_id"], ["tenants.id"], ondelete="CASCADE"),
@@ -100,8 +115,7 @@ def upgrade() -> None:
         sa.Column("source", sa.String(length=40), nullable=False),
         sa.Column("raw_payload", sa.String(), nullable=True),
         sa.Column("tenant_id", sa.Integer(), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        *timestamps(),
         sa.ForeignKeyConstraint(["container_id"], ["containers.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["shipment_id"], ["shipments.id"], ondelete="SET NULL"),
         sa.ForeignKeyConstraint(["tenant_id"], ["tenants.id"], ondelete="CASCADE"),
