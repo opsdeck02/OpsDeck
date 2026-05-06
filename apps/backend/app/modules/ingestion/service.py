@@ -714,7 +714,14 @@ def resolve_plant(db: Session, tenant_id: int, value: str) -> Plant:
             if plant is not None and should_adopt_uploaded_plant_name(plant, requested_index, value):
                 plant.name = value.strip()
     if plant is None:
-        raise ValueError(f"Unknown plant for tenant: {value}")
+        plant = Plant(
+            tenant_id=tenant_id,
+            code=build_plant_code(value),
+            name=value.strip(),
+            location=None,
+        )
+        db.add(plant)
+        db.flush()
     return plant
 
 
@@ -825,6 +832,11 @@ def infer_plant_index(value: str) -> int | None:
         return ord(letter_match.group(1)) - ord("a") + 1
 
     return None
+
+
+def build_plant_code(value: str) -> str:
+    compact = re.sub(r"[^A-Za-z0-9]+", "_", value.strip().upper()).strip("_")
+    return compact[:40] or "PLANT"
 
 
 def build_material_code(value: str) -> str:

@@ -275,6 +275,33 @@ def test_shipment_xlsm_upload_is_supported(
         assert shipment is not None
 
 
+def test_shipment_upload_creates_unknown_plant(
+    client_and_session: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, SessionLocal = client_and_session
+    response = upload_csv(
+        client,
+        login(client),
+        "shipment",
+        "\n".join(
+            [
+                "shipment_id,plant_code,material_code,supplier_name,quantity_mt,planned_eta,current_eta,current_state,latest_update_at",
+                "SHP-NEW-PLANT,TATA_JSR_BF1,COKING_COAL,Supplier A,100,2026-05-10T00:00:00Z,2026-05-10T00:00:00Z,in_transit,2026-05-06T08:00:00Z",
+            ]
+        ),
+    )
+
+    assert response.status_code == 200, response.json()
+    assert response.json()["rows_accepted"] == 1
+    with SessionLocal() as db:
+        plant = db.scalar(select(Plant).where(Plant.code == "TATA_JSR_BF1"))
+        shipment = db.scalar(select(Shipment).where(Shipment.shipment_id == "SHP-NEW-PLANT"))
+        assert plant is not None
+        assert plant.name == "TATA_JSR_BF1"
+        assert shipment is not None
+        assert shipment.plant_id == plant.id
+
+
 def test_invalid_stock_upload_rejects_zero_daily_consumption(
     client_and_session: tuple[TestClient, sessionmaker[Session]],
 ) -> None:
