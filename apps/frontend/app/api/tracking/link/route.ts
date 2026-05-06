@@ -22,5 +22,13 @@ export async function POST(request: NextRequest) {
     body: JSON.stringify(payload),
   });
 
-  return NextResponse.json(await response.json(), { status: response.status });
+  return NextResponse.json(await readJson(response), { status: response.status });
+}
+
+async function readJson(response: Response) {
+  try {
+    return await response.json();
+  } catch {
+    return { detail: "Tracking API returned an invalid response." };
+  }
 }

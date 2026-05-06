@@ -85,6 +85,27 @@ alembic revision --autogenerate -m "describe change"
 alembic upgrade head
 ```
 
+## Port & Inland Monitoring
+
+The Port & Inland Monitoring MVP uses a pluggable tracking provider layer in
+`apps/backend/app/modules/tracking/providers.py`. The default `mock` provider returns
+deterministic port, ocean, rail, truck, and delivery milestones for a container/carrier pair,
+so repeated local searches and links produce the same event timestamps.
+
+Real carrier integrations should be added behind the `TrackingProvider` interface and selected
+through `get_tracking_provider`. Keep provider-specific parsing there; container validation,
+carrier detection, event persistence, and shipment ETA/delay updates live in
+`apps/backend/app/modules/tracking/service.py`.
+
+The main APIs are:
+
+- `POST /api/v1/tracking/containers/search`: validates the container, detects or accepts the
+  carrier/source, persists the selected carrier on the container, and returns tracking events.
+- `POST /api/v1/tracking/containers/link`: links the container to a shipment, upserts tracking
+  events, then updates shipment `latest_eta`, `delay_days`, `delay_status`, current milestone,
+  current location, and last tracking update timestamp.
+- `GET /api/v1/tracking/shipments`: provides the shipment selector options used by the UI.
+
 ## Repository Layout
 
 ```text

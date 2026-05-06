@@ -466,6 +466,7 @@ export interface ContainerSearchResponse {
   events: TrackingEvent[];
   latest_event: TrackingEvent | null;
   latest_eta: string | null;
+  linked_statuses: LinkedShipmentStatus[];
 }
 
 export interface ShipmentOption {
@@ -491,6 +492,7 @@ export interface LinkedShipmentStatus {
   current_location: string | null;
   last_tracking_update_at: string | null;
   linked_at: string;
+  already_linked: boolean;
 }
 
 export interface HeaderMappingSuggestion {

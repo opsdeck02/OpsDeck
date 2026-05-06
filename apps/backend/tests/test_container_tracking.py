@@ -13,7 +13,18 @@ from sqlalchemy.pool import StaticPool
 from app.api.dependencies import get_db
 from app.db.base import Base
 from app.main import app
-from app.models import Container, Material, Plant, Role, Shipment, Tenant, TenantMembership, User
+from app.models import (
+    Container,
+    Material,
+    Plant,
+    Role,
+    Shipment,
+    ShipmentContainer,
+    Tenant,
+    TenantMembership,
+    TrackingEvent,
+    User,
+)
 from app.models.enums import ShipmentState
 from app.modules.auth.constants import LOGISTICS_USER
 from app.modules.auth.security import hash_password
@@ -96,6 +107,32 @@ def test_unknown_carrier_requires_manual_selection(
     assert body["events"] == []
 
 
+def test_manual_carrier_search_persists_selection_without_updating_shipment(
+    client_and_session: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, SessionLocal = client_and_session
+    response = client.post(
+        "/api/v1/tracking/containers/search",
+        headers=auth_headers(client),
+        json={"container_no": "ZZZU1234567", "carrier_code": "MSC"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["carrier_detection"]["confidence"] == "manual"
+    assert body["events"]
+
+    with SessionLocal() as db:
+        container = db.scalar(select(Container).where(Container.container_no == "ZZZU1234567"))
+        shipment = db.get(Shipment, 1)
+        assert container is not None
+        assert container.carrier_code == "MSC"
+        assert container.tracking_source == "mock"
+        assert container.detection_confidence == "manual"
+        assert shipment is not None
+        assert shipment.latest_eta is None
+        assert shipment.current_milestone is None
+
+
 def test_linking_container_updates_shipment_tracking_status(
     client_and_session: tuple[TestClient, sessionmaker[Session]],
 ) -> None:
@@ -121,6 +158,87 @@ def test_linking_container_updates_shipment_tracking_status(
         assert shipment.current_eta == shipment.latest_eta
         assert shipment.current_milestone == "Delivered"
         assert shipment.last_tracking_update_at is not None
+
+
+def test_repeated_link_does_not_duplicate_tracking_events(
+    client_and_session: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, SessionLocal = client_and_session
+    payload = {"container_no": "MSCU1234567", "carrier_code": "MSC", "shipment_id": 1}
+    first = client.post(
+        "/api/v1/tracking/containers/link",
+        headers=auth_headers(client),
+        json=payload,
+    )
+    assert first.status_code == 200
+    assert first.json()["already_linked"] is False
+
+    with SessionLocal() as db:
+        first_event_ids = [
+            row.id
+            for row in db.scalars(
+                select(TrackingEvent).order_by(
+                    TrackingEvent.event_datetime,
+                    TrackingEvent.event_type,
+                )
+            )
+        ]
+        first_linked_at = db.scalar(select(ShipmentContainer.linked_at))
+
+    second = client.post(
+        "/api/v1/tracking/containers/link",
+        headers=auth_headers(client),
+        json=payload,
+    )
+    assert second.status_code == 200
+    assert second.json()["already_linked"] is True
+
+    with SessionLocal() as db:
+        second_event_ids = [
+            row.id
+            for row in db.scalars(
+                select(TrackingEvent).order_by(
+                    TrackingEvent.event_datetime,
+                    TrackingEvent.event_type,
+                )
+            )
+        ]
+        second_linked_at = db.scalar(select(ShipmentContainer.linked_at))
+        assert len(second_event_ids) == 13
+        assert second_event_ids == first_event_ids
+        assert second_linked_at == first_linked_at
+
+
+def test_search_returns_linked_status_and_deterministic_timeline(
+    client_and_session: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, _ = client_and_session
+    link = client.post(
+        "/api/v1/tracking/containers/link",
+        headers=auth_headers(client),
+        json={"container_no": "MSCU1234567", "carrier_code": "MSC", "shipment_id": 1},
+    )
+    assert link.status_code == 200
+
+    first = client.post(
+        "/api/v1/tracking/containers/search",
+        headers=auth_headers(client),
+        json={"container_no": "MSCU1234567"},
+    )
+    second = client.post(
+        "/api/v1/tracking/containers/search",
+        headers=auth_headers(client),
+        json={"container_no": "MSCU1234567"},
+    )
+    assert first.status_code == 200
+    assert second.status_code == 200
+    first_body = first.json()
+    second_body = second.json()
+    event_times = [event["event_datetime"] for event in first_body["events"]]
+    assert event_times == sorted(event_times)
+    assert first_body["events"] == second_body["events"]
+    assert first_body["linked_statuses"][0]["shipment_ref"] == "SHIP-CONTAINER-1"
+    assert first_body["linked_statuses"][0]["already_linked"] is True
 
 
 def seed_tracking_data(db: Session) -> None:

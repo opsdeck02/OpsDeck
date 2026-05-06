@@ -35,9 +35,18 @@ def detect_container_carrier(container_no: str) -> CarrierDetection:
 def search_tracking_container(
     payload: ContainerSearchRequest,
     _: Annotated[RequestContext, Depends(require_operator_access)],
+    context: Annotated[RequestContext, Depends(get_request_context)],
+    db: Annotated[Session, Depends(get_db)],
 ) -> ContainerSearchResponse:
     try:
-        return search_container(payload.container_no, payload.carrier_code)
+        result = search_container(
+            payload.container_no,
+            payload.carrier_code,
+            db=db,
+            context=context,
+        )
+        db.commit()
+        return result
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

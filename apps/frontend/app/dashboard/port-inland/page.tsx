@@ -33,12 +33,33 @@ export default function PortInlandMonitoringPage() {
   const carrierOptions = searchResult?.carrier_detection.options ?? [];
   const resolvedCarrier =
     carrierCode || searchResult?.carrier_detection.carrier_code || "";
+  const sortedEvents = useMemo(
+    () =>
+      [...(searchResult?.events ?? [])].sort(
+        (left, right) =>
+          new Date(left.event_datetime).getTime() - new Date(right.event_datetime).getTime()
+          || left.event_type.localeCompare(right.event_type)
+          || (left.location_code ?? "").localeCompare(right.location_code ?? ""),
+      ),
+    [searchResult?.events],
+  );
 
   useEffect(() => {
     async function loadShipments() {
-      const response = await fetch("/api/shipments");
-      if (response.ok) {
-        setShipments((await response.json()) as ShipmentOption[]);
+      try {
+        const response = await fetch("/api/shipments");
+        const body = await readJson<ShipmentOption[] | { detail?: string }>(response);
+        if (!response.ok) {
+          setError(
+            body && "detail" in body && typeof body.detail === "string"
+              ? body.detail
+              : "Shipment list could not be loaded.",
+          );
+          return;
+        }
+        setShipments(Array.isArray(body) ? body : []);
+      } catch {
+        setError("Shipment list could not be loaded.");
       }
     }
     loadShipments();
@@ -61,11 +82,16 @@ export default function PortInlandMonitoringPage() {
           carrier_code: carrierCode || undefined,
         }),
       });
-      const body = await response.json();
+      const body = await readJson<ContainerSearchResponse | { detail?: string }>(response);
       if (!response.ok) {
-        throw new Error(body.detail ?? "Container search failed");
+        throw new Error(
+          body && "detail" in body && typeof body.detail === "string"
+            ? body.detail
+            : "Container search failed",
+        );
       }
-      const result = body as ContainerSearchResponse;
+      if (!isContainerSearchResponse(body)) throw new Error("Container search failed");
+      const result = body;
       setSearchResult(result);
       if (result.carrier_detection.carrier_code) {
         setCarrierCode(result.carrier_detection.carrier_code);
@@ -92,11 +118,16 @@ export default function PortInlandMonitoringPage() {
           tracking_source: searchResult.tracking_source,
         }),
       });
-      const body = await response.json();
+      const body = await readJson<LinkedShipmentStatus | { detail?: string }>(response);
       if (!response.ok) {
-        throw new Error(body.detail ?? "Shipment link failed");
+        throw new Error(
+          body && "detail" in body && typeof body.detail === "string"
+            ? body.detail
+            : "Shipment link failed",
+        );
       }
-      setLinkedStatus(body as LinkedShipmentStatus);
+      if (!isLinkedShipmentStatus(body)) throw new Error("Shipment link failed");
+      setLinkedStatus(body);
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "Shipment link failed");
     } finally {
@@ -179,7 +210,24 @@ export default function PortInlandMonitoringPage() {
               <SummaryMetric label="Latest ETA" value={formatDate(searchResult.latest_eta)} />
               <SummaryMetric label="Source" value={searchResult.tracking_source} />
             </div>
-            <Timeline events={searchResult.events} />
+            {searchResult.carrier_detection.requires_manual_selection ? (
+              <p className="mt-4 rounded-2xl bg-muted p-4 text-sm text-mutedForeground">
+                Carrier could not be detected from the owner prefix. Select a carrier/source and search again.
+              </p>
+            ) : null}
+            {searchResult.linked_statuses.length > 0 ? (
+              <div className="mt-4 rounded-2xl border bg-card p-4 text-sm">
+                <p className="font-semibold">Already linked</p>
+                <div className="mt-2 grid gap-2">
+                  {searchResult.linked_statuses.map((status) => (
+                    <p key={`${status.shipment_id}-${status.container_no}`} className="text-mutedForeground">
+                      {status.container_no} is linked to {status.shipment_ref}.
+                    </p>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+            <Timeline events={sortedEvents} />
           </div>
 
           <aside className="rounded-3xl border bg-card/90 p-6 shadow-panel">
@@ -202,6 +250,16 @@ export default function PortInlandMonitoringPage() {
                 ))}
               </select>
             </label>
+            {shipments.length === 0 ? (
+              <p className="mt-3 rounded-2xl bg-muted p-3 text-sm text-mutedForeground">
+                No matching shipments are available for this tenant yet.
+              </p>
+            ) : null}
+            {!resolvedCarrier ? (
+              <p className="mt-3 rounded-2xl bg-muted p-3 text-sm text-mutedForeground">
+                Select a carrier/source before linking this container.
+              </p>
+            ) : null}
             <button
               type="button"
               onClick={linkShipment}
@@ -211,6 +269,11 @@ export default function PortInlandMonitoringPage() {
               {isLinking ? "Linking" : "Link to Shipment"}
             </button>
             {linkedStatus ? <LinkedStatusPanel status={linkedStatus} /> : null}
+            {linkedStatus?.already_linked ? (
+              <p className="mt-3 rounded-2xl bg-muted p-3 text-sm text-mutedForeground">
+                This container was already linked to the selected shipment. Tracking was refreshed without changing the original link time.
+              </p>
+            ) : null}
           </aside>
         </section>
       ) : null}
@@ -259,6 +322,26 @@ function Timeline({ events }: { events: TrackingEvent[] }) {
       </div>
     </div>
   );
+}
+
+async function readJson<T>(response: Response): Promise<T | null> {
+  try {
+    return (await response.json()) as T;
+  } catch {
+    return null;
+  }
+}
+
+function isContainerSearchResponse(
+  value: ContainerSearchResponse | { detail?: string } | null,
+): value is ContainerSearchResponse {
+  return Boolean(value && "container_no" in value && "carrier_detection" in value);
+}
+
+function isLinkedShipmentStatus(
+  value: LinkedShipmentStatus | { detail?: string } | null,
+): value is LinkedShipmentStatus {
+  return Boolean(value && "shipment_id" in value && "shipment_ref" in value);
 }
 
 function LinkedStatusPanel({ status }: { status: LinkedShipmentStatus }) {

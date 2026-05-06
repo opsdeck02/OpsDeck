@@ -19,5 +19,13 @@ export async function GET() {
     },
   });
 
-  return NextResponse.json(await response.json(), { status: response.status });
+  return NextResponse.json(await readJson(response), { status: response.status });
+}
+
+async function readJson(response: Response) {
+  try {
+    return await response.json();
+  } catch {
+    return { detail: "Shipment API returned an invalid response." };
+  }
 }

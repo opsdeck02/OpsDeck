@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from datetime import UTC, datetime, timedelta
+from hashlib import sha256
 from typing import Any
 
 from app.modules.tracking.schemas import TrackingEventOut
@@ -29,7 +30,9 @@ class MockTrackingProvider(TrackingProvider):
         }
 
     def get_tracking_events(self, container_no: str, carrier_code: str) -> list[TrackingEventOut]:
-        now = datetime.now(UTC).replace(microsecond=0)
+        seed = int(sha256(f"{container_no}:{carrier_code}".encode()).hexdigest()[:8], 16)
+        base_day = 1 + seed % 20
+        now = datetime(2026, 5, base_day, 8, 0, tzinfo=UTC)
         vessel = "MV Mock Horizon"
         voyage = f"{carrier_code[:3].upper()}42E"
         raw_base = {

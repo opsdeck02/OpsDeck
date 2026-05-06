@@ -41,6 +41,7 @@ class ContainerSearchResponse(BaseModel):
     events: list[TrackingEventOut]
     latest_event: TrackingEventOut | None
     latest_eta: datetime | None
+    linked_statuses: list["LinkedShipmentStatus"] = Field(default_factory=list)
 
 
 class LinkContainerRequest(BaseModel):
@@ -64,6 +65,7 @@ class LinkedShipmentStatus(BaseModel):
     current_location: str | None
     last_tracking_update_at: datetime | None
     linked_at: datetime
+    already_linked: bool = False
 
 
 class ShipmentOption(BaseModel):
