@@ -1,6 +1,7 @@
 "use client";
 
 import { Anchor, Link2, Search, Ship, TrainFront, Truck } from "lucide-react";
+import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
 
 import type {
@@ -14,6 +15,14 @@ import type {
 import { Badge } from "@/components/ui/badge";
 
 const containerPattern = /^[A-Z]{4}\d{7}$/;
+const VesselMap = dynamic(() => import("./vessel-map"), {
+  ssr: false,
+  loading: () => (
+    <div className="mt-4 flex h-[280px] items-center justify-center rounded-2xl border bg-muted text-sm text-mutedForeground">
+      Loading map...
+    </div>
+  ),
+});
 
 export default function PortInlandMonitoringPage() {
   const [containerNo, setContainerNo] = useState("");
@@ -84,10 +93,14 @@ export default function PortInlandMonitoringPage() {
   }, [trackingSource]);
 
   useEffect(() => {
+    let isActive = true;
     async function loadVesselPosition() {
       setVesselPosition(null);
       setVesselError(null);
-      if (!vesselName) return;
+      if (!vesselName) {
+        setIsVesselLoading(false);
+        return;
+      }
       setIsVesselLoading(true);
       try {
         const params = new URLSearchParams({ vessel_name: vesselName });
@@ -96,20 +109,31 @@ export default function PortInlandMonitoringPage() {
         if (!response.ok) {
           throw new Error(errorMessageFromBody(body, "Vessel position could not be loaded"));
         }
-        setVesselPosition(isVesselPosition(body) ? body : null);
+        if (isActive) {
+          setVesselPosition(isVesselPosition(body) ? body : null);
+        }
       } catch (exc) {
-        setVesselError(
-          exc instanceof Error ? exc.message : "Vessel position could not be loaded",
-        );
+        if (isActive) {
+          setVesselError(
+            exc instanceof Error ? exc.message : "Vessel position could not be loaded",
+          );
+        }
       } finally {
-        setIsVesselLoading(false);
+        if (isActive) {
+          setIsVesselLoading(false);
+        }
       }
     }
     loadVesselPosition();
+    return () => {
+      isActive = false;
+    };
   }, [vesselName]);
 
   async function searchContainer() {
     setLinkedStatus(null);
+    setVesselPosition(null);
+    setVesselError(null);
     setError(null);
     if (!isContainerValid) {
       setError("Container number must be 4 letters followed by 7 digits, for example MSCU1234567.");
@@ -463,14 +487,31 @@ function VesselTrackingCard({
         </p>
       ) : null}
       {position ? (
-        <div className="mt-4 grid gap-3 md:grid-cols-2">
-          <StatusRow label="Vessel" value={position.vessel_name} />
-          <StatusRow label="Position" value={`${position.lat.toFixed(4)}, ${position.lon.toFixed(4)}`} />
-          <StatusRow label="Speed" value={`${position.speed_knots.toFixed(1)} kn`} />
-          <StatusRow label="Heading" value={`${position.heading_degrees.toFixed(0)} deg`} />
-          <StatusRow label="Last update" value={formatDate(position.timestamp)} />
-          <StatusRow label="Source" value={position.is_mock ? "Mock AIS" : position.source} />
-        </div>
+        <>
+          {position.is_mock ? (
+            <p className="mt-3 rounded-2xl bg-muted p-3 text-sm text-mutedForeground">
+              Demo vessel position, not live AIS.
+            </p>
+          ) : null}
+          <div className="mt-4 grid gap-3 md:grid-cols-2">
+            <StatusRow label="Vessel" value={position.vessel_name} />
+            <StatusRow label="Position" value={`${position.lat.toFixed(4)}, ${position.lon.toFixed(4)}`} />
+            <StatusRow label="Speed" value={`${position.speed_knots.toFixed(1)} kn`} />
+            <StatusRow label="Heading" value={`${position.heading_degrees.toFixed(0)} deg`} />
+            <StatusRow label="Last update" value={formatDate(position.timestamp)} />
+            <StatusRow label="Source" value={position.is_mock ? "Mock AIS" : position.source} />
+          </div>
+          <VesselMap
+            vesselName={position.vessel_name}
+            latitude={position.lat}
+            longitude={position.lon}
+            speedKnots={position.speed_knots}
+            headingDegrees={position.heading_degrees}
+            timestamp={position.timestamp}
+            source={position.source}
+            isMock={position.is_mock}
+          />
+        </>
       ) : null}
     </div>
   );
