@@ -76,3 +76,14 @@ class ShipmentOption(BaseModel):
     material_name: str
     planned_eta: datetime
     current_eta: datetime
+
+
+class VesselPositionOut(BaseModel):
+    vessel_name: str
+    lat: float
+    lon: float
+    speed_knots: float
+    heading_degrees: float
+    timestamp: datetime
+    source: str
+    is_mock: bool = True

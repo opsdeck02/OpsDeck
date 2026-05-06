@@ -15,6 +15,7 @@ from app.modules.tracking.schemas import (
     LinkContainerRequest,
     LinkedShipmentStatus,
     ShipmentOption,
+    VesselPositionOut,
 )
 from app.modules.tracking.service import (
     detect_carrier,
@@ -22,6 +23,7 @@ from app.modules.tracking.service import (
     list_shipment_options,
     search_container,
 )
+from app.modules.tracking.vessel_providers import get_vessel_tracking_provider
 from app.schemas.context import RequestContext
 
 router = APIRouter(prefix="/tracking", tags=["tracking"])
@@ -72,6 +74,15 @@ def tracking_shipment_options(
     db: Annotated[Session, Depends(get_db)],
 ) -> list[ShipmentOption]:
     return list_shipment_options(db, context)
+
+
+@router.get("/vessels/position", response_model=VesselPositionOut | None)
+def vessel_position(
+    vessel_name: str,
+    _: Annotated[RequestContext, Depends(require_operator_access)],
+) -> VesselPositionOut | None:
+    provider = get_vessel_tracking_provider()
+    return provider.get_vessel_position(vessel_name)
 
 
 @router.post("/containers/link", response_model=LinkedShipmentStatus)

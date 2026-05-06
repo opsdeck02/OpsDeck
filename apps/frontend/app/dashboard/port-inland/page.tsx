@@ -8,6 +8,7 @@ import type {
   LinkedShipmentStatus,
   ShipmentOption,
   TrackingEvent,
+  VesselPosition,
 } from "@steelops/contracts";
 
 import { Badge } from "@/components/ui/badge";
@@ -22,9 +23,12 @@ export default function PortInlandMonitoringPage() {
   const [shipments, setShipments] = useState<ShipmentOption[]>([]);
   const [selectedShipmentId, setSelectedShipmentId] = useState("");
   const [linkedStatus, setLinkedStatus] = useState<LinkedShipmentStatus | null>(null);
+  const [vesselPosition, setVesselPosition] = useState<VesselPosition | null>(null);
+  const [vesselError, setVesselError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isSearching, setIsSearching] = useState(false);
   const [isLinking, setIsLinking] = useState(false);
+  const [isVesselLoading, setIsVesselLoading] = useState(false);
 
   const normalizedContainer = useMemo(
     () => containerNo.trim().toUpperCase().replace(/\s+/g, ""),
@@ -43,6 +47,10 @@ export default function PortInlandMonitoringPage() {
           || (left.location_code ?? "").localeCompare(right.location_code ?? ""),
       ),
     [searchResult?.events],
+  );
+  const vesselName = useMemo(
+    () => [...sortedEvents].reverse().find((event) => event.vessel_name)?.vessel_name ?? null,
+    [sortedEvents],
   );
 
   useEffect(() => {
@@ -69,9 +77,36 @@ export default function PortInlandMonitoringPage() {
   useEffect(() => {
     setSearchResult(null);
     setLinkedStatus(null);
+    setVesselPosition(null);
+    setVesselError(null);
     setSelectedShipmentId("");
     setError(null);
   }, [trackingSource]);
+
+  useEffect(() => {
+    async function loadVesselPosition() {
+      setVesselPosition(null);
+      setVesselError(null);
+      if (!vesselName) return;
+      setIsVesselLoading(true);
+      try {
+        const params = new URLSearchParams({ vessel_name: vesselName });
+        const response = await fetch(`/api/tracking/vessel-position?${params}`);
+        const body = await readJson<VesselPosition | { detail?: string }>(response);
+        if (!response.ok) {
+          throw new Error(errorMessageFromBody(body, "Vessel position could not be loaded"));
+        }
+        setVesselPosition(isVesselPosition(body) ? body : null);
+      } catch (exc) {
+        setVesselError(
+          exc instanceof Error ? exc.message : "Vessel position could not be loaded",
+        );
+      } finally {
+        setIsVesselLoading(false);
+      }
+    }
+    loadVesselPosition();
+  }, [vesselName]);
 
   async function searchContainer() {
     setLinkedStatus(null);
@@ -240,6 +275,12 @@ export default function PortInlandMonitoringPage() {
               </div>
             ) : null}
             <Timeline events={sortedEvents} />
+            <VesselTrackingCard
+              vesselName={vesselName}
+              position={vesselPosition}
+              isLoading={isVesselLoading}
+              error={vesselError}
+            />
           </div>
 
           <aside className="rounded-3xl border bg-card/90 p-6 shadow-panel">
@@ -356,6 +397,12 @@ function isLinkedShipmentStatus(
   return Boolean(value && "shipment_id" in value && "shipment_ref" in value);
 }
 
+function isVesselPosition(
+  value: VesselPosition | { detail?: string } | null,
+): value is VesselPosition {
+  return Boolean(value && "vessel_name" in value && "lat" in value && "lon" in value);
+}
+
 function errorMessageFromBody(value: unknown, fallback: string) {
   if (!value || typeof value !== "object" || !("detail" in value)) return fallback;
   const detail = (value as { detail?: unknown }).detail;
@@ -380,6 +427,51 @@ function LinkedStatusPanel({ status }: { status: LinkedShipmentStatus }) {
         <StatusRow label="Delay status" value={status.delay_status} />
         <StatusRow label="Last updated" value={formatDate(status.last_tracking_update_at)} />
       </div>
+    </div>
+  );
+}
+
+function VesselTrackingCard({
+  vesselName,
+  position,
+  isLoading,
+  error,
+}: {
+  vesselName: string | null;
+  position: VesselPosition | null;
+  isLoading: boolean;
+  error: string | null;
+}) {
+  return (
+    <div className="mt-6 rounded-2xl border bg-card p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="text-lg font-semibold">Vessel Tracking</h3>
+        <Badge variant="outline">Mock AIS</Badge>
+      </div>
+      {!vesselName ? (
+        <p className="mt-3 text-sm text-mutedForeground">
+          No vessel name is available from the latest vessel event.
+        </p>
+      ) : null}
+      {isLoading ? (
+        <p className="mt-3 text-sm text-mutedForeground">Loading vessel position...</p>
+      ) : null}
+      {error ? <p className="mt-3 text-sm text-primary">{error}</p> : null}
+      {vesselName && !isLoading && !error && !position ? (
+        <p className="mt-3 text-sm text-mutedForeground">
+          No vessel position data is available for this source.
+        </p>
+      ) : null}
+      {position ? (
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
+          <StatusRow label="Vessel" value={position.vessel_name} />
+          <StatusRow label="Position" value={`${position.lat.toFixed(4)}, ${position.lon.toFixed(4)}`} />
+          <StatusRow label="Speed" value={`${position.speed_knots.toFixed(1)} kn`} />
+          <StatusRow label="Heading" value={`${position.heading_degrees.toFixed(0)} deg`} />
+          <StatusRow label="Last update" value={formatDate(position.timestamp)} />
+          <StatusRow label="Source" value={position.is_mock ? "Mock AIS" : position.source} />
+        </div>
+      ) : null}
     </div>
   );
 }

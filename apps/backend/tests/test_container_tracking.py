@@ -36,6 +36,7 @@ from app.modules.tracking.providers import (
 )
 from app.modules.tracking.schemas import TrackingEventOut
 from app.modules.tracking.service import calculate_delay_status, normalize_container_no
+from app.modules.tracking.vessel_providers import MockAISProvider
 
 
 @pytest.fixture()
@@ -454,6 +455,33 @@ def test_dcsa_provider_returns_structured_request_error() -> None:
 
     with pytest.raises(TrackingProviderRequestError, match="status 401"):
         provider.search_container("MSCU1234567", "MSC")
+
+
+def test_mock_ais_provider_returns_labeled_position() -> None:
+    position = MockAISProvider().get_vessel_position("MV Mock Horizon")
+
+    assert position is not None
+    assert position.vessel_name == "MV Mock Horizon"
+    assert position.source == "mock_ais"
+    assert position.is_mock is True
+    assert -90 <= position.lat <= 90
+    assert -180 <= position.lon <= 180
+
+
+def test_vessel_position_endpoint_returns_mock_ais(
+    client_and_session: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, _ = client_and_session
+    response = client.get(
+        "/api/v1/tracking/vessels/position?vessel_name=MV%20Mock%20Horizon",
+        headers=auth_headers(client),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["vessel_name"] == "MV Mock Horizon"
+    assert body["source"] == "mock_ais"
+    assert body["is_mock"] is True
 
 
 def seed_tracking_data(db: Session) -> None:

@@ -501,6 +501,17 @@ export interface LinkedShipmentStatus {
   already_linked: boolean;
 }
 
+export interface VesselPosition {
+  vessel_name: string;
+  lat: number;
+  lon: number;
+  speed_knots: number;
+  heading_degrees: number;
+  timestamp: string;
+  source: string;
+  is_mock: boolean;
+}
+
 export interface HeaderMappingSuggestion {
   source_header: string;
   suggested_field: string | null;
