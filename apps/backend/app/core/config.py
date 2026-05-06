@@ -20,6 +20,11 @@ class Settings(BaseSettings):
     refresh_token_expire_days: int = 7
     cors_origins: list[str] = ["https://opsdeck.in", "https://app.opsdeck.in"]
     max_request_body_bytes: int = 30 * 1024 * 1024
+    tracking_dcsa_base_url: str = ""
+    tracking_dcsa_api_key: str = ""
+    tracking_dcsa_events_path: str = "/v2/events"
+    tracking_dcsa_timeout_seconds: int = 20
+    tracking_dcsa_max_retries: int = 1
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

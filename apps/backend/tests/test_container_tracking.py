@@ -4,6 +4,7 @@ from collections.abc import Generator
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, select
@@ -28,6 +29,12 @@ from app.models import (
 from app.models.enums import ShipmentState
 from app.modules.auth.constants import LOGISTICS_USER
 from app.modules.auth.security import hash_password
+from app.modules.tracking.providers import (
+    DcsaTrackingProvider,
+    TrackingProviderConfigurationError,
+    TrackingProviderRequestError,
+)
+from app.modules.tracking.schemas import TrackingEventOut
 from app.modules.tracking.service import calculate_delay_status, normalize_container_no
 
 
@@ -105,6 +112,24 @@ def test_unknown_carrier_requires_manual_selection(
     body = response.json()
     assert body["carrier_detection"]["requires_manual_selection"] is True
     assert body["events"] == []
+
+
+def test_dcsa_missing_config_returns_structured_error(
+    client_and_session: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, _ = client_and_session
+    response = client.post(
+        "/api/v1/tracking/containers/search",
+        headers=auth_headers(client),
+        json={
+            "container_no": "MSCU1234567",
+            "carrier_code": "MSC",
+            "tracking_source": "dcsa",
+        },
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "tracking_provider_not_configured"
 
 
 def test_manual_carrier_search_persists_selection_without_updating_shipment(
@@ -239,6 +264,196 @@ def test_search_returns_linked_status_and_deterministic_timeline(
     assert first_body["events"] == second_body["events"]
     assert first_body["linked_statuses"][0]["shipment_ref"] == "SHIP-CONTAINER-1"
     assert first_body["linked_statuses"][0]["already_linked"] is True
+
+
+def test_dcsa_link_repeated_payload_does_not_duplicate_events(
+    client_and_session: tuple[TestClient, sessionmaker[Session]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, SessionLocal = client_and_session
+
+    class FixedDcsaProvider:
+        def search_container(self, container_no: str, carrier_code: str) -> dict[str, object]:
+            return {"container_no": container_no, "carrier_code": carrier_code, "status": "found"}
+
+        def get_tracking_events(
+            self,
+            container_no: str,
+            carrier_code: str,
+        ) -> list[TrackingEventOut]:
+            return [
+                TrackingEventOut(
+                    event_type="Vessel arrival",
+                    event_datetime=datetime(2026, 5, 14, 8, tzinfo=UTC),
+                    location_name="Paradip Port",
+                    location_code="INPRT",
+                    transport_mode="ocean",
+                    vessel_name="MV Horizon",
+                    voyage_no="042W",
+                    source="dcsa",
+                    raw_payload={
+                        "equipmentReference": container_no,
+                        "carrierCode": carrier_code,
+                        "sequence": 1,
+                    },
+                )
+            ]
+
+    monkeypatch.setattr(
+        "app.modules.tracking.service.get_tracking_provider",
+        lambda source: FixedDcsaProvider(),
+    )
+    payload = {
+        "container_no": "MSCU1234567",
+        "carrier_code": "MSC",
+        "shipment_id": 1,
+        "tracking_source": "dcsa",
+    }
+    first = client.post(
+        "/api/v1/tracking/containers/link",
+        headers=auth_headers(client),
+        json=payload,
+    )
+    second = client.post(
+        "/api/v1/tracking/containers/link",
+        headers=auth_headers(client),
+        json=payload,
+    )
+    assert first.status_code == 200
+    assert second.status_code == 200
+
+    with SessionLocal() as db:
+        assert len(list(db.scalars(select(TrackingEvent)))) == 1
+        shipment = db.get(Shipment, 1)
+        assert shipment is not None
+        assert shipment.latest_eta is not None
+        assert shipment.latest_eta.date().isoformat() == "2026-05-14"
+
+
+def test_dcsa_provider_maps_tracking_events() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(
+            200,
+            json={
+                "events": [
+                    {
+                        "equipmentEventTypeCode": "GTIN",
+                        "eventDateTime": "2026-05-01T10:00:00Z",
+                        "eventLocation": {
+                            "locationName": "Nhava Sheva Terminal",
+                            "UNLocationCode": "INNSA",
+                        },
+                    },
+                    {
+                        "shipmentEventTypeCode": "CONF",
+                        "eventDateTime": "2026-05-02T10:00:00Z",
+                        "location": {"name": "Carrier desk", "UNLocationCode": "INNSA"},
+                    },
+                    {
+                        "transportEventTypeCode": "ARRI",
+                        "eventDateTime": "2026-05-10T12:00:00+05:30",
+                        "transportCall": {
+                            "modeOfTransport": "VESSEL",
+                            "location": {"UNLocationCode": "INPRT"},
+                            "vessel": {"name": "MV Horizon"},
+                            "importVoyageNumber": "042W",
+                        },
+                    },
+                    {
+                        "journey_event": {"event_type": "Carrier-specific hold"},
+                        "eventDateTime": "2026-05-11T09:00:00Z",
+                    },
+                ]
+            },
+        )
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    provider = DcsaTrackingProvider(
+        base_url="https://tracking.example.test",
+        api_key="test-key",
+        client=client,
+    )
+
+    search = provider.search_container("MSCU1234567", "MSC")
+    events = provider.get_tracking_events("MSCU1234567", "MSC")
+
+    assert search["status"] == "found"
+    assert [event.event_type for event in events] == [
+        "Gate in",
+        "Confirmed",
+        "Vessel arrival",
+        "Carrier-specific hold",
+    ]
+    assert events[0].transport_mode == "port"
+    assert events[2].transport_mode == "ocean"
+    assert events[2].location_code == "INPRT"
+    assert events[2].vessel_name == "MV Horizon"
+    assert events[2].voyage_no == "042W"
+    assert events[2].event_datetime.isoformat() == "2026-05-10T06:30:00+00:00"
+    assert len(requests) == 1
+    assert requests[0].url.params["equipmentReference"] == "MSCU1234567"
+    assert requests[0].url.params["carrierCode"] == "MSC"
+    assert requests[0].headers["Authorization"] == "Bearer test-key"
+
+
+def test_dcsa_provider_requires_api_key() -> None:
+    with pytest.raises(TrackingProviderConfigurationError):
+        DcsaTrackingProvider(base_url="https://tracking.example.test")
+
+
+def test_dcsa_provider_empty_data_is_clean_no_data_response() -> None:
+    client = httpx.Client(transport=httpx.MockTransport(lambda _: httpx.Response(200, json=[])))
+    provider = DcsaTrackingProvider(
+        base_url="https://tracking.example.test",
+        api_key="test-key",
+        client=client,
+    )
+
+    search = provider.search_container("MSCU1234567", "MSC")
+
+    assert search["status"] == "not_found"
+    assert provider.get_tracking_events("MSCU1234567", "MSC") == []
+
+
+def test_dcsa_provider_retries_transient_errors() -> None:
+    responses = [httpx.Response(503), httpx.Response(200, json=[])]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        response = responses.pop(0)
+        response.request = request
+        return response
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    provider = DcsaTrackingProvider(
+        base_url="https://tracking.example.test",
+        api_key="test-key",
+        max_retries=1,
+        retry_backoff_seconds=0,
+        client=client,
+    )
+
+    assert provider.search_container("MSCU1234567", "MSC")["status"] == "not_found"
+    assert responses == []
+
+
+def test_dcsa_provider_returns_structured_request_error() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        response = httpx.Response(401)
+        response.request = request
+        return response
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    provider = DcsaTrackingProvider(
+        base_url="https://tracking.example.test",
+        api_key="test-key",
+        client=client,
+    )
+
+    with pytest.raises(TrackingProviderRequestError, match="status 401"):
+        provider.search_container("MSCU1234567", "MSC")
 
 
 def seed_tracking_data(db: Session) -> None:

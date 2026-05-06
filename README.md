@@ -92,10 +92,31 @@ The Port & Inland Monitoring MVP uses a pluggable tracking provider layer in
 deterministic port, ocean, rail, truck, and delivery milestones for a container/carrier pair,
 so repeated local searches and links produce the same event timestamps.
 
-Real carrier integrations should be added behind the `TrackingProvider` interface and selected
-through `get_tracking_provider`. Keep provider-specific parsing there; container validation,
+The first real-provider adapter is `dcsa`, which calls a DCSA-style Track & Trace or aggregator
+events endpoint and maps shipment, transport, and equipment event payloads into the shared tracking
+event shape. Configure it with `TRACKING_DCSA_BASE_URL`, `TRACKING_DCSA_API_KEY`,
+`TRACKING_DCSA_EVENTS_PATH`, `TRACKING_DCSA_TIMEOUT_SECONDS`, and
+`TRACKING_DCSA_MAX_RETRIES`. Keep future provider-specific fetching/parsing behind the
+`TrackingProvider` interface and selected through `get_tracking_provider`. Container validation,
 carrier detection, event persistence, and shipment ETA/delay updates live in
 `apps/backend/app/modules/tracking/service.py`.
+
+Example search request:
+
+```json
+{"container_no":"MSCU1234567","carrier_code":"MSC","tracking_source":"dcsa"}
+```
+
+Example DCSA-like provider event:
+
+```json
+{
+  "equipmentEventTypeCode": "LOAD",
+  "eventDateTime": "2026-05-01T10:00:00Z",
+  "eventLocation": {"locationName": "Nhava Sheva", "UNLocationCode": "INNSA"},
+  "transportCall": {"vessel": {"name": "MV Horizon"}, "exportVoyageNumber": "042E"}
+}
+```
 
 The main APIs are:
 

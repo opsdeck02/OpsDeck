@@ -17,6 +17,7 @@ const containerPattern = /^[A-Z]{4}\d{7}$/;
 export default function PortInlandMonitoringPage() {
   const [containerNo, setContainerNo] = useState("");
   const [carrierCode, setCarrierCode] = useState("");
+  const [trackingSource, setTrackingSource] = useState("mock");
   const [searchResult, setSearchResult] = useState<ContainerSearchResponse | null>(null);
   const [shipments, setShipments] = useState<ShipmentOption[]>([]);
   const [selectedShipmentId, setSelectedShipmentId] = useState("");
@@ -65,6 +66,13 @@ export default function PortInlandMonitoringPage() {
     loadShipments();
   }, []);
 
+  useEffect(() => {
+    setSearchResult(null);
+    setLinkedStatus(null);
+    setSelectedShipmentId("");
+    setError(null);
+  }, [trackingSource]);
+
   async function searchContainer() {
     setLinkedStatus(null);
     setError(null);
@@ -80,15 +88,12 @@ export default function PortInlandMonitoringPage() {
         body: JSON.stringify({
           container_no: normalizedContainer,
           carrier_code: carrierCode || undefined,
+          tracking_source: trackingSource,
         }),
       });
       const body = await readJson<ContainerSearchResponse | { detail?: string }>(response);
       if (!response.ok) {
-        throw new Error(
-          body && "detail" in body && typeof body.detail === "string"
-            ? body.detail
-            : "Container search failed",
-        );
+        throw new Error(errorMessageFromBody(body, "Container search failed"));
       }
       if (!isContainerSearchResponse(body)) throw new Error("Container search failed");
       const result = body;
@@ -120,11 +125,7 @@ export default function PortInlandMonitoringPage() {
       });
       const body = await readJson<LinkedShipmentStatus | { detail?: string }>(response);
       if (!response.ok) {
-        throw new Error(
-          body && "detail" in body && typeof body.detail === "string"
-            ? body.detail
-            : "Shipment link failed",
-        );
+        throw new Error(errorMessageFromBody(body, "Shipment link failed"));
       }
       if (!isLinkedShipmentStatus(body)) throw new Error("Shipment link failed");
       setLinkedStatus(body);
@@ -147,7 +148,7 @@ export default function PortInlandMonitoringPage() {
               Container tracking
             </h2>
           </div>
-          <div className="grid gap-3 md:grid-cols-[minmax(220px,1fr)_180px_auto]">
+          <div className="grid gap-3 md:grid-cols-[minmax(220px,1fr)_180px_150px_auto]">
             <label className="grid gap-2 text-sm">
               <span className="font-medium">Container number</span>
               <input
@@ -170,6 +171,17 @@ export default function PortInlandMonitoringPage() {
                     {carrier.name}
                   </option>
                 ))}
+              </select>
+            </label>
+            <label className="grid gap-2 text-sm">
+              <span className="font-medium">Tracking source</span>
+              <select
+                value={trackingSource}
+                onChange={(event) => setTrackingSource(event.target.value)}
+                className="rounded-2xl border bg-card px-4 py-3"
+              >
+                <option value="mock">Mock</option>
+                <option value="dcsa">DCSA</option>
               </select>
             </label>
             <button
@@ -316,7 +328,7 @@ function Timeline({ events }: { events: TrackingEvent[] }) {
         ))}
         {events.length === 0 ? (
           <p className="rounded-2xl bg-muted p-4 text-sm text-mutedForeground">
-            Select a carrier/source to pull mock tracking events.
+            No tracking events found for this container and source yet.
           </p>
         ) : null}
       </div>
@@ -342,6 +354,17 @@ function isLinkedShipmentStatus(
   value: LinkedShipmentStatus | { detail?: string } | null,
 ): value is LinkedShipmentStatus {
   return Boolean(value && "shipment_id" in value && "shipment_ref" in value);
+}
+
+function errorMessageFromBody(value: unknown, fallback: string) {
+  if (!value || typeof value !== "object" || !("detail" in value)) return fallback;
+  const detail = (value as { detail?: unknown }).detail;
+  if (typeof detail === "string") return detail;
+  if (detail && typeof detail === "object" && "message" in detail) {
+    const message = (detail as { message?: unknown }).message;
+    if (typeof message === "string") return message;
+  }
+  return fallback;
 }
 
 function LinkedStatusPanel({ status }: { status: LinkedShipmentStatus }) {

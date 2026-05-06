@@ -4,6 +4,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_db, get_request_context, require_operator_access
+from app.modules.tracking.providers import (
+    TrackingProviderConfigurationError,
+    TrackingProviderRequestError,
+)
 from app.modules.tracking.schemas import (
     CarrierDetection,
     ContainerSearchRequest,
@@ -42,11 +46,22 @@ def search_tracking_container(
         result = search_container(
             payload.container_no,
             payload.carrier_code,
+            payload.tracking_source,
             db=db,
             context=context,
         )
         db.commit()
         return result
+    except TrackingProviderConfigurationError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "tracking_provider_not_configured", "message": str(exc)},
+        ) from exc
+    except TrackingProviderRequestError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail={"code": "tracking_provider_request_failed", "message": str(exc)},
+        ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -75,5 +90,15 @@ def link_tracking_container(
             shipment_id=payload.shipment_id,
             tracking_source=payload.tracking_source,
         )
+    except TrackingProviderConfigurationError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "tracking_provider_not_configured", "message": str(exc)},
+        ) from exc
+    except TrackingProviderRequestError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail={"code": "tracking_provider_request_failed", "message": str(exc)},
+        ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

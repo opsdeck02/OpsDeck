@@ -447,6 +447,12 @@ export interface CarrierDetection {
   options: CarrierOption[];
 }
 
+export interface ContainerSearchRequest {
+  container_no: string;
+  carrier_code?: string | null;
+  tracking_source?: string;
+}
+
 export interface TrackingEvent {
   event_type: string;
   event_datetime: string;

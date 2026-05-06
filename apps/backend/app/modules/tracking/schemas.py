@@ -32,6 +32,7 @@ class TrackingEventOut(BaseModel):
 class ContainerSearchRequest(BaseModel):
     container_no: str = Field(min_length=1)
     carrier_code: str | None = None
+    tracking_source: str = "mock"
 
 
 class ContainerSearchResponse(BaseModel):
