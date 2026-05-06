@@ -74,14 +74,26 @@ export default function MicrosoftOnboardingPage() {
       setAutomatedSourcesEnabled(false);
       return;
     }
-    const body = (await response.json()) as TenantPlanSummary;
+    const body = await readJson<TenantPlanSummary>(response);
+    if (!body) {
+      setAutomatedSourcesEnabled(false);
+      return;
+    }
     setAutomatedSourcesEnabled(body.capabilities.automated_data_sources);
   }
 
   async function loadConnections() {
     const response = await fetch("/api/microsoft/connections", { cache: "no-store" });
-    if (!response.ok) return;
-    const body = (await response.json()) as MicrosoftConnection[];
+    if (!response.ok) {
+      const body = await readJson<{ detail?: string }>(response);
+      setMessage(body?.detail ?? "Microsoft connections could not be loaded.");
+      return;
+    }
+    const body = await readJson<MicrosoftConnection[]>(response);
+    if (!body) {
+      setMessage("Microsoft connections could not be loaded.");
+      return;
+    }
     setConnections(body);
     const active = body.find((item) => item.is_active);
     if (active) setSelectedConnectionId(active.id);
@@ -89,9 +101,9 @@ export default function MicrosoftOnboardingPage() {
 
   async function connectMicrosoft() {
     const response = await fetch("/api/microsoft/auth-url");
-    const body = (await response.json()) as { auth_url?: string; detail?: string };
-    if (!response.ok || !body.auth_url) {
-      setMessage(body.detail ?? "Microsoft authorization could not be started.");
+    const body = await readJson<{ auth_url?: string; detail?: string }>(response);
+    if (!response.ok || !body?.auth_url) {
+      setMessage(body?.detail ?? "Microsoft authorization could not be started.");
       return;
     }
     window.location.href = body.auth_url;
@@ -114,9 +126,9 @@ export default function MicrosoftOnboardingPage() {
         `/api/microsoft/connections/${selectedConnectionId}/files/sheet-names?${params.toString()}`,
       );
       if (response.ok) {
-        const body = (await response.json()) as { sheet_names: string[] };
-        setSheetNames(body.sheet_names);
-        firstSheet = body.sheet_names[0] ?? "";
+        const body = await readJson<{ sheet_names: string[] }>(response);
+        setSheetNames(body?.sheet_names ?? []);
+        firstSheet = body?.sheet_names[0] ?? "";
         setSheetName(firstSheet);
       }
     }
@@ -141,14 +153,24 @@ export default function MicrosoftOnboardingPage() {
     const response = await fetch(
       `/api/microsoft/connections/${selectedConnectionId}/files/mapping-preview?${params.toString()}`,
     );
-    const body = await response.json();
+    const body = await readJson<MappingPreview | { detail?: string }>(response);
     if (!response.ok) {
       setMappingPreview(null);
       setMappingOverrides({});
-      setMappingError(typeof body.detail === "string" ? body.detail : "Mapping preview failed.");
+      setMappingError(
+        body && "detail" in body && typeof body.detail === "string"
+          ? body.detail
+          : "Mapping preview failed.",
+      );
       return;
     }
-    const preview = body as MappingPreview;
+    if (!body || isMicrosoftError(body)) {
+      setMappingPreview(null);
+      setMappingOverrides({});
+      setMappingError("Mapping preview failed.");
+      return;
+    }
+    const preview = body;
     setMappingPreview(preview);
     setMappingOverrides(
       Object.fromEntries(
@@ -181,9 +203,9 @@ export default function MicrosoftOnboardingPage() {
           display_name: displayName || selectedFile.name,
         }),
       });
-      const body = await response.json();
+      const body = await readJson<{ detail?: string }>(response);
       if (!response.ok) {
-        setMessage(typeof body.detail === "string" ? body.detail : "Microsoft source could not be synced.");
+        setMessage(typeof body?.detail === "string" ? body.detail : "Microsoft source could not be synced.");
         return;
       }
       setMessage("Microsoft source connected and synced.");
@@ -370,4 +392,16 @@ export default function MicrosoftOnboardingPage() {
       ) : null}
     </div>
   );
+}
+
+async function readJson<T>(response: Response): Promise<T | null> {
+  try {
+    return (await response.json()) as T;
+  } catch {
+    return null;
+  }
+}
+
+function isMicrosoftError(value: MappingPreview | { detail?: string }): value is { detail?: string } {
+  return "detail" in value && !("suggestions" in value);
 }

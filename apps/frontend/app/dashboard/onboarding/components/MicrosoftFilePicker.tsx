@@ -28,16 +28,23 @@ export function MicrosoftFilePicker({
     const suffix = nextSearch.trim() ? `?search=${encodeURIComponent(nextSearch.trim())}` : "";
     const response = await fetch(`/api/microsoft/connections/${connectionId}/files${suffix}`);
     if (!response.ok) {
-      setError("Microsoft files could not be loaded.");
+      const body = await readJson<{ detail?: string }>(response);
+      setError(body?.detail ?? "Microsoft files could not be loaded.");
       return;
     }
-    setFiles((await response.json()) as MicrosoftFile[]);
+    const body = await readJson<MicrosoftFile[]>(response);
+    setFiles(body ?? []);
   }, [connectionId, search]);
 
   const loadSites = useCallback(async () => {
     const response = await fetch(`/api/microsoft/connections/${connectionId}/sharepoint-sites`);
-    if (!response.ok) return;
-    setSites((await response.json()) as MicrosoftSharePointSite[]);
+    if (!response.ok) {
+      const body = await readJson<{ detail?: string }>(response);
+      setError(body?.detail ?? "SharePoint sites could not be loaded.");
+      return;
+    }
+    const body = await readJson<MicrosoftSharePointSite[]>(response);
+    setSites(body ?? []);
   }, [connectionId]);
 
   useEffect(() => {
@@ -55,8 +62,13 @@ export function MicrosoftFilePicker({
     const response = await fetch(
       `/api/microsoft/connections/${connectionId}/sharepoint-sites/${encodeURIComponent(nextSiteId)}/drives`,
     );
-    if (!response.ok) return;
-    setDrives((await response.json()) as MicrosoftDrive[]);
+    if (!response.ok) {
+      const body = await readJson<{ detail?: string }>(response);
+      setError(body?.detail ?? "SharePoint document libraries could not be loaded.");
+      return;
+    }
+    const body = await readJson<MicrosoftDrive[]>(response);
+    setDrives(body ?? []);
   }
 
   async function loadDriveFiles(nextDriveId: string) {
@@ -65,10 +77,12 @@ export function MicrosoftFilePicker({
       `/api/microsoft/connections/${connectionId}/drives/${encodeURIComponent(nextDriveId)}/files?site_id=${encodeURIComponent(siteId)}`,
     );
     if (!response.ok) {
-      setError("SharePoint files could not be loaded.");
+      const body = await readJson<{ detail?: string }>(response);
+      setError(body?.detail ?? "SharePoint files could not be loaded.");
       return;
     }
-    setFiles((await response.json()) as MicrosoftFile[]);
+    const body = await readJson<MicrosoftFile[]>(response);
+    setFiles(body ?? []);
   }
 
   return (
@@ -154,4 +168,12 @@ function formatSize(value: number | null) {
   if (!value) return "Unknown size";
   if (value < 1024 * 1024) return `${Math.round(value / 1024)} KB`;
   return `${(value / 1024 / 1024).toFixed(1)} MB`;
+}
+
+async function readJson<T>(response: Response): Promise<T | null> {
+  try {
+    return (await response.json()) as T;
+  } catch {
+    return null;
+  }
 }
