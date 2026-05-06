@@ -124,6 +124,21 @@ def upload_xlsx(client: TestClient, headers: dict[str, str], file_type: str, con
     )
 
 
+def upload_xlsm(client: TestClient, headers: dict[str, str], file_type: str, content: bytes):
+    return client.post(
+        "/api/v1/ingestion/uploads",
+        headers=headers,
+        data={"file_type": file_type},
+        files={
+            "file": (
+                "shipment_report.xlsm",
+                content,
+                "application/vnd.ms-excel.sheet.macroEnabled.12",
+            )
+        },
+    )
+
+
 def test_valid_shipment_upload(
     client_and_session: tuple[TestClient, sessionmaker[Session]],
 ) -> None:
@@ -214,6 +229,50 @@ def test_stock_xlsx_detects_headers_on_row_three(
         assert str(snapshot.on_hand_mt) == "10000.000"
         assert str(snapshot.available_to_consume_mt) == "9000.000"
         assert str(snapshot.quality_held_mt) == "1000.000"
+
+
+def test_shipment_xlsm_upload_is_supported(
+    client_and_session: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, SessionLocal = client_and_session
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.append(
+        [
+            "shipment_id",
+            "plant_code",
+            "material_code",
+            "supplier_name",
+            "quantity_mt",
+            "planned_eta",
+            "current_eta",
+            "current_state",
+            "latest_update_at",
+        ]
+    )
+    sheet.append(
+        [
+            "SHP-XLSM-1",
+            "JAM",
+            "COKING_COAL",
+            "Supplier A",
+            100,
+            "2026-05-10T00:00:00Z",
+            "2026-05-10T00:00:00Z",
+            "in_transit",
+            "2026-05-06T08:00:00Z",
+        ]
+    )
+    output = io.BytesIO()
+    workbook.save(output)
+
+    response = upload_xlsm(client, login(client), "shipment", output.getvalue())
+
+    assert response.status_code == 200, response.json()
+    assert response.json()["rows_accepted"] == 1
+    with SessionLocal() as db:
+        shipment = db.scalar(select(Shipment).where(Shipment.shipment_id == "SHP-XLSM-1"))
+        assert shipment is not None
 
 
 def test_invalid_stock_upload_rejects_zero_daily_consumption(

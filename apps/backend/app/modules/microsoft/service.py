@@ -28,7 +28,7 @@ AUTH_ENDPOINT = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"
 TOKEN_ENDPOINT = "https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token"
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
 SCOPES = ["Files.Read", "Files.Read.All", "offline_access", "User.Read"]
-SUPPORTED_SUFFIXES = {".csv", ".xls", ".xlsx", ".xlsm"}
+SUPPORTED_SUFFIXES = {".csv", ".xlsx", ".xlsm"}
 DISCOVERY_SEARCH_TERMS = (
     "shipment",
     "shipments",
@@ -358,7 +358,7 @@ def sync_microsoft_data_source(db: Session, source: MicrosoftDataSource) -> dict
         )
         filename = metadata.get("name") or source.display_name or "microsoft-source.xlsx"
         content = download_file(db, connection, source.drive_id, source.item_id, source.site_id)
-        if source.sheet_name and Path(filename).suffix.lower() == ".xlsx":
+        if source.sheet_name and Path(filename).suffix.lower() in {".xlsx", ".xlsm"}:
             content = activate_sheet(content, source.sheet_name)
         result = process_upload_content(
             db=db,
@@ -512,8 +512,6 @@ def _content_type(filename: str) -> str:
     suffix = Path(filename).suffix.lower()
     if suffix == ".csv":
         return "text/csv"
-    if suffix == ".xls":
-        return "application/vnd.ms-excel"
     if suffix == ".xlsm":
         return "application/vnd.ms-excel.sheet.macroEnabled.12"
     return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"

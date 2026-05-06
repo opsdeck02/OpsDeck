@@ -207,8 +207,19 @@ def create_data_source(
     db.add(source)
     db.commit()
     db.refresh(source)
-    sync_result = service.sync_microsoft_data_source(db, source)
-    return {"source": MicrosoftDataSourceOut.model_validate(source).model_dump(mode="json"), "sync_result": sync_result}
+    try:
+        sync_result = service.sync_microsoft_data_source(db, source)
+    except PermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except Exception as exc:
+        detail = source.last_sync_error or str(exc) or "Microsoft source could not be synced"
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=detail) from exc
+    return {
+        "source": MicrosoftDataSourceOut.model_validate(source).model_dump(mode="json"),
+        "sync_result": sync_result,
+    }
 
 
 @router.get("/data-sources", response_model=list[MicrosoftDataSourceOut])
@@ -261,7 +272,15 @@ def sync_data_source(
     context: Annotated[RequestContext, Depends(require_admin_access)],
 ) -> dict:
     source = _get_source(db, context.tenant_id, source_id)
-    return service.sync_microsoft_data_source(db, source)
+    try:
+        return service.sync_microsoft_data_source(db, source)
+    except PermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except Exception as exc:
+        detail = source.last_sync_error or str(exc) or "Microsoft source could not be synced"
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=detail) from exc
 
 
 def _get_connection(db: Session, tenant_id: int, connection_id: uuid.UUID) -> MicrosoftConnection:

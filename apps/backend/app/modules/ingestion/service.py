@@ -67,7 +67,7 @@ ALIASES = {
     "destination_port": {"destinationport", "destination", "dischargeport"},
     "eta_confidence": {"etaconfidence", "confidence"},
     "on_hand_mt": {"onhandmt", "onhand", "stockmt", "stock", "currentstocktons", "currentstock"},
-    "quality_held_mt": {"qualityheldmt", "qualityheld", "heldmt", "blockedstocktons", "blockedstock", "blockedstocktons"},
+    "quality_held_mt": {"qualityheldmt", "qualityheld", "heldmt", "blockedstocktons", "blockedstock"},
     "available_to_consume_mt": {"availabletoconsumemt", "availablemt", "available", "availableunrestrictedtons"},
     "daily_consumption_mt": {"dailyconsumptionmt", "dailyconsumption", "consumptionmt", "dailyconsumptiontons"},
     "snapshot_time": {"snapshottime", "snapshotat", "asof", "asoftime", "lastupdatedat"},
@@ -398,14 +398,14 @@ def parse_upload(
             mapping_overrides=mapping_overrides,
             source_of_truth=source_of_truth,
         )
-    if suffix == ".xlsx":
+    if suffix in {".xlsx", ".xlsm"}:
         return parse_xlsx(
             file_type,
             content,
             mapping_overrides=mapping_overrides,
             source_of_truth=source_of_truth,
         )
-    raise ValueError("Only CSV and XLSX uploads are supported")
+    raise ValueError("Only CSV, XLSX, and XLSM uploads are supported")
 
 
 def extract_headers(file_type: str, filename: str, content: bytes) -> list[str]:
@@ -418,7 +418,7 @@ def extract_headers(file_type: str, filename: str, content: bytes) -> list[str]:
         if not headers:
             raise ValueError("Missing header row")
         return ["" if value is None else str(value) for value in headers]
-    if suffix == ".xlsx":
+    if suffix in {".xlsx", ".xlsm"}:
         workbook = load_workbook(io.BytesIO(content), read_only=True, data_only=True)
         sheet = workbook.active
         rows = list(sheet.iter_rows(values_only=True))
@@ -426,7 +426,7 @@ def extract_headers(file_type: str, filename: str, content: bytes) -> list[str]:
             raise ValueError("Missing header row")
         header_index = detect_header_row(file_type, rows)
         return ["" if value is None else str(value) for value in rows[header_index]]
-    raise ValueError("Only CSV and XLSX uploads are supported")
+    raise ValueError("Only CSV, XLSX, and XLSM uploads are supported")
 
 
 def parse_csv(
