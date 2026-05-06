@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 
 import httpx
 from cryptography.fernet import Fernet
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -134,7 +134,11 @@ def test_download_file_retries_after_unauthorized(monkeypatch) -> None:
             httpx.Response(401),
             httpx.Response(200, content=b"shipment_id\nA-1\n"),
         ]
-        monkeypatch.setattr(service, "_graph_response", lambda *args, **kwargs: responses.pop(0))
+        monkeypatch.setattr(
+            service,
+            "_graph_response",
+            lambda *args, responses=responses, **kwargs: responses.pop(0),
+        )
         monkeypatch.setattr(
             service,
             "_token_post",
@@ -157,7 +161,7 @@ def test_list_drive_files_finds_stock_snapshot_via_root_search(monkeypatch) -> N
         db.commit()
         calls: list[str] = []
 
-        def fake_graph_json(method: str, path: str, token: str) -> dict:
+        def fake_graph_json(method: str, path: str, token: str, calls=calls) -> dict:
             calls.append(path)
             if "stock_snapshot" in path:
                 return {
@@ -168,7 +172,12 @@ def test_list_drive_files_finds_stock_snapshot_via_root_search(monkeypatch) -> N
                             "size": 2048,
                             "lastModifiedDateTime": "2026-04-28T10:00:00Z",
                             "webUrl": "https://onedrive.example/stock_snapshot.xlsx",
-                            "file": {"mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"},
+                            "file": {
+                                "mimeType": (
+                                    "application/vnd.openxmlformats-officedocument."
+                                    "spreadsheetml.sheet"
+                                )
+                            },
                             "parentReference": {"driveId": "drive-1"},
                         }
                     ]
@@ -181,6 +190,86 @@ def test_list_drive_files_finds_stock_snapshot_via_root_search(monkeypatch) -> N
 
         assert files[0]["name"] == "stock_snapshot.xlsx"
         assert any("/me/drive/root/search" in path for path in calls)
+
+
+def test_list_drive_files_finds_singular_shipment_and_xlsm(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "encryption_key", Fernet.generate_key().decode())
+    encryption._fernet.cache_clear()
+    for db in db_session():
+        tenant, _ = seed_tenant_user(db)
+        connection = make_connection(tenant.id, expires_at=datetime.now(UTC) + timedelta(hours=1))
+        db.add(connection)
+        db.commit()
+        calls: list[str] = []
+
+        def fake_graph_json(method: str, path: str, token: str, calls=calls) -> dict:
+            calls.append(path)
+            if "shipment" in path and "shipments" not in path:
+                return {
+                    "value": [
+                        {
+                            "id": "item-shipments",
+                            "name": "shipment_report.xlsm",
+                            "size": 4096,
+                            "lastModifiedDateTime": "2026-05-06T08:00:00Z",
+                            "webUrl": "https://onedrive.example/shipment_report.xlsm",
+                            "file": {"mimeType": "application/vnd.ms-excel.sheet.macroEnabled.12"},
+                            "parentReference": {"driveId": "drive-shipments"},
+                        }
+                    ]
+                }
+            return {"value": []}
+
+        monkeypatch.setattr(service, "_graph_json", fake_graph_json)
+
+        files = service.list_drive_files(db, connection)
+
+        assert files[0]["name"] == "shipment_report.xlsm"
+        assert any("search(q='shipment')" in path for path in calls)
+
+
+def test_list_sharepoint_files_searches_beyond_root(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "encryption_key", Fernet.generate_key().decode())
+    encryption._fernet.cache_clear()
+    for db in db_session():
+        tenant, _ = seed_tenant_user(db)
+        connection = make_connection(tenant.id, expires_at=datetime.now(UTC) + timedelta(hours=1))
+        db.add(connection)
+        db.commit()
+        calls: list[str] = []
+
+        def fake_graph_json(method: str, path: str, token: str, calls=calls) -> dict:
+            calls.append(path)
+            if "root/children" in path:
+                return {"value": []}
+            if "shipment" in path and "shipments" not in path:
+                return {
+                    "value": [
+                        {
+                            "id": "nested-item",
+                            "name": "shipment_status.xlsx",
+                            "size": 2048,
+                            "lastModifiedDateTime": "2026-05-06T08:00:00Z",
+                            "webUrl": "https://sharepoint.example/shipment_status.xlsx",
+                            "file": {
+                                "mimeType": (
+                                    "application/vnd.openxmlformats-officedocument."
+                                    "spreadsheetml.sheet"
+                                )
+                            },
+                            "parentReference": {"driveId": "drive-docs"},
+                        }
+                    ]
+                }
+            return {"value": []}
+
+        monkeypatch.setattr(service, "_graph_json", fake_graph_json)
+
+        files = service.list_sharepoint_files(db, connection, "site-1", "drive-docs")
+
+        assert files[0]["name"] == "shipment_status.xlsx"
+        assert files[0]["is_sharepoint"] is True
+        assert any("/drives/drive-docs/root/search" in path for path in calls)
 
 
 def test_microsoft_sync_task_continues_after_source_failure(monkeypatch) -> None:

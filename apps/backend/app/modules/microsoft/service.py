@@ -28,7 +28,19 @@ AUTH_ENDPOINT = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"
 TOKEN_ENDPOINT = "https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token"
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
 SCOPES = ["Files.Read", "Files.Read.All", "offline_access", "User.Read"]
-SUPPORTED_SUFFIXES = {".csv", ".xls", ".xlsx"}
+SUPPORTED_SUFFIXES = {".csv", ".xls", ".xlsx", ".xlsm"}
+DISCOVERY_SEARCH_TERMS = (
+    "shipment",
+    "shipments",
+    "shipment_report",
+    "stock_snapshot",
+    "stock",
+    "threshold",
+    "xlsx",
+    "xlsm",
+    "xls",
+    "csv",
+)
 
 
 def get_authorization_url(db: Session, tenant_id: int, user_id: int) -> tuple[str, str]:
@@ -132,7 +144,9 @@ def refresh_access_token(db: Session, connection: MicrosoftConnection) -> Micros
     connection.access_token = encrypt(tokens["access_token"])
     if tokens.get("refresh_token"):
         connection.refresh_token = encrypt(tokens["refresh_token"])
-    connection.token_expires_at = datetime.now(UTC) + timedelta(seconds=int(tokens.get("expires_in", 3600)))
+    connection.token_expires_at = datetime.now(UTC) + timedelta(
+        seconds=int(tokens.get("expires_in", 3600))
+    )
     connection.scope = str(tokens.get("scope") or connection.scope)
     connection.last_token_refresh_at = datetime.now(UTC)
     connection.auth_error = None
@@ -165,7 +179,7 @@ def list_drive_files(
     elif drive_id:
         payload = _graph_json("GET", f"/me/drives/{drive_id}/root/children", token)
         items.extend(payload.get("value", []))
-        for query in ("stock_snapshot", "stock", "shipments", "threshold", "xlsx", "xls", "csv"):
+        for query in DISCOVERY_SEARCH_TERMS:
             items.extend(_collect_drive_search_items(token, query, drive_id=drive_id))
     else:
         payload = _graph_json("GET", "/me/drive/root/children", token)
@@ -175,7 +189,7 @@ def list_drive_files(
             items.extend(recent_payload.get("value", []))
         except Exception:
             logger.debug("Microsoft recent files lookup failed", exc_info=True)
-        for query in ("stock_snapshot", "stock", "shipments", "threshold", "xlsx", "xls", "csv"):
+        for query in DISCOVERY_SEARCH_TERMS:
             items.extend(_collect_drive_search_items(token, query))
     return _dedupe_files(items, is_sharepoint=False)
 
@@ -187,7 +201,10 @@ def _collect_drive_search_items(
 ) -> list[dict[str, Any]]:
     encoded_query = quote(query.replace("'", "''"))
     if drive_id:
-        paths = [f"/me/drives/{drive_id}/root/search(q='{encoded_query}')"]
+        paths = [
+            f"/me/drives/{drive_id}/root/search(q='{encoded_query}')",
+            f"/drives/{drive_id}/root/search(q='{encoded_query}')",
+        ]
     else:
         paths = [
             f"/me/drive/root/search(q='{encoded_query}')",
@@ -216,10 +233,17 @@ def list_sharepoint_sites(db: Session, connection: MicrosoftConnection) -> list[
     ]
 
 
-def list_site_drives(db: Session, connection: MicrosoftConnection, site_id: str) -> list[dict[str, str]]:
+def list_site_drives(
+    db: Session,
+    connection: MicrosoftConnection,
+    site_id: str,
+) -> list[dict[str, str]]:
     token = get_valid_token(db, connection)
     payload = _graph_json("GET", f"/sites/{site_id}/drives", token)
-    return [{"drive_id": item["id"], "name": item.get("name") or "Documents"} for item in payload.get("value", [])]
+    return [
+        {"drive_id": item["id"], "name": item.get("name") or "Documents"}
+        for item in payload.get("value", [])
+    ]
 
 
 def list_sharepoint_files(
@@ -229,8 +253,37 @@ def list_sharepoint_files(
     drive_id: str,
 ) -> list[dict[str, Any]]:
     token = get_valid_token(db, connection)
+    items: list[dict[str, Any]] = []
     payload = _graph_json("GET", f"/sites/{site_id}/drives/{drive_id}/root/children", token)
-    return [_file_payload(item, is_sharepoint=True) for item in payload.get("value", []) if _is_supported_file(item)]
+    items.extend(payload.get("value", []))
+    for query in DISCOVERY_SEARCH_TERMS:
+        items.extend(_collect_sharepoint_search_items(token, site_id, drive_id, query))
+    return _dedupe_files(items, is_sharepoint=True)
+
+
+def _collect_sharepoint_search_items(
+    token: str,
+    site_id: str,
+    drive_id: str,
+    query: str,
+) -> list[dict[str, Any]]:
+    encoded_query = quote(query.replace("'", "''"))
+    paths = [
+        f"/sites/{site_id}/drives/{drive_id}/root/search(q='{encoded_query}')",
+        f"/drives/{drive_id}/root/search(q='{encoded_query}')",
+    ]
+    items: list[dict[str, Any]] = []
+    for path in paths:
+        try:
+            payload = _graph_json("GET", path, token)
+            items.extend(payload.get("value", []))
+        except Exception:
+            logger.debug(
+                "Microsoft SharePoint file search failed",
+                extra={"path": path},
+                exc_info=True,
+            )
+    return items
 
 
 def download_file(
@@ -296,7 +349,13 @@ def sync_microsoft_data_source(db: Session, source: MicrosoftDataSource) -> dict
         raise PermissionError(source.last_sync_error)
 
     try:
-        metadata = get_file_metadata(db, connection, source.drive_id, source.item_id, source.site_id)
+        metadata = get_file_metadata(
+            db,
+            connection,
+            source.drive_id,
+            source.item_id,
+            source.site_id,
+        )
         filename = metadata.get("name") or source.display_name or "microsoft-source.xlsx"
         content = download_file(db, connection, source.drive_id, source.item_id, source.site_id)
         if source.sheet_name and Path(filename).suffix.lower() == ".xlsx":
@@ -344,7 +403,11 @@ def sync_microsoft_data_source(db: Session, source: MicrosoftDataSource) -> dict
 
 def _validate_state(db: Session, state: str) -> MicrosoftOAuthState:
     oauth_state = db.scalar(select(MicrosoftOAuthState).where(MicrosoftOAuthState.state == state))
-    if oauth_state is None or oauth_state.used or _aware(oauth_state.expires_at) < datetime.now(UTC):
+    if (
+        oauth_state is None
+        or oauth_state.used
+        or _aware(oauth_state.expires_at) < datetime.now(UTC)
+    ):
         raise HTTPException(status_code=400, detail="Invalid or expired Microsoft OAuth state")
     return oauth_state
 
@@ -374,7 +437,12 @@ def _graph_json(method: str, path: str, token: str) -> dict[str, Any]:
     return response.json()
 
 
-def _graph_response(method: str, path: str, token: str, follow_redirects: bool = False) -> httpx.Response:
+def _graph_response(
+    method: str,
+    path: str,
+    token: str,
+    follow_redirects: bool = False,
+) -> httpx.Response:
     url = path if path.startswith("http") else f"{GRAPH_BASE}{path}"
     return httpx.request(
         method,
@@ -446,6 +514,8 @@ def _content_type(filename: str) -> str:
         return "text/csv"
     if suffix == ".xls":
         return "application/vnd.ms-excel"
+    if suffix == ".xlsm":
+        return "application/vnd.ms-excel.sheet.macroEnabled.12"
     return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
