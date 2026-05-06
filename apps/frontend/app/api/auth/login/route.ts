@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
 
     response.cookies.set("__Host-opsdeck-session", body.access_token, {
       httpOnly: true,
-      sameSite: "strict",
+      sameSite: "lax",
       secure: true,
       path: "/",
       maxAge: 15 * 60,
@@ -43,7 +43,7 @@ export async function POST(request: NextRequest) {
     if (body.refresh_token) {
       response.cookies.set("__Host-opsdeck-refresh", body.refresh_token, {
         httpOnly: true,
-        sameSite: "strict",
+        sameSite: "lax",
         secure: true,
         path: "/",
         maxAge: 7 * 24 * 60 * 60,
@@ -51,7 +51,7 @@ export async function POST(request: NextRequest) {
     }
     response.cookies.set("steelops_tenant", activeMembership?.tenant_slug ?? "", {
       httpOnly: true,
-      sameSite: "strict",
+      sameSite: "lax",
       secure: true,
       path: "/",
       maxAge: activeMembership ? 7 * 24 * 60 * 60 : 0,

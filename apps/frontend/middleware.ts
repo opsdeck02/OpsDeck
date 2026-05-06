@@ -13,7 +13,7 @@ export async function middleware(request: NextRequest) {
       const response = NextResponse.next();
       response.cookies.set("__Host-opsdeck-session", refreshed.access_token, {
         httpOnly: true,
-        sameSite: "strict",
+        sameSite: "lax",
         secure: true,
         path: "/",
         maxAge: 15 * 60,

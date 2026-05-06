@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 const expiredCookieOptions = {
   httpOnly: true,
-  sameSite: "strict" as const,
+  sameSite: "lax" as const,
   secure: true,
   path: "/",
   maxAge: 0,
