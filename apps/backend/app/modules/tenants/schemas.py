@@ -20,6 +20,7 @@ class TenantCreateRequest(BaseModel):
     slug: str
     plan_tier: TenantPlanTier = "pilot"
     max_users: int | None = Field(default=None, ge=1)
+    max_plants: int | None = Field(default=None, ge=1)
     access_weeks: int | None = Field(default=None, ge=1, description="Number of weeks of access for the tenant")
     admin_user: TenantAdminUserPayload | None = None
 
@@ -30,10 +31,12 @@ class TenantSummaryOut(BaseModel):
     slug: str
     plan_tier: TenantPlanTier = "pilot"
     max_users: int | None
+    max_plants: int | None
     is_active: bool = True
     access_weeks: int | None = None
     access_expires_at: datetime | None = None
     active_user_count: int | None = None
+    active_plant_count: int | None = None
     created_at: datetime
 
 
@@ -43,6 +46,7 @@ class TenantCreatedResponse(BaseModel):
     slug: str
     plan_tier: TenantPlanTier = "pilot"
     max_users: int | None
+    max_plants: int | None
     access_weeks: int | None = None
     created_at: datetime
     admin_user: dict | None = None
@@ -53,11 +57,14 @@ class TenantPlanSummaryOut(BaseModel):
     tenant_name: str
     tenant_slug: str
     plan_tier: TenantPlanTier
+    max_plants: int | None = None
+    active_plant_count: int | None = None
     capabilities: dict[str, bool]
 
 
 class TenantPlanUpdateRequest(BaseModel):
     plan_tier: TenantPlanTier
+    max_plants: int | None = Field(default=None, ge=1)
 
 
 class ExternalDataSourceBase(BaseModel):

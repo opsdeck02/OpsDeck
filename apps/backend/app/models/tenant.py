@@ -15,6 +15,7 @@ class Tenant(TimestampMixin, Base):
     slug: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
     plan_tier: Mapped[str] = mapped_column(String(20), nullable=False, default="pilot")
     max_users: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    max_plants: Mapped[int | None] = mapped_column(Integer, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     access_weeks: Mapped[int | None] = mapped_column(Integer, nullable=True)
     access_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

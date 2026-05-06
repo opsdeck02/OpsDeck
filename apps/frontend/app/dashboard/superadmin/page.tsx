@@ -99,6 +99,10 @@ export default async function SuperadminTenantsPage() {
                 <span>{tenant.active_user_count || 0} / {tenant.max_users || 'Unlimited'}</span>
               </div>
               <div className="flex justify-between">
+                <span className="text-mutedForeground">Plants:</span>
+                <span>{tenant.active_plant_count || 0} / {tenant.max_plants || 'Unlimited'}</span>
+              </div>
+              <div className="flex justify-between">
                 <span className="text-mutedForeground">Plan:</span>
                 <span className="capitalize">{tenant.plan_tier}</span>
               </div>

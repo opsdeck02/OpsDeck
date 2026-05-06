@@ -52,11 +52,13 @@ class TenantDetailOut(BaseModel):
     slug: str
     plan_tier: str
     max_users: int | None
+    max_plants: int | None
     is_active: bool
     access_weeks: int | None
     access_expires_at: str | None
     days_until_expiry: int | None
     active_user_count: int
+    active_plant_count: int
     created_at: str
     users: list[dict]
     capabilities: dict[str, bool]
@@ -268,6 +270,7 @@ def create_tenant_for_superadmin(
             slug=payload.slug.strip().lower(),
             plan_tier=payload.plan_tier,
             max_users=payload.max_users,
+            max_plants=payload.max_plants,
             access_weeks=payload.access_weeks,
             admin_user=(
                 TenantAdminPayload(
@@ -292,7 +295,13 @@ def update_tenant_plan_for_superadmin(
     db: Annotated[Session, Depends(get_db)],
 ) -> TenantPlanSummaryOut:
     try:
-        result = update_tenant_plan(db, tenant_id, payload.plan_tier)
+        result = update_tenant_plan(
+            db,
+            tenant_id,
+            payload.plan_tier,
+            payload.max_plants,
+            max_plants_provided="max_plants" in payload.model_fields_set,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     return TenantPlanSummaryOut.model_validate(result)

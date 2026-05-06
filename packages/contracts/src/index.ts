@@ -300,10 +300,12 @@ export interface TenantSummary {
   slug: string;
   plan_tier: "pilot" | "paid" | "enterprise";
   max_users: number | null;
+  max_plants: number | null;
   is_active: boolean;
   access_weeks: number | null;
   access_expires_at: string | null;
   active_user_count: number | null;
+  active_plant_count: number | null;
   created_at: string;
 }
 
@@ -313,10 +315,12 @@ export interface TenantDetail {
   slug: string;
   plan_tier: "pilot" | "paid" | "enterprise";
   max_users: number | null;
+  max_plants: number | null;
   is_active: boolean;
   access_weeks: number | null;
   access_expires_at: string | null;
   active_user_count: number;
+  active_plant_count: number;
   created_at: string;
   users: TenantUser[];
   capabilities: Record<string, boolean>;
@@ -327,6 +331,7 @@ export interface TenantCreatePayload {
   slug: string;
   plan_tier?: "pilot" | "paid" | "enterprise";
   max_users: number | null;
+  max_plants?: number | null;
   access_weeks?: number | null;
   admin_user?: {
     email: string;
@@ -785,6 +790,7 @@ export interface TenantCreatePayload {
   name: string;
   slug: string;
   max_users: number | null;
+  max_plants?: number | null;
   admin_user?: {
     email: string;
     full_name: string;
@@ -798,6 +804,7 @@ export interface TenantCreateResponse {
   slug: string;
   plan_tier: "pilot" | "paid" | "enterprise";
   max_users: number | null;
+  max_plants: number | null;
   created_at: string;
   admin_user: TenantUser | null;
 }
@@ -807,6 +814,8 @@ export interface TenantPlanSummary {
   tenant_name: string;
   tenant_slug: string;
   plan_tier: "pilot" | "paid" | "enterprise";
+  max_plants: number | null;
+  active_plant_count: number | null;
   capabilities: Record<string, boolean>;
 }
 

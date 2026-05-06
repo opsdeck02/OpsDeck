@@ -52,6 +52,7 @@ def test_superadmin_can_create_and_delete_tenant_and_tenant_admin_can_manage_use
                 "name": "Alpha Metals",
                 "slug": "alpha-metals",
                 "max_users": 2,
+                "max_plants": 3,
                 "admin_user": {
                     "email": "alpha-admin@test.local",
                     "full_name": "Alpha Admin",
@@ -63,6 +64,7 @@ def test_superadmin_can_create_and_delete_tenant_and_tenant_admin_can_manage_use
         created_tenant = create_response.json()
         assert created_tenant["slug"] == "alpha-metals"
         assert created_tenant["max_users"] == 2
+        assert created_tenant["max_plants"] == 3
         assert created_tenant["admin_user"]["email"] == "alpha-admin@test.local"
         assert created_tenant["plan_tier"] == "pilot"
         assert created_tenant["access_weeks"] == 10
@@ -108,6 +110,17 @@ def test_superadmin_can_create_and_delete_tenant_and_tenant_admin_can_manage_use
         assert "maximum allowed users" in user_limit_response.json()["detail"]
 
         tenant = next(item for item in list_response.json() if item["slug"] == "alpha-metals")
+        assert tenant["max_plants"] == 3
+        assert tenant["active_plant_count"] == 0
+
+        plant_limit_update = client.patch(
+            f"/api/v1/tenants/admin/{tenant['id']}/plan",
+            headers={"Authorization": f"Bearer {superadmin_token}"},
+            json={"plan_tier": "pilot", "max_plants": 2},
+        )
+        assert plant_limit_update.status_code == 200
+        assert plant_limit_update.json()["max_plants"] == 2
+
         superadmin_users = client.get(
             f"/api/v1/users/admin/tenant/{tenant['id']}",
             headers={"Authorization": f"Bearer {superadmin_token}"},
@@ -137,6 +150,77 @@ def test_superadmin_can_create_and_delete_tenant_and_tenant_admin_can_manage_use
             headers={"Authorization": f"Bearer {superadmin_token}"},
         )
         assert all(item["slug"] != "alpha-metals" for item in final_tenants.json())
+    finally:
+        app.dependency_overrides.clear()
+        Base.metadata.drop_all(bind=engine)
+
+
+def test_tenant_plant_limit_is_enforced_for_setup() -> None:
+    engine = create_engine(
+        "sqlite+pysqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    testing_session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    Base.metadata.create_all(bind=engine)
+
+    with testing_session() as db:
+        seed_management_data(db)
+        tenant = db.scalar(select(Tenant).where(Tenant.slug == "demo-tenant"))
+        assert tenant is not None
+        tenant.max_plants = 2
+        tenant_admin_role = db.scalar(select(Role).where(Role.name == TENANT_ADMIN))
+        tenant_admin = User(
+            email="tenant-admin@test.local",
+            full_name="Tenant Admin",
+            password_hash=hash_password("Password123!"),
+            is_active=True,
+        )
+        db.add(tenant_admin)
+        db.flush()
+        db.add(
+            TenantMembership(
+                tenant_id=tenant.id,
+                user_id=tenant_admin.id,
+                role_id=tenant_admin_role.id,
+                is_active=True,
+            )
+        )
+        db.commit()
+
+    def override_get_db() -> Generator[Session, None, None]:
+        db = testing_session()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        client = TestClient(app)
+        admin_token = login(client, "tenant-admin@test.local", "Password123!")
+
+        rejected = client.post(
+            "/api/v1/tenants/plants",
+            headers={
+                "Authorization": f"Bearer {admin_token}",
+                "X-Tenant-Slug": "demo-tenant",
+            },
+            json={"count": 3, "plant_names": []},
+        )
+        assert rejected.status_code == 400
+        assert "limited to 2 plants" in rejected.json()["detail"]
+
+        accepted = client.post(
+            "/api/v1/tenants/plants",
+            headers={
+                "Authorization": f"Bearer {admin_token}",
+                "X-Tenant-Slug": "demo-tenant",
+            },
+            json={"count": 2, "plant_names": ["Alpha", "Beta"]},
+        )
+        assert accepted.status_code == 200
+        assert accepted.json()["total"] == 2
     finally:
         app.dependency_overrides.clear()
         Base.metadata.drop_all(bind=engine)

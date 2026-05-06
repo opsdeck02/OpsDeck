@@ -28,6 +28,7 @@ from app.models import (
     Shipment,
     ShipmentUpdate,
     StockSnapshot,
+    Tenant,
     UploadedFile,
 )
 from app.models.enums import ShipmentState
@@ -714,6 +715,12 @@ def resolve_plant(db: Session, tenant_id: int, value: str) -> Plant:
             if plant is not None and should_adopt_uploaded_plant_name(plant, requested_index, value):
                 plant.name = value.strip()
     if plant is None:
+        tenant = db.get(Tenant, tenant_id)
+        plant_count = int(
+            db.scalar(select(func.count(Plant.id)).where(Plant.tenant_id == tenant_id)) or 0
+        )
+        if tenant and tenant.max_plants is not None and plant_count >= tenant.max_plants:
+            raise ValueError(f"Tenant is limited to {tenant.max_plants} plants")
         plant = Plant(
             tenant_id=tenant_id,
             code=build_plant_code(value),

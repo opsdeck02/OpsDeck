@@ -38,6 +38,7 @@ export function UserAdminPage({
     slug: "",
     plan_tier: "pilot" as "pilot" | "paid" | "enterprise",
     max_users: "",
+    max_plants: "",
     admin_email: "",
     admin_name: "",
     admin_password: "",
@@ -52,6 +53,7 @@ export function UserAdminPage({
   const [plantNames, setPlantNames] = useState("");
   const [tenantPlan, setTenantPlan] = useState<TenantPlanSummary | null>(null);
   const [tenantPlanEdits, setTenantPlanEdits] = useState<Record<number, "pilot" | "paid" | "enterprise">>({});
+  const [tenantPlantLimitEdits, setTenantPlantLimitEdits] = useState<Record<number, string>>({});
   const [message, setMessage] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
@@ -83,6 +85,7 @@ export function UserAdminPage({
           slug: tenantForm.slug,
           plan_tier: tenantForm.plan_tier,
           max_users: tenantForm.max_users ? Number(tenantForm.max_users) : null,
+          max_plants: tenantForm.max_plants ? Number(tenantForm.max_plants) : null,
           admin_user:
             tenantForm.admin_email && tenantForm.admin_name && tenantForm.admin_password
               ? {
@@ -199,7 +202,9 @@ export function UserAdminPage({
   }
 
   function saveTenantPlan(tenantId: number) {
-    const planTier = tenantPlanEdits[tenantId];
+    const tenant = tenants.find((item) => item.id === tenantId);
+    const planTier = tenantPlanEdits[tenantId] ?? tenant?.plan_tier;
+    const maxPlants = tenantPlantLimitEdits[tenantId] ?? (tenant?.max_plants == null ? "" : String(tenant.max_plants));
     if (!planTier) {
       setMessage("Select a tenant plan before saving.");
       return;
@@ -209,14 +214,17 @@ export function UserAdminPage({
       const response = await fetch(`/api/tenants/${tenantId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ plan_tier: planTier }),
+        body: JSON.stringify({
+          plan_tier: planTier,
+          max_plants: maxPlants === "" ? null : Number(maxPlants),
+        }),
       });
-      const body = (await response.json()) as { detail?: string; plan_tier?: string };
+      const body = (await response.json()) as { detail?: string; plan_tier?: string; max_plants?: number | null };
       if (!response.ok) {
         setMessage(typeof body.detail === "string" ? body.detail : "Tenant plan update failed.");
         return;
       }
-      setMessage(`Tenant plan updated to ${body.plan_tier ?? planTier}. Refreshing the page.`);
+      setMessage(`Tenant settings updated. Refreshing the page.`);
       window.location.reload();
     });
   }
@@ -261,6 +269,12 @@ export function UserAdminPage({
                   value={tenantForm.max_users}
                   onChange={(event) => setTenantForm((current) => ({ ...current, max_users: event.target.value }))}
                   placeholder="Max users"
+                  className="rounded-2xl border bg-card px-4 py-3 text-sm"
+                />
+                <input
+                  value={tenantForm.max_plants}
+                  onChange={(event) => setTenantForm((current) => ({ ...current, max_plants: event.target.value }))}
+                  placeholder="Max plants"
                   className="rounded-2xl border bg-card px-4 py-3 text-sm"
                 />
                 <input
@@ -398,6 +412,9 @@ export function UserAdminPage({
                 <p className="mt-2 text-mutedForeground">
                   Max users: {tenant.max_users ?? "unlimited"}
                 </p>
+                <p className="text-mutedForeground">
+                  Plants: {tenant.active_plant_count ?? 0} / {tenant.max_plants ?? "unlimited"}
+                </p>
                 <div className="mt-2 flex items-center justify-between gap-3">
                   <span className="text-mutedForeground">Plan:</span>
                   <Badge variant="outline">{tenant.plan_tier}</Badge>
@@ -423,9 +440,21 @@ export function UserAdminPage({
                     disabled={isPending}
                     className="rounded-2xl border px-4 py-2 text-xs font-semibold disabled:opacity-60"
                   >
-                    Save plan
+                    Save settings
                   </button>
                 </div>
+                <input
+                  value={tenantPlantLimitEdits[tenant.id] ?? tenant.max_plants ?? ""}
+                  onChange={(event) =>
+                    setTenantPlantLimitEdits((current) => ({
+                      ...current,
+                      [tenant.id]: event.target.value,
+                    }))
+                  }
+                  inputMode="numeric"
+                  placeholder="Max plants"
+                  className="mt-2 w-full rounded-2xl border bg-card px-3 py-2 text-xs"
+                />
                 <div className="mt-3 flex flex-wrap gap-3">
                   <a
                     href={`/dashboard/users?tenant_id=${tenant.id}`}
@@ -458,6 +487,9 @@ export function UserAdminPage({
               <p className="text-mutedForeground">{currentUser.memberships[0]?.tenant_slug}</p>
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 <Badge variant="outline">Plan: {tenantPlan?.plan_tier ?? "pilot"}</Badge>
+                <Badge variant="outline">
+                  Plants {tenantPlan?.active_plant_count ?? 0} / {tenantPlan?.max_plants ?? "unlimited"}
+                </Badge>
                 <Badge variant="outline">
                   Automation {tenantPlan?.capabilities?.automated_data_sources ? "enabled" : "locked"}
                 </Badge>

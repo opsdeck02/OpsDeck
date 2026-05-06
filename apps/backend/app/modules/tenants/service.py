@@ -33,6 +33,9 @@ def list_all_tenants(db: Session) -> list[dict]:
                 TenantMembership.is_active.is_(True),
             )
         )
+        plant_count = db.scalar(
+            select(func.count(Plant.id)).where(Plant.tenant_id == tenant.id)
+        )
         rows.append(
             {
                 "id": tenant.id,
@@ -40,10 +43,12 @@ def list_all_tenants(db: Session) -> list[dict]:
                 "slug": tenant.slug,
                 "plan_tier": tenant.plan_tier,
                 "max_users": tenant.max_users,
+                "max_plants": tenant.max_plants,
                 "is_active": tenant.is_active,
                 "access_weeks": tenant.access_weeks,
                 "access_expires_at": tenant.access_expires_at,
                 "active_user_count": int(user_count or 0),
+                "active_plant_count": int(plant_count or 0),
                 "created_at": tenant.created_at,
             }
         )
@@ -56,6 +61,7 @@ def create_tenant(
     name: str,
     slug: str,
     max_users: int | None,
+    max_plants: int | None,
     plan_tier: str = "pilot",
     access_weeks: int | None = None,
     admin_user: TenantAdminPayload | None,
@@ -78,6 +84,7 @@ def create_tenant(
         slug=slug,
         plan_tier=normalized_plan_tier,
         max_users=max_users,
+        max_plants=max_plants,
         access_weeks=access_weeks,
         access_expires_at=access_expires_at,
     )
@@ -124,6 +131,7 @@ def create_tenant(
         "slug": tenant.slug,
         "plan_tier": tenant.plan_tier,
         "max_users": tenant.max_users,
+        "max_plants": tenant.max_plants,
         "is_active": tenant.is_active,
         "access_weeks": tenant.access_weeks,
         "access_expires_at": tenant.access_expires_at,
@@ -179,6 +187,7 @@ def get_tenant_details(db: Session, tenant_id: int) -> dict | None:
             TenantMembership.is_active.is_(True),
         )
     )
+    plant_count = db.scalar(select(func.count(Plant.id)).where(Plant.tenant_id == tenant.id))
     
     # Get all users for this tenant
     users = list(
@@ -201,11 +210,13 @@ def get_tenant_details(db: Session, tenant_id: int) -> dict | None:
         "slug": tenant.slug,
         "plan_tier": tenant.plan_tier,
         "max_users": tenant.max_users,
+        "max_plants": tenant.max_plants,
         "is_active": tenant.is_active,
         "access_weeks": tenant.access_weeks,
         "access_expires_at": tenant.access_expires_at,
         "days_until_expiry": days_until_expiry,
         "active_user_count": int(user_count or 0),
+        "active_plant_count": int(plant_count or 0),
         "created_at": tenant.created_at,
         "capabilities": build_capabilities(tenant.plan_tier),
         "users": [
@@ -248,6 +259,8 @@ def ensure_numbered_plants(
     tenant = db.get(Tenant, tenant_id)
     if tenant is None:
         raise ValueError("Tenant not found")
+    if tenant.max_plants is not None and count > tenant.max_plants:
+        raise ValueError(f"Tenant is limited to {tenant.max_plants} plants")
 
     requested_names = [name.strip() for name in (plant_names or []) if name.strip()]
     existing_plants = list(db.scalars(select(Plant).where(Plant.tenant_id == tenant_id)))
@@ -301,16 +314,35 @@ def get_tenant_plan(db: Session, tenant_id: int) -> dict | None:
         "tenant_name": tenant.name,
         "tenant_slug": tenant.slug,
         "plan_tier": tenant.plan_tier,
+        "max_plants": tenant.max_plants,
+        "active_plant_count": int(
+            db.scalar(select(func.count(Plant.id)).where(Plant.tenant_id == tenant.id)) or 0
+        ),
         "capabilities": build_capabilities(tenant.plan_tier),
     }
 
 
-def update_tenant_plan(db: Session, tenant_id: int, plan_tier: str) -> dict:
+def update_tenant_plan(
+    db: Session,
+    tenant_id: int,
+    plan_tier: str,
+    max_plants: int | None = None,
+    max_plants_provided: bool = False,
+) -> dict:
     tenant = db.get(Tenant, tenant_id)
     if tenant is None:
         raise ValueError("Tenant not found")
+    current_plant_count = int(
+        db.scalar(select(func.count(Plant.id)).where(Plant.tenant_id == tenant_id)) or 0
+    )
+    if max_plants_provided and max_plants is not None and max_plants < current_plant_count:
+        raise ValueError(
+            f"Plant limit cannot be below current plant count ({current_plant_count})"
+        )
     normalized_plan_tier = normalize_plan_tier(plan_tier)
     tenant.plan_tier = normalized_plan_tier
+    if max_plants_provided:
+        tenant.max_plants = max_plants
     if normalized_plan_tier == "pilot" and tenant.access_weeks is None:
         tenant.access_weeks = DEFAULT_PILOT_ACCESS_WEEKS
         tenant.access_expires_at = datetime.now(timezone.utc) + timedelta(weeks=tenant.access_weeks)
@@ -321,6 +353,8 @@ def update_tenant_plan(db: Session, tenant_id: int, plan_tier: str) -> dict:
         "tenant_name": tenant.name,
         "tenant_slug": tenant.slug,
         "plan_tier": tenant.plan_tier,
+        "max_plants": tenant.max_plants,
+        "active_plant_count": current_plant_count,
         "capabilities": build_capabilities(tenant.plan_tier),
     }
 
