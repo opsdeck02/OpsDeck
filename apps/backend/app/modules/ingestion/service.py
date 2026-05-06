@@ -209,7 +209,7 @@ def process_upload_content(
     db.flush()
     create_audit_log(
         db,
-        context,
+        _audit_context(context, current_user_id),
         action="ingestion.uploaded",
         entity_type="uploaded_file",
         entity_id=str(uploaded_file.id),
@@ -261,7 +261,7 @@ def process_upload_content(
         uploaded_file.status = "failed" if result.rows_accepted == 0 else "processed"
         create_audit_log(
             db,
-            context,
+            _audit_context(context, current_user_id),
             action="ingestion.processed",
             entity_type="ingestion_job",
             entity_id=str(job.id),
@@ -292,6 +292,10 @@ def process_upload_content(
         job.completed_at = datetime.now(UTC)
         db.commit()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+def _audit_context(context: RequestContext, current_user_id: int | None) -> RequestContext:
+    return context.model_copy(update={"user_id": current_user_id})
 
 
 def save_upload(content: bytes, filename: str, checksum: str) -> str:

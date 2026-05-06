@@ -7,13 +7,25 @@ from datetime import UTC, datetime, timedelta
 
 import httpx
 from cryptography.fernet import Fernet
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.core.config import settings
 from app.db.base import Base
-from app.models import MicrosoftConnection, MicrosoftDataSource, MicrosoftOAuthState, Tenant, User
+from app.models import (
+    AuditLog,
+    Material,
+    MicrosoftConnection,
+    MicrosoftDataSource,
+    MicrosoftOAuthState,
+    Plant,
+    Role,
+    Tenant,
+    TenantMembership,
+    User,
+)
+from app.modules.auth.constants import TENANT_ADMIN
 from app.modules.microsoft import service
 from app.utils import encryption
 
@@ -272,6 +284,55 @@ def test_list_sharepoint_files_searches_beyond_root(monkeypatch) -> None:
         assert any("/drives/drive-docs/root/search" in path for path in calls)
 
 
+def test_microsoft_sync_uses_null_actor_for_background_audit(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "encryption_key", Fernet.generate_key().decode())
+    encryption._fernet.cache_clear()
+    for db in db_session():
+        tenant, _ = seed_tenant_user(db)
+        connection = make_connection(tenant.id, expires_at=datetime.now(UTC) + timedelta(hours=1))
+        db.add(connection)
+        db.flush()
+        source = MicrosoftDataSource(
+            tenant_id=tenant.id,
+            microsoft_connection_id=connection.id,
+            drive_id="drive",
+            item_id="shipment-file",
+            file_type="shipment",
+            sync_status="idle",
+            is_active=True,
+        )
+        db.add(source)
+        db.commit()
+
+        monkeypatch.setattr(
+            service,
+            "get_file_metadata",
+            lambda db, connection, drive_id, item_id, site_id=None: {"name": "shipments.csv"},
+        )
+        monkeypatch.setattr(
+            service,
+            "download_file",
+            lambda db, connection, drive_id, item_id, site_id=None: (
+                "\n".join(
+                    [
+                        "shipment_id,plant_code,material_code,supplier_name,quantity_mt,planned_eta,current_eta,current_state,latest_update_at",
+                        "SHP-MS-1,JAM,COKING_COAL,Supplier A,100,2026-05-10T00:00:00Z,2026-05-10T00:00:00Z,in_transit,2026-05-06T08:00:00Z",
+                    ]
+                ).encode()
+            ),
+        )
+
+        result = service.sync_microsoft_data_source(db, source)
+
+        audit_logs = list(db.scalars(select(AuditLog).where(AuditLog.tenant_id == tenant.id)))
+        assert result["rows_ingested"] == 1
+        assert {item.action for item in audit_logs} >= {
+            "ingestion.uploaded",
+            "ingestion.processed",
+        }
+        assert all(item.actor_user_id is None for item in audit_logs)
+
+
 def test_microsoft_sync_task_continues_after_source_failure(monkeypatch) -> None:
     monkeypatch.setattr(settings, "encryption_key", Fernet.generate_key().decode())
     encryption._fernet.cache_clear()
@@ -354,13 +415,35 @@ def db_session():
 
 def seed_tenant_user(db: Session) -> tuple[Tenant, User]:
     tenant = Tenant(name="Tenant A", slug=f"tenant-{uuid.uuid4().hex[:6]}")
+    role = Role(name=f"{TENANT_ADMIN}-{uuid.uuid4().hex[:6]}", description="Tenant admin")
     user = User(
         email=f"user-{uuid.uuid4().hex[:6]}@example.com",
         full_name="Ops User",
         password_hash="hashed",
         is_active=True,
     )
-    db.add_all([tenant, user])
+    db.add_all([tenant, role, user])
+    db.flush()
+    db.add(
+        TenantMembership(
+            tenant_id=tenant.id,
+            user_id=user.id,
+            role_id=role.id,
+            is_active=True,
+        )
+    )
+    db.add_all(
+        [
+            Plant(tenant_id=tenant.id, code="JAM", name="Jamshedpur", location="Jharkhand"),
+            Material(
+                tenant_id=tenant.id,
+                code="COKING_COAL",
+                name="Coking coal",
+                category="coal",
+                uom="MT",
+            ),
+        ]
+    )
     db.commit()
     return tenant, user
 
