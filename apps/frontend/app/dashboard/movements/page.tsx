@@ -37,38 +37,32 @@ export default async function MovementsPage({
   const combinedViewHref = buildMovementHref(searchParams, null);
   const portTable = (
     <MonitoringTable
-      headers={["Shipment", "Plant", "Material", "Port status", "Waiting", "Freshness", "Confidence"]}
+      headers={["Shipment", "Flow", "Port", "Waiting", "Freshness", "Trust"]}
       rows={portRows.map((row) => [
         <Link key={`${row.shipment_id}-link`} href={`/dashboard/shipments/${row.shipment_id}`} className="text-primary hover:underline">
           {row.shipment_id}
         </Link>,
-        row.plant_name,
-        row.material_name,
+        `${row.material_name} · ${row.plant_name}`,
         stateBadge(row.port_status, row.likely_port_delay),
         `${Number(row.waiting_time_days).toFixed(2)} d`,
         freshnessBadge(row.freshness.freshness_label),
-        <Badge key={`${row.shipment_id}-confidence`} variant="outline">
-          {row.confidence}
-        </Badge>,
+        trustBadge(row.confidence),
       ])}
       empty="No port-monitoring records matched the current filters."
     />
   );
   const inlandTable = (
     <MonitoringTable
-      headers={["Shipment", "Plant", "Material", "Dispatch status", "Expected arrival", "Freshness", "Confidence"]}
+      headers={["Shipment", "Flow", "Inland", "Expected arrival", "Freshness", "Trust"]}
       rows={inlandRows.map((row) => [
         <Link key={`${row.shipment_id}-link`} href={`/dashboard/shipments/${row.shipment_id}`} className="text-primary hover:underline">
           {row.shipment_id}
         </Link>,
-        row.plant_name,
-        row.material_name,
+        `${row.material_name} · ${row.plant_name}`,
         stateBadge(row.dispatch_status, row.inland_delay_flag),
         formatDate(row.expected_arrival),
         freshnessBadge(row.freshness.freshness_label),
-        <Badge key={`${row.shipment_id}-confidence`} variant="outline">
-          {row.confidence}
-        </Badge>,
+        trustBadge(row.confidence),
       ])}
       empty="No inland-monitoring records matched the current filters."
     />
@@ -78,53 +72,26 @@ export default async function MovementsPage({
     <div className="grid gap-4">
       <Card>
         <CardHeader>
-          <CardTitle>Signal monitoring</CardTitle>
-          <p className="text-sm text-mutedForeground">
-            Trace what happened after port arrival, how delayed it looks, and how trustworthy each signal is.
-          </p>
+          <CardTitle>Movement intelligence</CardTitle>
         </CardHeader>
         <CardContent>
-          <form className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+          <form className="grid gap-2 md:grid-cols-[minmax(220px,1fr)_160px_auto]">
             <input
               type="text"
               name="shipment_id"
               defaultValue={searchParams?.shipment_id ?? ""}
               placeholder="Shipment ID or vessel"
-              className="rounded-xl border bg-card px-3 py-2.5 text-sm"
+              className="rounded-xl border bg-card px-3 py-2 text-sm"
             />
-            <input
-              type="number"
-              name="plant_id"
-              defaultValue={searchParams?.plant_id ?? ""}
-              placeholder="Plant ID"
-              className="rounded-xl border bg-card px-3 py-2.5 text-sm"
-            />
-            <input
-              type="number"
-              name="material_id"
-              defaultValue={searchParams?.material_id ?? ""}
-              placeholder="Material ID"
-              className="rounded-xl border bg-card px-3 py-2.5 text-sm"
-            />
-            <select
-              name="confidence"
-              defaultValue={searchParams?.confidence ?? ""}
-              className="rounded-xl border bg-card px-3 py-2.5 text-sm"
-            >
-              <option value="">All confidence</option>
-              <option value="high">high</option>
-              <option value="medium">medium</option>
-              <option value="low">low</option>
-            </select>
-            <label className="flex items-center gap-2 rounded-xl border px-3 py-2.5 text-sm">
+            <label className="flex items-center gap-2 rounded-xl bg-slate-50 px-3 py-2 text-sm ring-1 ring-slate-900/5">
               <input type="checkbox" name="delayed_only" value="true" defaultChecked={filters.delayed_only} />
-              <span>Delayed only</span>
+              <span>Degraded only</span>
             </label>
             <button
               type="submit"
-              className="rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primaryForeground"
+              className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primaryForeground"
             >
-              Apply
+              Scan
             </button>
           </form>
         </CardContent>
@@ -133,10 +100,8 @@ export default async function MovementsPage({
       {detail ? (
       <Card>
           <CardHeader>
-            <CardTitle>Combined movement detail</CardTitle>
-            <p className="text-sm text-mutedForeground">
-              {detail.shipment.shipment_id} is currently evaluated with {detail.overall_confidence} confidence.
-            </p>
+            <CardTitle>{detail.shipment.shipment_id} movement condition</CardTitle>
+            <Badge variant="outline">{operationalTrustLabel(detail.overall_confidence)}</Badge>
           </CardHeader>
           <CardContent className="grid gap-4 lg:grid-cols-3">
             <SummaryBlock
@@ -203,11 +168,8 @@ export default async function MovementsPage({
           <CardHeader className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
               <CardTitle>{activeView === "port" ? "Port view" : "Inland view"}</CardTitle>
-              <p className="mt-1 text-sm text-mutedForeground">
-                Full-page monitoring table. Scroll sideways if all columns do not fit on screen.
-              </p>
             </div>
-            <Link className="rounded-2xl border px-4 py-2 text-sm font-medium" href={combinedViewHref}>
+            <Link className="rounded-xl bg-slate-50 px-3 py-2 text-sm font-medium ring-1 ring-slate-900/5" href={combinedViewHref}>
               Back to combined view
             </Link>
           </CardHeader>
@@ -219,10 +181,10 @@ export default async function MovementsPage({
             <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <CardTitle>
                 <Link href={portViewHref} className="hover:text-primary hover:underline">
-                  Port view
+                  Port feed
                 </Link>
               </CardTitle>
-              <Link className="rounded-2xl border px-3 py-2 text-xs font-semibold" href={portViewHref}>
+              <Link className="rounded-xl bg-slate-50 px-3 py-2 text-xs font-semibold ring-1 ring-slate-900/5" href={portViewHref}>
                 Open full page
               </Link>
             </CardHeader>
@@ -233,10 +195,10 @@ export default async function MovementsPage({
             <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <CardTitle>
                 <Link href={inlandViewHref} className="hover:text-primary hover:underline">
-                  Inland view
+                  Inland feed
                 </Link>
               </CardTitle>
-              <Link className="rounded-2xl border px-3 py-2 text-xs font-semibold" href={inlandViewHref}>
+              <Link className="rounded-xl bg-slate-50 px-3 py-2 text-xs font-semibold ring-1 ring-slate-900/5" href={inlandViewHref}>
                 Open full page
               </Link>
             </CardHeader>
@@ -262,16 +224,16 @@ function SummaryBlock({
   notes: string[];
 }) {
   return (
-    <div className="rounded-2xl border bg-card p-4 text-sm">
+    <div className="rounded-xl bg-slate-50 p-3 text-sm ring-1 ring-slate-900/5">
       <div className="flex items-center justify-between gap-3">
         <p className="font-semibold">{title}</p>
-        <Badge variant="outline">{confidence}</Badge>
+        {trustBadge(confidence)}
       </div>
       <p className="mt-2 text-base font-semibold">{primary}</p>
       <p className="mt-1 text-mutedForeground">{subtext}</p>
       <div className="mt-3 space-y-2 text-mutedForeground">
         {notes.slice(0, 3).map((note) => (
-          <div key={note} className="rounded-xl bg-muted px-3 py-2">
+          <div key={note} className="rounded-xl bg-white px-3 py-2 ring-1 ring-slate-900/5">
             {note}
           </div>
         ))}
@@ -347,6 +309,27 @@ function freshnessBadge(label: string) {
       {label}
     </span>
   );
+}
+
+function trustBadge(confidence: string) {
+  const label = operationalTrustLabel(confidence);
+  const className =
+    confidence === "high"
+      ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
+      : confidence === "medium"
+        ? "od-status-warning"
+        : "od-status-critical";
+  return (
+    <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${className}`}>
+      {label}
+    </span>
+  );
+}
+
+function operationalTrustLabel(confidence: string) {
+  if (confidence === "high") return "verified";
+  if (confidence === "medium") return "incomplete";
+  return "weak tracking";
 }
 
 function buildMovementHref(

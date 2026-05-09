@@ -383,13 +383,11 @@ export function UploadPanel({
   }
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[1fr_0.9fr]">
-      <section className="rounded-xl border bg-card/90 p-3 shadow-panel">
+    <div className="grid gap-3 lg:grid-cols-[minmax(0,1.15fr)_minmax(280px,0.85fr)]">
+      <section className="od-panel p-3">
         <div className="space-y-2">
-          <h2 className="text-lg font-semibold">Upload onboarding data</h2>
-          <p className="text-sm text-mutedForeground">
-            Upload CSV or XLSX files for shipments, stock snapshots, or thresholds.
-          </p>
+          <h2 className="text-lg font-semibold">Connect operational feeds</h2>
+          <p className="text-sm text-mutedForeground">Shipments, stock, thresholds, and source mapping.</p>
         </div>
         <form onSubmit={uploadFile} className="mt-4 space-y-3">
           <label className="block space-y-2 text-sm font-medium">
@@ -418,7 +416,7 @@ export function UploadPanel({
             </label>
           ) : null}
           {automatedSourcesEnabled ? (
-            <div className="rounded-xl border bg-muted/40 p-3">
+            <div className="rounded-xl bg-slate-50 p-3 ring-1 ring-slate-900/5">
               <p className="font-medium">Upload mode</p>
               <p className="mt-1 text-sm text-mutedForeground">
                 Choose one path: manual file upload or direct URL upload.
@@ -485,18 +483,15 @@ export function UploadPanel({
               ) : null}
             </div>
           ) : (
-            <div className="rounded-xl border bg-muted/40 p-3">
-              <p className="font-medium">Manual onboarding</p>
+            <div className="rounded-xl bg-slate-50 p-3 ring-1 ring-slate-900/5">
+              <p className="font-medium">Manual source watch</p>
               <p className="mt-1 text-sm text-mutedForeground">
                 Pilot tenants can upload CSV or XLSX files manually. URL ingestion and Microsoft 365 auto-sync are included in paid and enterprise plans.
               </p>
             </div>
           )}
-          <div className="rounded-xl border p-3">
+          <div className="rounded-xl bg-slate-50 p-3 ring-1 ring-slate-900/5">
             <p className="font-medium">Column mapping review</p>
-            <p className="mt-1 text-sm text-mutedForeground">
-              OpsDeck now suggests forgiving matches for different Indian column names. You can override any mapping before upload.
-            </p>
             <div className="mt-3 space-y-3">
               <div className="rounded-xl bg-muted/50 p-3 text-sm">
                 <p className="font-medium">Required OpsDeck columns for this upload</p>
@@ -565,7 +560,7 @@ export function UploadPanel({
             </div>
           </div>
           {automatedSourcesEnabled ? (
-            <div className="rounded-xl border p-3">
+            <div className="rounded-xl bg-slate-50 p-3 ring-1 ring-slate-900/5">
               <p className="font-medium">URL source for automated ingestion</p>
               <p className="mt-1 text-sm text-mutedForeground">
                 Save a Google Sheets or Excel Online URL here if you want the same dataset to sync without manual file uploads.
@@ -653,7 +648,7 @@ export function UploadPanel({
                     <div className="flex items-center justify-between gap-3">
                       <div>
                         <p className="font-medium">{source.source_name}</p>
-                        <p className="text-mutedForeground">{source.source_type} for {source.dataset_type}</p>
+                    <p className="text-mutedForeground">{source.source_type} · {source.dataset_type}</p>
                       </div>
                       <span className="rounded-full bg-muted px-3 py-1 text-xs">{source.last_sync_status ?? "not_started"}</span>
                     </div>
@@ -732,14 +727,17 @@ export function UploadPanel({
           </div>
         ) : null}
       </section>
-      <section className="rounded-xl border bg-card/90 p-3 shadow-panel">
-        <h2 className="text-lg font-semibold">Ingestion history</h2>
-        <div className="mt-4 space-y-3">
+      <section className="od-panel p-3">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-lg font-semibold">Source activity</h2>
+          <span className="text-xs font-semibold text-mutedForeground">{history.length} jobs</span>
+        </div>
+        <div className="mt-3 space-y-2">
           {historyError ? (
             <p className="rounded-xl bg-muted p-3 text-sm text-primary">{historyError}</p>
           ) : null}
           {history.map((job) => (
-            <div key={job.id} className="rounded-xl border bg-card p-3 text-sm">
+            <div key={job.id} className="rounded-xl bg-slate-50 p-3 text-sm ring-1 ring-slate-900/5">
               <div className="flex items-center justify-between gap-3">
                 <span className="font-semibold">{job.file_type}</span>
                 <span className="rounded-full bg-muted px-3 py-1 text-xs">{job.status}</span>
@@ -750,7 +748,9 @@ export function UploadPanel({
             </div>
           ))}
           {history.length === 0 ? (
-            <p className="text-sm text-mutedForeground">No ingestion jobs yet.</p>
+            <div className="rounded-xl bg-slate-50 p-3 text-sm text-mutedForeground ring-1 ring-slate-900/5">
+              No ingestion chain detected yet.
+            </div>
           ) : null}
         </div>
       </section>

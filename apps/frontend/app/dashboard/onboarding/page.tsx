@@ -24,31 +24,33 @@ export default async function OnboardingPage() {
   return (
     <div className="grid gap-4">
       {automatedSourcesEnabled ? (
-        <section className="rounded-2xl border bg-card p-4">
+        <section className="od-panel p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <p className="text-sm uppercase tracking-[0.18em] text-mutedForeground">Auto-sync</p>
-              <h1 className="text-xl font-semibold">Microsoft 365</h1>
-              <p className="mt-2 text-sm text-mutedForeground">
-                Connect OneDrive or SharePoint files for scheduled Graph API sync.
-              </p>
+              <p className="text-sm font-semibold text-mutedForeground">Data connection control center</p>
+              <h1 className="text-xl font-semibold">Operational source health</h1>
             </div>
             <Link className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primaryForeground" href="/dashboard/onboarding/microsoft">
               Set up Microsoft
             </Link>
           </div>
-          <div className="mt-4 grid gap-3 md:grid-cols-2">
+          <div className="mt-4 grid gap-3 md:grid-cols-4">
             <StatusBlock label="Connected accounts" value={connections.length} status={connections.some((item) => item.auth_error) ? "Reconnect required" : "Ready"} />
             <StatusBlock label="Active data sources" value={sources.filter((item) => item.is_active).length} status={sources.find((item) => item.sync_status === "auth_error")?.sync_status ?? sources[0]?.sync_status ?? "idle"} />
+            <StatusBlock label="Failing connectors" value={sources.filter((item) => item.sync_status === "auth_error").length} status={sources.some((item) => item.sync_status === "auth_error") ? "danger" : "clear"} />
+            <StatusBlock label="Trust quality" value={sources.filter((item) => item.is_active && item.sync_status !== "auth_error").length} status="watching" />
           </div>
         </section>
       ) : (
-        <section className="rounded-2xl border bg-card p-4">
-          <p className="text-sm uppercase tracking-[0.18em] text-mutedForeground">Signal sources</p>
-          <h1 className="mt-1 text-xl font-semibold">Manual upload only</h1>
-          <p className="mt-2 text-sm text-mutedForeground">
-            URL source ingestion and Microsoft 365 auto-sync are included in paid and enterprise plans.
-          </p>
+        <section className="od-panel p-4">
+          <p className="text-sm font-semibold text-mutedForeground">Data connection control center</p>
+          <h1 className="mt-1 text-xl font-semibold">Operational sources pending</h1>
+          <div className="mt-4 grid gap-3 md:grid-cols-4">
+            <StatusBlock label="Shipments connected" value={0} status="manual" />
+            <StatusBlock label="Stock connected" value={0} status="manual" />
+            <StatusBlock label="Movement tracking" value={0} status="inactive" />
+            <StatusBlock label="Trust quality" value={0} status="unknown" />
+          </div>
         </section>
       )}
       <UploadPanel automatedSourcesEnabled={automatedSourcesEnabled} />
@@ -57,9 +59,9 @@ export default async function OnboardingPage() {
 }
 
 function StatusBlock({ label, value, status }: { label: string; value: number; status: string }) {
-  const variant = status === "success" || status === "Ready" ? "default" : "outline";
+  const variant = status === "success" || status === "Ready" || status === "clear" ? "default" : "outline";
   return (
-    <div className="rounded-xl border bg-background p-3">
+    <div className="rounded-xl bg-slate-50 p-3 ring-1 ring-slate-900/5">
       <div className="flex items-center justify-between gap-3">
         <p className="text-sm text-mutedForeground">{label}</p>
         <Badge variant={variant}>{status}</Badge>

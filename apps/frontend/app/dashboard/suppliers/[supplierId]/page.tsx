@@ -52,8 +52,8 @@ export default async function SupplierDetailPage({
         {[
           ["Total shipments", String(supplier.performance.total_shipments)],
           ["On-time reliability", displayPercent(supplier.performance.on_time_reliability_pct)],
-          ["Avg ETA drift", displayHours(supplier.performance.avg_eta_drift_hours)],
-          ["Risk signal", displayPercent(supplier.performance.risk_signal_pct)],
+          ["Avg delay", displayHours(supplier.performance.avg_eta_drift_hours)],
+          ["Tracking coverage", trackingCoverage(supplier.performance.risk_signal_pct)],
           ["Active shipments", String(supplier.performance.active_shipments)],
           ["Exposure value", displayCurrency(supplier.performance.total_value_at_risk)],
           ["Materials", supplier.performance.materials_supplied.join(", ") || "-"],
@@ -142,6 +142,12 @@ function displayPercent(value: string) {
 
 function displayHours(value: string) {
   return `${Number(value).toFixed(1)}h`;
+}
+
+function trackingCoverage(value: string) {
+  const degraded = Number(value);
+  if (!Number.isFinite(degraded)) return "unknown";
+  return `${Math.max(0, 100 - degraded).toFixed(1)}%`;
 }
 
 function displayCurrency(value: string) {

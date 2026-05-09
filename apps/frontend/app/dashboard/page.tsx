@@ -33,27 +33,27 @@ export default async function DashboardPage() {
     <main className="min-w-0">
       <div className="flex min-w-0 flex-col gap-3">
         <section className="overflow-hidden rounded-3xl bg-slate-950 text-white shadow-nerve">
-          <div className="grid gap-4 p-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
-            <div className="min-w-0 rounded-2xl bg-white/[0.06] p-4 ring-1 ring-white/10">
+          <div className="grid gap-3 p-3 lg:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)]">
+            <div className="min-w-0 rounded-2xl bg-white/[0.06] p-3.5 ring-1 ring-white/10">
               <div className="flex flex-wrap items-center gap-2">
                 <Badge className={leadRisk?.status === "critical" ? "bg-red-500 text-white" : criticalRisks > 0 ? "bg-red-500 text-white" : "bg-blue-500 text-white"}>
                   Continuity nerve center
                 </Badge>
                 <span className="text-xs text-white/60">{activeTenant}</span>
               </div>
-              <h1 className="mt-4 max-w-3xl text-3xl font-semibold leading-tight tracking-tight lg:text-4xl">
+              <h1 className="mt-3 max-w-3xl text-3xl font-semibold leading-tight tracking-tight lg:text-[2.4rem]">
                 {leadRisk
                   ? `${leadRisk.material_name} exposure at ${leadRisk.plant_name}`
                   : "No critical exposure detected"}
               </h1>
-              <p className="mt-3 max-w-2xl text-sm leading-6 text-white/68">
+              <p className="mt-2 max-w-2xl text-sm leading-5 text-white/68">
                 {leadRisk
                   ? `${rootCauseFor(leadRisk)}. Available cover is ${displayDays(leadRisk.days_of_cover)} with next inbound ${formatDate(leadRisk.next_inbound_eta)}.`
                   : "Continuity signals are currently stable across loaded plant and material combinations."}
               </p>
               <Link
                 href="/dashboard/risk-workspace"
-                className="mt-5 inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-slate-950"
+                className="mt-4 inline-flex items-center gap-2 rounded-xl bg-white px-3.5 py-2 text-sm font-semibold text-slate-950"
               >
                 Open Risk Workspace
                 <ArrowRight className="h-4 w-4" />
@@ -61,16 +61,17 @@ export default async function DashboardPage() {
             </div>
             <div className="grid min-w-0 gap-3 sm:grid-cols-2">
               <PressureMetric
-                label="What is exposed"
-                value={leadRisk?.material_name ?? "None"}
-                helper={leadRisk?.plant_name ?? "Current loaded context"}
-                tone={criticalRisks > 0 ? "critical" : "info"}
-              />
-              <PressureMetric
                 label="How soon"
                 value={displayDays(shortestDaysToLineStop)}
                 helper="shortest available cover"
                 tone={criticalRisks > 0 ? "critical" : "passive"}
+                priority
+              />
+              <PressureMetric
+                label="What is exposed"
+                value={leadRisk?.material_name ?? "None"}
+                helper={leadRisk?.plant_name ?? "Current loaded context"}
+                tone={criticalRisks > 0 ? "critical" : "info"}
               />
               <PressureMetric
                 label="Why"
@@ -119,17 +120,17 @@ export default async function DashboardPage() {
           </section>
         ) : null}
 
-        <section className="grid min-w-0 gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <section className="grid min-w-0 gap-2.5 md:grid-cols-2 xl:grid-cols-4">
           {[
             { label: "Critical risks", value: String(kpis?.critical_risks ?? 0), trend: "immediate continuity threat" },
-            { label: "Warning risks", value: String(kpis?.warning_risks ?? 0), trend: "requires active monitoring" },
+            { label: "Warning risks", value: String(kpis?.warning_risks ?? 0), trend: "degrading continuity" },
             {
               label: "Shortest days to line stop",
               value: displayDays(shortestDaysToLineStop),
               trend: "based only on available stock",
             },
             {
-              label: "Data freshness",
+              label: "Signal trust",
               value: dataFreshnessLabel,
               trend: executive?.automated_data_freshness
                 ? `age ${executive.automated_data_freshness.data_freshness_age_minutes ?? "unknown"} min`
@@ -158,7 +159,7 @@ export default async function DashboardPage() {
           })}
         </section>
 
-        <section className="grid min-w-0 gap-3 xl:grid-cols-[minmax(0,1.28fr)_minmax(280px,0.72fr)]">
+        <section className="grid min-w-0 gap-3 xl:grid-cols-[minmax(0,1.34fr)_minmax(280px,0.66fr)]">
           <Card className="min-w-0">
             <CardHeader>
               <div className="flex items-center justify-between gap-3">
@@ -194,29 +195,30 @@ export default async function DashboardPage() {
                         <span className="rounded-full bg-white/70 px-2.5 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-900/10">{rootCauseFor(row)}</span>
                       </div>
                     </div>
-                    <div className="mt-3 grid min-w-0 gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                    <div className="mt-3 grid min-w-0 gap-2 sm:grid-cols-2 xl:grid-cols-[1.15fr_0.9fr_0.9fr_1.2fr]">
                       <RiskMetric
-                        label="Available stock"
-                        value={displayTonnes(row.usable_stock_mt)}
-                        helper="usable now"
-                        prominent
-                      />
-                      <RiskMetric label="Blocked stock" value={displayTonnes(row.blocked_stock_mt)} />
-                      <RiskMetric
-                        label="In-transit"
-                        value={displayTonnes(row.raw_inbound_pipeline_mt)}
-                        helper={`next ${formatDate(row.next_inbound_eta)}`}
-                      />
-                      <RiskMetric
-                        label="Line stop"
+                        label="Projected failure"
                         value={displayDays(row.days_of_cover)}
                         helper={`threshold ${displayDays(row.threshold_days)}`}
+                        prominent
+                        tone="critical"
+                      />
+                      <RiskMetric
+                        label="Usable now"
+                        value={displayTonnes(row.usable_stock_mt)}
+                        helper="available cover"
+                      />
+                      <RiskMetric label="Blocked" value={displayTonnes(row.blocked_stock_mt)} tone="warning" />
+                      <RiskMetric
+                        label="Incoming"
+                        value={displayTonnes(row.raw_inbound_pipeline_mt)}
+                        helper={`next ${formatDate(row.next_inbound_eta)}`}
                       />
                     </div>
                     <div className="mt-3 grid min-w-0 gap-3 border-t border-slate-900/10 pt-3 md:grid-cols-[minmax(0,1fr)_minmax(0,0.85fr)]">
                       <DecisionField label="Signal" value={rootCauseFor(row)} />
                       <div className="min-w-0">
-                        <p className="text-xs uppercase tracking-[0.18em] text-mutedForeground">Exposure value</p>
+                        <p className="text-xs font-semibold text-mutedForeground">Exposure value</p>
                         <p className="mt-1 font-semibold text-foreground">
                           {displayCurrency(row.estimated_value_at_risk)}
                         </p>
@@ -264,9 +266,9 @@ export default async function DashboardPage() {
           </Card>
 
           <div className="grid gap-4">
-            <AutomatedFreshnessCard summary={executive?.automated_data_freshness ?? null} />
+            <AutomatedFreshnessCard summary={executive?.automated_data_freshness ?? null} freshness={dataFreshnessLabel} />
             <FreshnessCard
-              title="Data freshness"
+              title="Signal trust status"
               items={[
                 ["Stock", executive?.stock_freshness.freshness_label ?? "unknown", executive?.stock_freshness.last_updated_at ?? null],
                 ["Exceptions", executive?.exception_freshness.freshness_label ?? "unknown", executive?.exception_freshness.last_updated_at ?? null],
@@ -285,16 +287,24 @@ function RiskMetric({
   value,
   helper,
   prominent = false,
+  tone = "default",
 }: {
   label: string;
   value: string;
   helper?: string;
   prominent?: boolean;
+  tone?: "default" | "critical" | "warning";
 }) {
+  const toneClass =
+    tone === "critical"
+      ? "bg-red-50 text-red-950 ring-red-200"
+      : tone === "warning"
+        ? "bg-amber-50 text-amber-950 ring-amber-200"
+        : "bg-white/62 text-foreground ring-slate-900/5";
   return (
-    <div className="min-w-0 rounded-xl bg-white/62 px-3 py-2.5 ring-1 ring-slate-900/5">
+    <div className={`min-w-0 rounded-xl px-3 py-2 ring-1 ${toneClass}`}>
       <p className="text-xs font-semibold text-mutedForeground">{label}</p>
-      <p className={`mt-1 break-words font-semibold ${prominent ? "text-lg text-foreground" : "text-foreground"}`}>
+      <p className={`mt-1 break-words font-semibold ${prominent ? "text-xl" : ""}`}>
         {value}
       </p>
       {helper ? <p className="mt-1 break-words text-xs text-mutedForeground">{helper}</p> : null}
@@ -307,11 +317,13 @@ function PressureMetric({
   value,
   helper,
   tone,
+  priority = false,
 }: {
   label: string;
   value: string;
   helper: string;
   tone: "critical" | "warning" | "info" | "passive";
+  priority?: boolean;
 }) {
   const toneClass =
     tone === "critical"
@@ -322,10 +334,10 @@ function PressureMetric({
           ? "bg-blue-400/14 text-blue-50 ring-blue-200/30"
           : "bg-white/8 text-white ring-white/10";
   return (
-    <div className={`min-w-0 rounded-2xl p-4 ring-1 ${toneClass}`}>
+    <div className={`min-w-0 rounded-2xl p-3.5 ring-1 ${toneClass}`}>
       <p className="text-xs font-semibold text-white/55">{label}</p>
-      <p className="mt-2 truncate text-2xl font-semibold leading-none">{value}</p>
-      <p className="mt-2 truncate text-xs text-white/58">{helper}</p>
+      <p className={`mt-2 truncate font-semibold leading-none ${priority ? "text-4xl text-white" : "text-2xl"}`}>{value}</p>
+      <p className="mt-1.5 truncate text-xs text-white/58">{helper}</p>
     </div>
   );
 }
@@ -333,7 +345,7 @@ function PressureMetric({
 function DecisionField({ label, value }: { label: string; value: string }) {
   return (
     <div className="min-w-0">
-      <p className="text-xs uppercase tracking-[0.18em] text-mutedForeground">{label}</p>
+      <p className="text-xs font-semibold text-mutedForeground">{label}</p>
       <p className="mt-1 break-words font-medium text-foreground">{value}</p>
     </div>
   );
@@ -341,6 +353,7 @@ function DecisionField({ label, value }: { label: string; value: string }) {
 
 function AutomatedFreshnessCard({
   summary,
+  freshness,
 }: {
   summary: {
       last_sync_summary: {
@@ -354,43 +367,22 @@ function AutomatedFreshnessCard({
     data_freshness_status: string;
     data_freshness_age_minutes: number | null;
   } | null;
+  freshness: string;
 }) {
   return (
-    <Card className="bg-card/90 shadow-panel">
+    <Card>
       <CardHeader>
-        <CardTitle>Data freshness + changes</CardTitle>
+        <CardTitle>Signal trust status</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3 text-sm">
         {!summary ? (
-          <p className="text-mutedForeground">No automated data sources are active for this tenant yet.</p>
+          <TrustLine label="Freshness" value={freshness} tone={freshnessTone(freshness)} />
         ) : (
           <>
-            <div className="rounded-xl bg-muted px-4 py-3">
-              <div className="flex items-center justify-between gap-3">
-                <span className="font-medium">Automated sync</span>
-                <Badge variant="outline">{summary.data_freshness_status}</Badge>
-              </div>
-              <p className="mt-2 text-mutedForeground">
-                Last sync: {formatDate(summary.last_sync_summary.last_synced_at)}
-              </p>
-              <p className="text-mutedForeground">
-                Status: {summary.last_sync_summary.last_sync_status ?? "not_started"}
-              </p>
-              <p className="text-mutedForeground">
-                Age: {summary.data_freshness_age_minutes !== null ? `${summary.data_freshness_age_minutes} min` : "Not synced yet"}
-              </p>
-            </div>
-            {summary.last_sync_summary.source_type === "microsoft_graph" ? (
-              <div className="rounded-xl bg-muted px-4 py-3 text-mutedForeground">
-                Microsoft Graph sync refreshes stock exposure and signal freshness live. Delta counters are shown for legacy URL sync sources only.
-              </div>
-            ) : (
-              <div className="rounded-xl bg-muted px-4 py-3 text-mutedForeground">
-                <p>+{summary.last_sync_summary.new_critical_risks_count} new critical risks</p>
-                <p>-{summary.last_sync_summary.resolved_risks_count} risks resolved</p>
-                <p>{summary.last_sync_summary.newly_breached_actions_count} timing breaches detected</p>
-              </div>
-            )}
+            <TrustLine label="Freshness" value={summary.data_freshness_status} tone={freshnessTone(summary.data_freshness_status)} />
+            <TrustLine label="Sync age" value={summary.data_freshness_age_minutes !== null ? `${summary.data_freshness_age_minutes} min` : "not synced"} tone={summary.data_freshness_age_minutes !== null && summary.data_freshness_age_minutes > 240 ? "warning" : "info"} />
+            <TrustLine label="Sync failures" value={summary.last_sync_summary.last_sync_status ?? "not started"} tone={summary.last_sync_summary.last_sync_status === "failed" ? "critical" : "passive"} />
+            <TrustLine label="New exposure" value={String(summary.last_sync_summary.new_critical_risks_count)} tone={summary.last_sync_summary.new_critical_risks_count > 0 ? "critical" : "passive"} />
           </>
         )}
       </CardContent>
@@ -400,13 +392,13 @@ function AutomatedFreshnessCard({
 
 function FreshnessCard({ title, items }: { title: string; items: Array<[string, string, string | null]> }) {
   return (
-    <Card className="bg-card/90 shadow-panel">
+    <Card>
       <CardHeader>
         <CardTitle>{title}</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3 text-sm">
         {items.map(([label, freshness, updatedAt]) => (
-          <div key={label} className="rounded-xl bg-muted px-4 py-3">
+          <div key={label} className={`rounded-xl px-3 py-2 ring-1 ${trustToneClass(freshnessTone(freshness))}`}>
             <div className="flex items-center justify-between gap-3">
               <span className="font-medium">{label}</span>
               <Badge variant="outline">{freshness}</Badge>
@@ -417,6 +409,30 @@ function FreshnessCard({ title, items }: { title: string; items: Array<[string, 
       </CardContent>
     </Card>
   );
+}
+
+function TrustLine({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone: "critical" | "warning" | "info" | "passive";
+}) {
+  return (
+    <div className={`flex items-center justify-between gap-3 rounded-xl px-3 py-2 ring-1 ${trustToneClass(tone)}`}>
+      <span className="text-sm font-medium">{label}</span>
+      <span className="text-sm font-semibold">{value}</span>
+    </div>
+  );
+}
+
+function trustToneClass(tone: "critical" | "warning" | "info" | "passive") {
+  if (tone === "critical") return "bg-red-50 text-red-900 ring-red-200";
+  if (tone === "warning") return "bg-amber-50 text-amber-900 ring-amber-200";
+  if (tone === "info") return "bg-blue-50 text-blue-900 ring-blue-200";
+  return "bg-slate-50 text-slate-700 ring-slate-200";
 }
 
 function StatusBadge({ status }: { status: string }) {

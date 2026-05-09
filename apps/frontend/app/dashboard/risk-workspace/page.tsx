@@ -50,7 +50,7 @@ export default async function CriticalRiskWorkspacePage({
   }
 
   return (
-    <main className="grid min-w-0 gap-4">
+    <main className="grid min-w-0 gap-3">
       <WorkspaceFilters searchParams={searchParams} />
 
       {workspace.empty ? (
@@ -69,7 +69,7 @@ function WorkspaceContent({ workspace }: { workspace: RiskWorkspaceResponse }) {
 
   return (
     <>
-      <section className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(300px,0.55fr)]">
+      <section className="grid gap-3 xl:grid-cols-[minmax(0,1.45fr)_minmax(300px,0.55fr)]">
         <Card className={`overflow-hidden ${workspaceTone(risk?.severity)}`}>
           <CardHeader className="text-white">
             <div className="flex flex-wrap items-center gap-2">
@@ -83,35 +83,36 @@ function WorkspaceContent({ workspace }: { workspace: RiskWorkspaceResponse }) {
                 </Badge>
               ) : null}
             </div>
-            <CardTitle className="mt-3 text-3xl tracking-tight">
+            <CardTitle className="mt-2 text-2xl tracking-tight">
               {contextTitle(risk?.material_reference, risk?.plant_reference)}
             </CardTitle>
-            <p className="max-w-3xl text-sm leading-6 text-white/68">
+            <p className="max-w-3xl text-sm leading-5 text-white/68">
               {exposure?.operational_reason ??
                 explainability?.summary ??
                 "Operational risk context is available for review."}
             </p>
           </CardHeader>
           <CardContent>
-            <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-4">
+            <div className="grid gap-2.5 md:grid-cols-2 2xl:grid-cols-4">
               <SignalMetric
                 icon={<Boxes className="h-4 w-4" />}
-                label="Available cover"
+                label="Cover"
                 value={displayDays(risk?.days_of_cover)}
-                helper="deterministic continuity"
+                helper="available"
               />
               <SignalMetric
                 icon={<Clock3 className="h-4 w-4" />}
-                label="Projected exhaustion"
+                label="Failure window"
                 value={formatDate(
                   exposure?.estimated_exposure_date ??
                     risk?.projected_exhaustion_date,
                 )}
                 helper={displayDaysUntil(exposure?.days_until_exposure)}
+                tone="critical"
               />
               <SignalMetric
                 icon={<Truck className="h-4 w-4" />}
-                label="Inbound movement"
+                label="Movement"
                 value={
                   risk?.shipment_reference ??
                   exposure?.shipment_reference ??
@@ -120,6 +121,7 @@ function WorkspaceContent({ workspace }: { workspace: RiskWorkspaceResponse }) {
                 helper={formatLabel(
                   risk?.continuity_status ?? "movement context",
                 )}
+                tone={risk?.continuity_status === "degraded" ? "warning" : "default"}
               />
               <SignalMetric
                 icon={<AlertTriangle className="h-4 w-4" />}
@@ -134,7 +136,7 @@ function WorkspaceContent({ workspace }: { workspace: RiskWorkspaceResponse }) {
         <TrustSummary workspace={workspace} />
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+      <section className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         <WhyThisMatters workspace={workspace} />
         <ContinuitySummary
           inventory={workspace.inventory_continuity}
@@ -142,7 +144,7 @@ function WorkspaceContent({ workspace }: { workspace: RiskWorkspaceResponse }) {
         />
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
+      <section className="grid gap-3 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
         <TimelinePanel timeline={workspace.timeline} />
         <RelationshipPanel graph={workspace.context_graph} />
       </section>
@@ -162,30 +164,30 @@ function WorkspaceFilters({ searchParams }: { searchParams?: SearchParams }) {
             name="plant_reference"
             defaultValue={searchParams?.plant_reference ?? ""}
             placeholder="Plant reference"
-            className="rounded-xl border bg-card px-3 py-2.5 text-sm"
+            className="rounded-xl border bg-card px-3 py-2 text-sm"
           />
           <input
             name="material_reference"
             defaultValue={searchParams?.material_reference ?? ""}
             placeholder="Material reference"
-            className="rounded-xl border bg-card px-3 py-2.5 text-sm"
+            className="rounded-xl border bg-card px-3 py-2 text-sm"
           />
           <input
             name="shipment_reference"
             defaultValue={searchParams?.shipment_reference ?? ""}
             placeholder="Shipment reference"
-            className="rounded-xl border bg-card px-3 py-2.5 text-sm"
+            className="rounded-xl border bg-card px-3 py-2 text-sm"
           />
           <input
             name="risk_type"
             defaultValue={searchParams?.risk_type ?? ""}
             placeholder="Risk category"
-            className="rounded-xl border bg-card px-3 py-2.5 text-sm"
+            className="rounded-xl border bg-card px-3 py-2 text-sm"
           />
           <select
             name="severity"
             defaultValue={searchParams?.severity ?? ""}
-            className="rounded-xl border bg-card px-3 py-2.5 text-sm"
+            className="rounded-xl border bg-card px-3 py-2 text-sm"
           >
             <option value="">Any severity</option>
             <option value="critical">Critical</option>
@@ -195,7 +197,7 @@ function WorkspaceFilters({ searchParams }: { searchParams?: SearchParams }) {
           </select>
           <button
             type="submit"
-            className="rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primaryForeground"
+            className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primaryForeground"
           >
             Apply
           </button>
@@ -217,13 +219,13 @@ function WhyThisMatters({ workspace }: { workspace: RiskWorkspaceResponse }) {
           <Activity className="h-5 w-5 text-pressure-red" />
           <CardTitle>Why this is becoming risky</CardTitle>
         </div>
-        <p className="text-sm leading-6 text-mutedForeground">
+        <p className="text-sm leading-5 text-mutedForeground">
           {explainability?.summary ??
             "OpsDeck does not have enough signal detail to explain this risk yet."}
         </p>
       </CardHeader>
       <CardContent>
-        <div className="mb-4 grid gap-3 sm:grid-cols-2">
+        <div className="mb-3 grid gap-2 sm:grid-cols-2">
           <ContextPill
             label="Primary driver"
             value={driverLabel(explainability?.primary_driver)}
@@ -249,7 +251,7 @@ function WhyThisMatters({ workspace }: { workspace: RiskWorkspaceResponse }) {
             </div>
           ))}
           {reasonChain.length === 0 ? (
-            <p className="rounded-2xl border bg-card px-4 py-6 text-sm text-mutedForeground">
+            <p className="rounded-xl bg-slate-50 px-3 py-3 text-sm text-mutedForeground ring-1 ring-slate-900/5">
               No risk formation details were returned for this workspace.
             </p>
           ) : null}
@@ -278,18 +280,18 @@ function TrustSummary({ workspace }: { workspace: RiskWorkspaceResponse }) {
         </div>
       </CardHeader>
       <CardContent>
-        <div className="grid gap-3">
+        <div className="grid gap-2.5">
           <SignalMetric
             icon={<ShieldCheck className="h-4 w-4" />}
             label="Signal confidence"
             value={displayPercent(confidence)}
-            helper="completeness and reliability"
+            helper="reliability"
           />
           <SignalMetric
             icon={<Clock3 className="h-4 w-4" />}
             label="Tracking freshness"
             value={formatLabel(freshness ?? "unknown")}
-            helper="most stale source in view"
+            helper="latest source"
           />
           <div className="rounded-xl bg-slate-50 p-3 ring-1 ring-slate-900/5">
             <p className="text-xs font-semibold text-mutedForeground">Trust warnings</p>
@@ -302,9 +304,7 @@ function TrustSummary({ workspace }: { workspace: RiskWorkspaceResponse }) {
                 ))}
               </ul>
             ) : (
-              <p className="mt-3 text-sm text-mutedForeground">
-                No data trust warnings were returned for this workspace.
-              </p>
+              <p className="mt-2 text-sm text-mutedForeground">No trust warnings.</p>
             )}
           </div>
         </div>
@@ -329,10 +329,13 @@ function ContinuitySummary({
         </div>
       </CardHeader>
       <CardContent>
-        <div className="grid gap-4">
+        <div className="grid gap-2.5">
           <div className="rounded-xl bg-slate-50 p-3 ring-1 ring-slate-900/5">
-            <h3 className="font-semibold">Available cover</h3>
-            <div className="mt-4 grid gap-3 sm:grid-cols-3">
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="font-semibold">Available cover</h3>
+              <span className="text-xs font-semibold text-mutedForeground">{inventory.length} material contexts</span>
+            </div>
+            <div className="mt-3 grid gap-2 sm:grid-cols-3">
               {inventory.slice(0, 2).map((item) => (
                 <InventoryBlock
                   key={`${item.plant_reference}-${item.material_reference}`}
@@ -348,7 +351,7 @@ function ContinuitySummary({
           </div>
           <div className="rounded-xl bg-slate-50 p-3 ring-1 ring-slate-900/5">
             <h3 className="font-semibold">Inbound movement condition</h3>
-            <div className="mt-4 space-y-3">
+            <div className="mt-3 space-y-2">
               {shipments.slice(0, 3).map((shipment) => (
                 <ShipmentBlock
                   key={shipment.shipment_reference}
@@ -385,13 +388,13 @@ function TimelinePanel({
         </div>
       </CardHeader>
       <CardContent>
-        <div className="space-y-3">
+        <div className="space-y-2">
           {timeline.items.map((entry) => (
             <TimelineEntry key={entry.event_id} entry={entry} />
           ))}
           {timeline.items.length === 0 ? (
-            <p className="rounded-2xl border bg-card px-4 py-6 text-sm text-mutedForeground">
-              No signal history was returned for the current timeline window.
+            <p className="rounded-xl bg-slate-50 px-3 py-3 text-sm text-mutedForeground ring-1 ring-slate-900/5">
+              No historical signal chain detected.
             </p>
           ) : null}
         </div>
@@ -406,6 +409,21 @@ function RelationshipPanel({
   graph: SignalRelationshipGraph | null;
 }) {
   const nodeById = new Map((graph?.nodes ?? []).map((node) => [node.id, node]));
+  const priorityNodes = ["shipment", "plant", "material", "supplier", "risk_candidate"]
+    .map((type) => ({
+      type,
+      nodes: (graph?.nodes ?? []).filter((node) => node.type === type).slice(0, 4),
+    }))
+    .filter((group) => group.nodes.length > 0);
+  const priorityEdges = (graph?.edges ?? [])
+    .filter((edge) => {
+      const fromType = nodeById.get(edge.from_node_id)?.type;
+      const toType = nodeById.get(edge.to_node_id)?.type;
+      return [fromType, toType].some((type) =>
+        ["shipment", "plant", "material", "supplier", "risk_candidate"].includes(type ?? ""),
+      );
+    })
+    .slice(0, 5);
 
   return (
     <Card>
@@ -416,30 +434,29 @@ function RelationshipPanel({
         </div>
       </CardHeader>
       <CardContent>
-        <div className="grid gap-4">
-          <div className="rounded-2xl bg-slate-50 p-3 ring-1 ring-slate-900/5">
-            <p className="text-xs font-semibold text-mutedForeground">Connected records</p>
-            <div className="mt-3 flex flex-wrap gap-2">
-              {(graph?.nodes ?? []).slice(0, 12).map((node) => (
-                <span
-                  key={node.id}
-                  className="rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-700 ring-1 ring-slate-900/5"
-                >
-                  {formatLabel(node.type)}: {node.label}
-                </span>
-              ))}
-              {(graph?.nodes ?? []).length === 0 ? (
-                <span className="text-sm text-mutedForeground">
-                  No connected operational records returned.
-                </span>
-              ) : null}
+        <div className="grid gap-2.5">
+          {priorityNodes.map((group) => (
+            <div key={group.type} className="rounded-xl bg-slate-50 p-3 ring-1 ring-slate-900/5">
+              <p className="text-xs font-semibold text-mutedForeground">{formatLabel(group.type)}</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {group.nodes.map((node) => (
+                  <span key={node.id} className="rounded-full bg-white px-2.5 py-1 text-xs font-medium text-slate-700 ring-1 ring-slate-900/5">
+                    {node.label}
+                  </span>
+                ))}
+              </div>
             </div>
-          </div>
-          <div className="space-y-2">
-            {(graph?.edges ?? []).slice(0, 10).map((edge) => (
+          ))}
+          {priorityNodes.length === 0 ? (
+            <p className="rounded-xl bg-slate-50 px-3 py-3 text-sm text-mutedForeground ring-1 ring-slate-900/5">
+              No connected operational records returned.
+            </p>
+          ) : null}
+          <div className="space-y-1.5">
+            {priorityEdges.map((edge) => (
               <div
                 key={`${edge.from_node_id}-${edge.relationship}-${edge.to_node_id}`}
-                className="rounded-xl bg-slate-50 px-3 py-2.5 text-sm ring-1 ring-slate-900/5"
+                className="rounded-xl bg-white px-3 py-2 text-sm ring-1 ring-slate-900/5"
               >
                 <span className="font-medium">
                   {nodeById.get(edge.from_node_id)?.label ?? edge.from_node_id}
@@ -538,19 +555,27 @@ function SignalMetric({
   label,
   value,
   helper,
+  tone = "default",
 }: {
   icon: React.ReactNode;
   label: string;
   value: string;
   helper: string;
+  tone?: "default" | "critical" | "warning";
 }) {
+  const toneClass =
+    tone === "critical"
+      ? "bg-red-50 text-red-950 ring-red-200"
+      : tone === "warning"
+        ? "bg-amber-50 text-amber-950 ring-amber-200"
+        : "bg-white/84 text-foreground ring-slate-900/5";
   return (
-    <div className="rounded-xl bg-white/84 p-3 ring-1 ring-slate-900/5">
+    <div className={`rounded-xl p-2.5 ring-1 ${toneClass}`}>
       <div className="flex items-center gap-2 text-mutedForeground">
         {icon}
         <p className="text-xs font-semibold">{label}</p>
       </div>
-      <p className="mt-2 break-words text-lg font-semibold">{value}</p>
+      <p className="mt-1.5 break-words text-lg font-semibold">{value}</p>
       <p className="mt-1 text-xs text-mutedForeground">{helper}</p>
     </div>
   );
@@ -558,7 +583,7 @@ function SignalMetric({
 
 function ContextPill({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-xl bg-white px-3 py-2.5 ring-1 ring-slate-900/5">
+    <div className="rounded-xl bg-white px-3 py-2 ring-1 ring-slate-900/5">
       <p className="text-xs font-semibold text-mutedForeground">
         {label}
       </p>

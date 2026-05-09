@@ -21,11 +21,9 @@ export default async function SuppliersPage() {
     <main className="space-y-4">
       <section className="od-panel px-4 py-5">
         <div className="flex flex-col gap-2">
-          <Badge variant="outline">Supplier master</Badge>
-          <h1 className="text-2xl font-semibold tracking-tight">Supplier reliability memory</h1>
-          <p className="text-sm text-mutedForeground">
-            Supplier records compound shipment history, port preferences, material categories, and continuity risk signals.
-          </p>
+          <Badge variant="outline">Supplier intelligence</Badge>
+          <h1 className="text-2xl font-semibold tracking-tight">Supplier exposure patterns</h1>
+          <p className="text-sm text-mutedForeground">Delay history, tracking coverage, active inbound exposure.</p>
         </div>
       </section>
 
@@ -45,8 +43,8 @@ export default async function SuppliersPage() {
                   <th>Materials</th>
                   <th>Reliability</th>
                   <th>On-Time</th>
-                  <th>ETA Drift</th>
-                  <th>Signal</th>
+                  <th>Avg delay</th>
+                  <th>Tracking coverage</th>
                   <th>Active</th>
                   <th>Record</th>
                 </tr>
@@ -64,7 +62,7 @@ export default async function SuppliersPage() {
                     <td><GradeBadge grade={supplier.performance.reliability_grade} /></td>
                     <td>{displayPercent(supplier.performance.on_time_reliability_pct)}</td>
                     <td>{displayHours(supplier.performance.avg_eta_drift_hours)}</td>
-                    <td>{displayPercent(supplier.performance.risk_signal_pct)}</td>
+                    <td>{trackingCoverage(supplier.performance.risk_signal_pct)}</td>
                     <td>{supplier.performance.active_shipments}</td>
                     <td>
                       <Link href={`/dashboard/suppliers/${supplier.id}`} className="rounded-xl border px-3 py-2 text-xs font-semibold">
@@ -107,4 +105,10 @@ function displayPercent(value: string) {
 
 function displayHours(value: string) {
   return `${Number(value).toFixed(1)}h`;
+}
+
+function trackingCoverage(value: string) {
+  const degraded = Number(value);
+  if (!Number.isFinite(degraded)) return "unknown";
+  return `${Math.max(0, 100 - degraded).toFixed(1)}%`;
 }

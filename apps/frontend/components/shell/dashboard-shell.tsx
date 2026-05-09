@@ -100,9 +100,9 @@ export function DashboardShell({
     : navItems.filter((item) => role && item.roles.includes(role)));
 
   return (
-    <div className="min-h-screen overflow-x-hidden px-3 py-3 sm:px-4 lg:px-5">
+    <div className="min-h-screen overflow-x-hidden px-3 py-2.5 sm:px-4 lg:px-5">
       <div className="mx-auto flex w-full max-w-[1480px] flex-col gap-3">
-        <header className="flex flex-col gap-3 rounded-2xl bg-white/76 px-4 py-3 shadow-panel ring-1 ring-slate-900/5 backdrop-blur md:flex-row md:items-center md:justify-between">
+        <header className="flex flex-col gap-3 rounded-2xl bg-white/76 px-3.5 py-2.5 shadow-panel ring-1 ring-slate-900/5 backdrop-blur md:flex-row md:items-center md:justify-between">
           <div className="flex min-w-0 items-center gap-3">
             <OpsDeckLogo compact />
             <div className="min-w-0">
@@ -134,7 +134,7 @@ export function DashboardShell({
               <Link
                 key={item.href}
                 href={item.href}
-                className="block rounded-xl px-2.5 py-2 text-sm font-medium text-mutedForeground transition hover:bg-slate-100 hover:text-foreground"
+                className="block rounded-xl px-2.5 py-1.5 text-sm font-medium text-mutedForeground transition hover:bg-slate-100 hover:text-foreground"
               >
                 {item.label}
               </Link>

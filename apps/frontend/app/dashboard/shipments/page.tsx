@@ -68,7 +68,7 @@ export default async function ShipmentsPage({
                   <th>Vessel</th>
                   <th>ETA</th>
                   <th>State</th>
-                  <th>Confidence</th>
+                  <th>Signal trust</th>
                 </tr>
               </thead>
               <tbody>
@@ -91,7 +91,7 @@ export default async function ShipmentsPage({
                       <StateBadge state={shipment.shipment_state} />
                     </td>
                     <td>
-                      <Badge variant="outline">{shipment.confidence}</Badge>
+                      <TrustBadge confidence={shipment.confidence} state={shipment.shipment_state} />
                     </td>
                   </tr>
                 ))}
@@ -127,6 +127,25 @@ function StateBadge({ state }: { state: string }) {
       {state.replace("_", " ")}
     </span>
   );
+}
+
+function TrustBadge({ confidence, state }: { confidence: string; state: string }) {
+  const degraded = ["at_port", "discharging", "cancelled"].includes(state);
+  const label =
+    degraded
+      ? "degraded signal"
+      : confidence === "high"
+        ? "verified"
+        : confidence === "medium"
+          ? "incomplete"
+          : "weak tracking";
+  const className =
+    label === "verified"
+      ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
+      : label === "incomplete"
+        ? "od-status-warning"
+        : "od-status-critical";
+  return <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${className}`}>{label}</span>;
 }
 
 function formatDate(value: string) {
