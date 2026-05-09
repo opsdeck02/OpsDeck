@@ -27,7 +27,7 @@ export default async function SuperadminTenantsPage() {
               Superadmin workspace
             </p>
             <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
-              Manage tenant portfolio and user mapping without dropping into tenant pilot dashboards.
+              Manage tenant portfolio and user mapping without entering tenant continuity views.
             </h1>
             <p className="text-sm text-mutedForeground sm:text-base">
               This console is for tenant governance only: tenant lifecycle, access limits, and tenant user mapping.

@@ -71,13 +71,13 @@ export default function PortInlandMonitoringPage() {
           setError(
             body && "detail" in body && typeof body.detail === "string"
               ? body.detail
-              : "Shipment list could not be loaded.",
+              : "Inbound dependency list could not be loaded.",
           );
           return;
         }
         setShipments(Array.isArray(body) ? body : []);
       } catch {
-        setError("Shipment list could not be loaded.");
+        setError("Inbound dependency list could not be loaded.");
       }
     }
     loadShipments();
@@ -186,12 +186,12 @@ export default function PortInlandMonitoringPage() {
       });
       const body = await readJson<LinkedShipmentStatus | { detail?: string }>(response);
       if (!response.ok) {
-        throw new Error(errorMessageFromBody(body, "Shipment link failed"));
+        throw new Error(errorMessageFromBody(body, "Continuity link failed"));
       }
-      if (!isLinkedShipmentStatus(body)) throw new Error("Shipment link failed");
+      if (!isLinkedShipmentStatus(body)) throw new Error("Continuity link failed");
       setLinkedStatus(body);
     } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "Shipment link failed");
+      setError(exc instanceof Error ? exc.message : "Continuity link failed");
     } finally {
       setIsLinking(false);
     }
@@ -203,10 +203,10 @@ export default function PortInlandMonitoringPage() {
         <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
           <div>
             <p className="text-xs uppercase tracking-[0.22em] text-mutedForeground">
-              Port & inland monitoring
+              Continuity visibility source
             </p>
             <h2 className="mt-1 text-xl font-semibold tracking-tight">
-              Container tracking
+              Inbound signal lookup
             </h2>
           </div>
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[minmax(220px,1fr)_170px_140px_auto]">
@@ -235,7 +235,7 @@ export default function PortInlandMonitoringPage() {
               </select>
             </label>
             <label className="grid gap-2 text-sm">
-              <span className="font-medium">Tracking source</span>
+              <span className="font-medium">Signal source</span>
               <select
                 value={trackingSource}
                 onChange={(event) => setTrackingSource(event.target.value)}
@@ -285,16 +285,16 @@ export default function PortInlandMonitoringPage() {
             </div>
             {searchResult.carrier_detection.requires_manual_selection ? (
               <p className="mt-4 rounded-xl bg-muted p-3 text-sm text-mutedForeground">
-                Carrier could not be detected from the owner prefix. Select a carrier/source and search again.
+                Carrier could not be detected from the owner prefix. Select a signal source and search again.
               </p>
             ) : null}
             {searchResult.linked_statuses.length > 0 ? (
               <div className="mt-4 rounded-xl border bg-card p-3 text-sm">
-                <p className="font-semibold">Already linked</p>
+                <p className="font-semibold">Already linked to continuity context</p>
                 <div className="mt-2 grid gap-2">
                   {searchResult.linked_statuses.map((status) => (
                     <p key={`${status.shipment_id}-${status.container_no}`} className="text-mutedForeground">
-                      {status.container_no} is linked to {status.shipment_ref}.
+                      {status.container_no} supports {status.shipment_ref}.
                     </p>
                   ))}
                 </div>
@@ -312,16 +312,16 @@ export default function PortInlandMonitoringPage() {
           <aside className="rounded-2xl border bg-card/90 p-4 shadow-panel">
             <div className="flex items-center gap-2">
               <Link2 className="h-4 w-4 text-primary" />
-              <h3 className="text-lg font-semibold">Link to shipment</h3>
+              <h3 className="text-lg font-semibold">Link to inbound dependency</h3>
             </div>
             <label className="mt-4 grid gap-2 text-sm">
-              <span className="font-medium">Existing shipment</span>
+              <span className="font-medium">Existing inbound dependency</span>
               <select
                 value={selectedShipmentId}
                 onChange={(event) => setSelectedShipmentId(event.target.value)}
                 className="rounded-xl border bg-card px-3 py-2.5"
               >
-                <option value="">Select shipment</option>
+                <option value="">Select inbound dependency</option>
                 {shipments.map((shipment) => (
                   <option key={shipment.id} value={shipment.id}>
                     {shipment.shipment_id} - {shipment.plant_name} - {shipment.material_name}
@@ -331,12 +331,12 @@ export default function PortInlandMonitoringPage() {
             </label>
             {shipments.length === 0 ? (
               <p className="mt-3 rounded-xl bg-muted p-3 text-sm text-mutedForeground">
-                No matching shipments are available for this tenant yet.
+                No matching inbound dependencies are available for this tenant yet.
               </p>
             ) : null}
             {!resolvedCarrier ? (
               <p className="mt-3 rounded-xl bg-muted p-3 text-sm text-mutedForeground">
-                Select a carrier/source before linking this container.
+                Select a signal source before linking this container.
               </p>
             ) : null}
             <button
@@ -345,12 +345,12 @@ export default function PortInlandMonitoringPage() {
               disabled={!selectedShipmentId || !resolvedCarrier || isLinking}
               className="mt-4 w-full rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primaryForeground disabled:opacity-60"
             >
-              {isLinking ? "Linking" : "Link to Shipment"}
+              {isLinking ? "Linking" : "Link to continuity context"}
             </button>
             {linkedStatus ? <LinkedStatusPanel status={linkedStatus} /> : null}
             {linkedStatus?.already_linked ? (
               <p className="mt-3 rounded-xl bg-muted p-3 text-sm text-mutedForeground">
-                This container was already linked to the selected shipment. Tracking was refreshed without changing the original link time.
+                This container was already linked to the selected continuity context. Signals were refreshed without changing the original link time.
               </p>
             ) : null}
           </aside>
@@ -372,7 +372,7 @@ function SummaryMetric({ label, value }: { label: string; value: string }) {
 function Timeline({ events }: { events: TrackingEvent[] }) {
   return (
     <div className="mt-5">
-      <h3 className="text-lg font-semibold">Tracking timeline</h3>
+      <h3 className="text-lg font-semibold">Signal chain</h3>
       <div className="mt-3 grid gap-3">
         {events.map((event) => (
           <div key={`${event.event_type}-${event.event_datetime}`} className="grid gap-3 rounded-xl border bg-card p-3 md:grid-cols-[32px_minmax(0,1fr)_130px]">
@@ -395,7 +395,7 @@ function Timeline({ events }: { events: TrackingEvent[] }) {
         ))}
         {events.length === 0 ? (
           <p className="rounded-xl bg-muted p-3 text-sm text-mutedForeground">
-            No tracking events found for this container and source yet.
+            No continuity signal events found for this container and source yet.
           </p>
         ) : null}
       </div>
@@ -451,7 +451,7 @@ function LinkedStatusPanel({ status }: { status: LinkedShipmentStatus }) {
         <StatusRow label="Latest ETA" value={formatDate(status.latest_eta)} />
         <StatusRow label="Delay days" value={status.delay_days === null ? "Unknown" : String(status.delay_days)} />
         <StatusRow label="Delay status" value={status.delay_status} />
-        <StatusRow label="Last updated" value={formatDate(status.last_tracking_update_at)} />
+        <StatusRow label="Last signal update" value={formatDate(status.last_tracking_update_at)} />
       </div>
     </div>
   );
@@ -471,7 +471,7 @@ function VesselTrackingCard({
   return (
     <div className="mt-5 rounded-xl border bg-card p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-lg font-semibold">Vessel Tracking</h3>
+        <h3 className="text-lg font-semibold">Vessel visibility signal</h3>
         <Badge variant="outline">Mock AIS</Badge>
       </div>
       {!vesselName ? (

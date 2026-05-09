@@ -21,9 +21,9 @@ export default async function SuppliersPage() {
     <main className="space-y-4">
       <section className="od-panel px-4 py-5">
         <div className="flex flex-col gap-2">
-          <Badge variant="outline">Supplier intelligence</Badge>
-          <h1 className="text-2xl font-semibold tracking-tight">Supplier exposure patterns</h1>
-          <p className="text-sm text-mutedForeground">Delay history, tracking coverage, active inbound exposure.</p>
+          <Badge variant="outline">Continuity reliability</Badge>
+          <h1 className="text-2xl font-semibold tracking-tight">Reliability source patterns</h1>
+          <p className="text-sm text-mutedForeground">Inbound stability, exposure contribution, chronic degradation.</p>
         </div>
       </section>
 
@@ -31,21 +31,21 @@ export default async function SuppliersPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Suppliers</CardTitle>
+          <CardTitle>Continuity reliability sources</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="od-table-wrap">
             <table className="od-table min-w-[1040px]">
               <thead>
                 <tr>
-                  <th>Name</th>
-                  <th>Primary Port</th>
+                  <th>Source</th>
+                  <th>Primary node</th>
                   <th>Materials</th>
                   <th>Reliability</th>
                   <th>On-Time</th>
                   <th>Avg delay</th>
-                  <th>Tracking coverage</th>
-                  <th>Active</th>
+                  <th>Visibility coverage</th>
+                  <th>Active exposure</th>
                   <th>Record</th>
                 </tr>
               </thead>
@@ -74,7 +74,7 @@ export default async function SuppliersPage() {
                 {suppliers.length === 0 ? (
                   <tr>
                     <td className="px-4 py-8 text-center text-mutedForeground" colSpan={9}>
-                      No suppliers have been created yet.
+                      No reliability sources have been created yet.
                     </td>
                   </tr>
                 ) : null}

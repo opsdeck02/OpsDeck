@@ -100,10 +100,10 @@ export function ExceptionDetailActions({
       });
       const body = (await response.json()) as { detail?: string };
       if (!response.ok) {
-        setMessage(typeof body.detail === "string" ? body.detail : "Action update failed.");
+        setMessage(typeof body.detail === "string" ? body.detail : "Response update failed.");
         return;
       }
-      setMessage("Action updated.");
+      setMessage("Response updated.");
       window.location.reload();
     });
   }
@@ -111,7 +111,7 @@ export function ExceptionDetailActions({
   return (
     <div className="space-y-5">
       <section className="rounded-3xl border bg-card/90 p-6 shadow-panel">
-        <h2 className="text-lg font-semibold">Actions</h2>
+        <h2 className="text-lg font-semibold">Response record</h2>
         {canManage ? (
           <div className="mt-4 grid gap-3">
             <label className="space-y-2 text-sm">
@@ -172,7 +172,7 @@ export function ExceptionDetailActions({
                   disabled={isPending}
                   className="rounded-2xl border px-4 py-3 text-sm font-semibold disabled:opacity-60"
                 >
-                  Start action
+                  Start response
                 </button>
               ) : null}
               {exception.action_status !== "completed" ? (
@@ -182,7 +182,7 @@ export function ExceptionDetailActions({
                   disabled={isPending}
                   className="rounded-2xl bg-primary px-4 py-3 text-sm font-semibold text-primaryForeground disabled:opacity-60"
                 >
-                  Complete action
+                  Complete response
                 </button>
               ) : null}
             </div>

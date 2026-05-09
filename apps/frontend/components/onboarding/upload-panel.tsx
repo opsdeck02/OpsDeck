@@ -11,22 +11,22 @@ import type {
 } from "@steelops/contracts";
 
 const fileTypes = [
-  { value: "shipment", label: "Shipment file" },
-  { value: "stock", label: "Stock snapshot file" },
-  { value: "threshold", label: "Plant-material threshold file" },
+  { value: "shipment", label: "Inbound continuity feed" },
+  { value: "stock", label: "Inventory continuity feed" },
+  { value: "threshold", label: "Continuity threshold feed" },
 ];
 
 const fieldLabels: Record<string, string> = {
-  shipment_id: "Shipment ID",
+  shipment_id: "Inbound reference",
   plant_code: "Plant code/name",
   material_code: "Material code/name",
-  supplier_name: "Supplier / vendor",
+  supplier_name: "Reliability source",
   quantity_mt: "Quantity MT",
   planned_eta: "Planned ETA",
   current_eta: "Current ETA",
   delay_days: "Delay days",
-  current_state: "Shipment status",
-  source_of_truth: "Source of truth (system-filled)",
+  current_state: "Inbound continuity state",
+  source_of_truth: "Signal source (system-filled)",
   latest_update_at: "Latest update time",
   vessel_name: "Vessel name",
   imo_number: "IMO number",
@@ -386,12 +386,12 @@ export function UploadPanel({
     <div className="grid gap-3 lg:grid-cols-[minmax(0,1.15fr)_minmax(280px,0.85fr)]">
       <section className="od-panel p-3">
         <div className="space-y-2">
-          <h2 className="text-lg font-semibold">Connect operational feeds</h2>
-          <p className="text-sm text-mutedForeground">Shipments, stock, thresholds, and source mapping.</p>
+          <h2 className="text-lg font-semibold">Activate continuity signals</h2>
+          <p className="text-sm text-mutedForeground">Inbound, inventory, thresholds, and source mapping.</p>
         </div>
         <form onSubmit={uploadFile} className="mt-4 space-y-3">
           <label className="block space-y-2 text-sm font-medium">
-            <span>File type</span>
+            <span>Signal feed type</span>
             <select
               value={fileType}
               onChange={(event) => setFileType(event.target.value)}
@@ -406,7 +406,7 @@ export function UploadPanel({
           </label>
           {uploadMode === "file" ? (
             <label className="block space-y-2 text-sm font-medium">
-              <span>File</span>
+              <span>Signal file</span>
               <input
                 type="file"
                 accept=".csv,.xlsx"
@@ -417,9 +417,9 @@ export function UploadPanel({
           ) : null}
           {automatedSourcesEnabled ? (
             <div className="rounded-xl bg-slate-50 p-3 ring-1 ring-slate-900/5">
-              <p className="font-medium">Upload mode</p>
+              <p className="font-medium">Signal source mode</p>
               <p className="mt-1 text-sm text-mutedForeground">
-                Choose one path: manual file upload or direct URL upload.
+                Choose one path: manual signal file or direct source URL.
               </p>
               <div className="mt-3 flex flex-wrap gap-2">
                 <button
@@ -431,7 +431,7 @@ export function UploadPanel({
                   }}
                   className={`rounded-xl border px-4 py-2 text-xs font-semibold ${uploadMode === "file" ? "bg-primary text-primaryForeground" : ""}`}
                 >
-                  Manual file
+                  Manual signal file
                 </button>
                 <button
                   type="button"
@@ -442,7 +442,7 @@ export function UploadPanel({
                   }}
                   className={`rounded-xl border px-4 py-2 text-xs font-semibold ${uploadMode === "url" ? "bg-primary text-primaryForeground" : ""}`}
                 >
-                  URL upload
+                  Source URL
                 </button>
               </div>
               {uploadMode === "url" ? (
@@ -484,9 +484,9 @@ export function UploadPanel({
             </div>
           ) : (
             <div className="rounded-xl bg-slate-50 p-3 ring-1 ring-slate-900/5">
-              <p className="font-medium">Manual source watch</p>
+              <p className="font-medium">Manual signal source</p>
               <p className="mt-1 text-sm text-mutedForeground">
-                Pilot tenants can upload CSV or XLSX files manually. URL ingestion and Microsoft 365 auto-sync are included in paid and enterprise plans.
+                Pilot tenants can load continuity signals by CSV or XLSX. URL sources and Microsoft 365 auto-sync are included in paid and enterprise plans.
               </p>
             </div>
           )}
@@ -494,7 +494,7 @@ export function UploadPanel({
             <p className="font-medium">Column mapping review</p>
             <div className="mt-3 space-y-3">
               <div className="rounded-xl bg-muted/50 p-3 text-sm">
-                <p className="font-medium">Required OpsDeck columns for this upload</p>
+                <p className="font-medium">Required continuity signal fields</p>
                 <div className="mt-2 flex flex-wrap gap-2">
                   {(mappingPreview?.required_fields ?? []).map((field) => (
                     <span key={field} className="rounded-full bg-card px-3 py-1 text-xs">
@@ -507,13 +507,13 @@ export function UploadPanel({
                 </div>
                 {mappingPreview?.file_type === "shipment" ? (
                   <p className="mt-2 text-xs text-mutedForeground">
-                    Source of truth is saved automatically as manual_upload for file uploads and as the URL source type for automated sync.
+                    Signal source is saved automatically as manual_upload for file loads and as the URL source type for automated sync.
                   </p>
                 ) : null}
               </div>
               {mappingPreview ? (
                 <div className="rounded-xl bg-muted/50 p-3 text-sm">
-                  <p className="font-medium">Columns found in your upload</p>
+                  <p className="font-medium">Columns found in this signal feed</p>
                   <p className="mt-1 break-words text-mutedForeground">{mappingPreview.headers.join(", ")}</p>
                 </div>
               ) : null}
@@ -523,7 +523,7 @@ export function UploadPanel({
                 mappingPreview.suggestions.map((item) => (
                   <div key={item.source_header} className="grid gap-2 rounded-xl border bg-card p-3 md:grid-cols-[1fr_1fr_auto]">
                     <div>
-                      <p className="text-xs text-mutedForeground">Incoming column</p>
+                      <p className="text-xs text-mutedForeground">Incoming signal column</p>
                       <p className="font-medium">{item.source_header}</p>
                     </div>
                     <div>
@@ -561,9 +561,9 @@ export function UploadPanel({
           </div>
           {automatedSourcesEnabled ? (
             <div className="rounded-xl bg-slate-50 p-3 ring-1 ring-slate-900/5">
-              <p className="font-medium">URL source for automated ingestion</p>
+              <p className="font-medium">URL source for continuity signals</p>
               <p className="mt-1 text-sm text-mutedForeground">
-                Save a Google Sheets or Excel Online URL here if you want the same dataset to sync without manual file uploads.
+                Save a Google Sheets or Excel Online URL here if the same continuity signal should refresh without manual files.
               </p>
               <div className="mt-3 grid gap-3">
                 <div className="grid gap-3 md:grid-cols-2">
@@ -590,9 +590,9 @@ export function UploadPanel({
                     }
                     className="rounded-xl border bg-card px-3 py-2.5 text-sm"
                   >
-                    <option value="shipments">Shipments</option>
-                    <option value="stock">Stock</option>
-                    <option value="thresholds">Thresholds</option>
+                    <option value="shipments">Inbound continuity</option>
+                    <option value="stock">Inventory continuity</option>
+                    <option value="thresholds">Continuity thresholds</option>
                   </select>
                 </div>
                 <input
@@ -638,7 +638,7 @@ export function UploadPanel({
                     disabled={isPending}
                     className="rounded-xl border px-3 py-2.5 text-sm font-medium disabled:opacity-60"
                   >
-                    {editingSourceId ? "Update URL source" : "Save URL source"}
+                    {editingSourceId ? "Update signal source" : "Save signal source"}
                   </button>
                 </div>
               </div>
@@ -672,7 +672,7 @@ export function UploadPanel({
                   </div>
                 ))}
                 {dataSources.length === 0 ? (
-                  <p className="text-sm text-mutedForeground">No URL sources saved yet.</p>
+                  <p className="text-sm text-mutedForeground">No continuity signal sources saved yet.</p>
                 ) : null}
               </div>
             </div>
@@ -683,7 +683,7 @@ export function UploadPanel({
               disabled={isPending}
               className="rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primaryForeground disabled:opacity-60"
             >
-              {isPending ? "Uploading..." : automatedSourcesEnabled && uploadMode === "url" ? "Upload URL" : "Upload file"}
+              {isPending ? "Loading..." : automatedSourcesEnabled && uploadMode === "url" ? "Load source URL" : "Load signal file"}
             </button>
             {fileTypes.map((type) => (
               <a
@@ -700,14 +700,14 @@ export function UploadPanel({
               disabled={isPending}
               className="rounded-xl border border-accent px-3 py-2.5 text-sm font-medium text-primary disabled:opacity-60"
             >
-              Delete uploaded data
+              Clear signal data
             </button>
           </div>
         </form>
         {error ? <p className="mt-4 rounded-xl bg-muted p-3 text-sm text-primary">{error}</p> : null}
         {result ? (
           <div className="mt-5 rounded-xl bg-muted p-3 text-sm">
-            <p className="font-semibold">Upload summary</p>
+            <p className="font-semibold">Signal load summary</p>
             <p>Rows received: {result.rows_received}</p>
             <p>Accepted: {result.rows_accepted}</p>
             <p>Rejected: {result.rows_rejected}</p>
@@ -729,7 +729,7 @@ export function UploadPanel({
       </section>
       <section className="od-panel p-3">
         <div className="flex items-center justify-between gap-3">
-          <h2 className="text-lg font-semibold">Source activity</h2>
+          <h2 className="text-lg font-semibold">Signal source activity</h2>
           <span className="text-xs font-semibold text-mutedForeground">{history.length} jobs</span>
         </div>
         <div className="mt-3 space-y-2">
@@ -749,7 +749,7 @@ export function UploadPanel({
           ))}
           {history.length === 0 ? (
             <div className="rounded-xl bg-slate-50 p-3 text-sm text-mutedForeground ring-1 ring-slate-900/5">
-              No ingestion chain detected yet.
+              No continuity signal chain detected yet.
             </div>
           ) : null}
         </div>

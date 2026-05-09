@@ -3,8 +3,8 @@ import "leaflet/dist/leaflet.css";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "OpsDeck Dashboard",
-  description: "Raw-material inbound control tower",
+  title: "OpsDeck Continuity Intelligence",
+  description: "Continuity intelligence layer for industrial operations",
 };
 
 export default function RootLayout({

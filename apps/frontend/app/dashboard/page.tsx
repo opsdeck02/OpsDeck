@@ -37,7 +37,7 @@ export default async function DashboardPage() {
             <div className="min-w-0 rounded-2xl bg-white/[0.06] p-3.5 ring-1 ring-white/10">
               <div className="flex flex-wrap items-center gap-2">
                 <Badge className={leadRisk?.status === "critical" ? "bg-red-500 text-white" : criticalRisks > 0 ? "bg-red-500 text-white" : "bg-blue-500 text-white"}>
-                  Continuity nerve center
+                  Continuity exposure overview
                 </Badge>
                 <span className="text-xs text-white/60">{activeTenant}</span>
               </div>
@@ -49,13 +49,13 @@ export default async function DashboardPage() {
               <p className="mt-2 max-w-2xl text-sm leading-5 text-white/68">
                 {leadRisk
                   ? `${rootCauseFor(leadRisk)}. Available cover is ${displayDays(leadRisk.days_of_cover)} with next inbound ${formatDate(leadRisk.next_inbound_eta)}.`
-                  : "Continuity signals are currently stable across loaded plant and material combinations."}
+                  : "Loaded operating contexts are not showing continuity exposure."}
               </p>
               <Link
                 href="/dashboard/risk-workspace"
                 className="mt-4 inline-flex items-center gap-2 rounded-xl bg-white px-3.5 py-2 text-sm font-semibold text-slate-950"
               >
-                Open Risk Workspace
+                Open risk workspace
                 <ArrowRight className="h-4 w-4" />
               </Link>
             </div>
@@ -68,15 +68,15 @@ export default async function DashboardPage() {
                 priority
               />
               <PressureMetric
-                label="What is exposed"
+                label="Exposed operation"
                 value={leadRisk?.material_name ?? "None"}
-                helper={leadRisk?.plant_name ?? "Current loaded context"}
+                helper={leadRisk?.plant_name ?? "Loaded context"}
                 tone={criticalRisks > 0 ? "critical" : "info"}
               />
               <PressureMetric
                 label="Why"
                 value={leadRisk ? rootCauseFor(leadRisk) : "Stable cover"}
-                helper="primary continuity driver"
+                helper="continuity driver"
                 tone={leadRisk?.status === "warning" ? "warning" : criticalRisks > 0 ? "critical" : "passive"}
               />
               <PressureMetric
@@ -122,8 +122,8 @@ export default async function DashboardPage() {
 
         <section className="grid min-w-0 gap-2.5 md:grid-cols-2 xl:grid-cols-4">
           {[
-            { label: "Critical risks", value: String(kpis?.critical_risks ?? 0), trend: "immediate continuity threat" },
-            { label: "Warning risks", value: String(kpis?.warning_risks ?? 0), trend: "degrading continuity" },
+            { label: "Critical exposure", value: String(kpis?.critical_risks ?? 0), trend: "immediate continuity threat" },
+            { label: "Degrading cover", value: String(kpis?.warning_risks ?? 0), trend: "continuity pressure building" },
             {
               label: "Shortest days to line stop",
               value: displayDays(shortestDaysToLineStop),
@@ -171,7 +171,7 @@ export default async function DashboardPage() {
                   Review workspace
                 </Link>
               </div>
-              <p className="text-sm text-mutedForeground">Highest-pressure plant/material signals.</p>
+              <p className="text-sm text-mutedForeground">Highest-pressure operating contexts.</p>
             </CardHeader>
             <CardContent>
               <div className="space-y-2">
@@ -232,16 +232,16 @@ export default async function DashboardPage() {
                 {topRisks.length === 0 ? (
                   <div className="rounded-2xl bg-slate-50 px-4 py-8 text-center text-sm text-mutedForeground ring-1 ring-slate-900/5">
                     {stockSummary && stockSummary.total_combinations > 0
-                      ? `${stockSummary.total_combinations} plant/material combinations loaded. All are currently safe, so no warning or critical risks are flagged.`
-                      : "No warning or critical combinations are currently flagged."}
+                      ? `${stockSummary.total_combinations} operating contexts loaded. No continuity exposure is currently flagged.`
+                      : "No continuity exposure is currently flagged."}
                   </div>
                 ) : null}
               </div>
               {(executive?.top_risks ?? []).length === 0 && (stockSummary?.rows.length ?? 0) > 0 ? (
                 <div className="mt-3 rounded-2xl bg-slate-50 p-3 text-sm ring-1 ring-slate-900/5">
-                  <p className="font-semibold">Uploaded data is loaded</p>
+                  <p className="font-semibold">Continuity signals loaded</p>
                   <p className="mt-1 text-mutedForeground">
-                    Current stock-cover output is safe for the loaded combinations.
+                    Loaded operating contexts are stable.
                   </p>
                   <div className="mt-3 grid gap-2 md:grid-cols-2">
                     {stockSummary?.rows.slice(0, 4).map((row) => (
@@ -270,9 +270,9 @@ export default async function DashboardPage() {
             <FreshnessCard
               title="Signal trust status"
               items={[
-                ["Stock", executive?.stock_freshness.freshness_label ?? "unknown", executive?.stock_freshness.last_updated_at ?? null],
-                ["Exceptions", executive?.exception_freshness.freshness_label ?? "unknown", executive?.exception_freshness.last_updated_at ?? null],
-                ["Movement", executive?.movement_freshness.freshness_label ?? "unknown", executive?.movement_freshness.last_updated_at ?? null],
+                ["Inventory signal", executive?.stock_freshness.freshness_label ?? "unknown", executive?.stock_freshness.last_updated_at ?? null],
+                ["Continuity signal", executive?.exception_freshness.freshness_label ?? "unknown", executive?.exception_freshness.last_updated_at ?? null],
+                ["Inbound signal", executive?.movement_freshness.freshness_label ?? "unknown", executive?.movement_freshness.last_updated_at ?? null],
               ]}
             />
           </div>

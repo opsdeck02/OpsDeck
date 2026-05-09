@@ -24,31 +24,31 @@ export default async function PilotAdminPage() {
     <div className="grid gap-5">
       <Card className="bg-card/90 shadow-panel">
         <CardHeader>
-          <CardTitle>Pilot readiness checklist</CardTitle>
+          <CardTitle>Continuity activation checklist</CardTitle>
           <p className="text-sm text-mutedForeground">
-            Tenant-level implementation view for onboarding progress, data freshness, and go-live readiness.
+            Tenant-level implementation view for source activation, signal freshness, and continuity visibility.
           </p>
         </CardHeader>
         <CardContent className="text-sm text-mutedForeground">
           {readiness ? (
             <>Active tenant: {readiness.tenant}</>
           ) : (
-            <>Pilot readiness data could not be loaded right now.</>
+            <>Continuity activation data could not be loaded right now.</>
           )}
         </CardContent>
       </Card>
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-        <Kpi label="Uploaded files" value={readiness?.counts.uploaded_files ?? 0} />
-        <Kpi label="Ingestion jobs" value={readiness?.counts.ingestion_jobs ?? 0} />
-        <Kpi label="Stock-cover rows" value={readiness?.counts.stock_cover_rows ?? 0} />
-        <Kpi label="Open exceptions" value={readiness?.counts.open_exceptions ?? 0} />
+        <Kpi label="Signal files" value={readiness?.counts.uploaded_files ?? 0} />
+        <Kpi label="Signal loads" value={readiness?.counts.ingestion_jobs ?? 0} />
+        <Kpi label="Cover contexts" value={readiness?.counts.stock_cover_rows ?? 0} />
+        <Kpi label="Open continuity signals" value={readiness?.counts.open_exceptions ?? 0} />
         <Kpi label="Stale signals" value={readiness?.counts.stale_signals ?? 0} />
       </section>
 
       <Card className="bg-card/90 shadow-panel">
         <CardHeader>
-          <CardTitle>Microsoft connection status</CardTitle>
+          <CardTitle>Microsoft signal source status</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-3 text-sm md:grid-cols-3">
           <StatusLine label="Connected accounts" value={microsoftConnections.length} ready={microsoftConnections.some((item) => item.is_active)} />
@@ -59,7 +59,7 @@ export default async function PilotAdminPage() {
 
       <Card className="bg-card/90 shadow-panel">
         <CardHeader>
-          <CardTitle>Checklist</CardTitle>
+          <CardTitle>Activation checks</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           {(readiness?.checks ?? []).map((check) => (
@@ -78,7 +78,7 @@ export default async function PilotAdminPage() {
           ))}
           {(readiness?.checks ?? []).length === 0 ? (
             <p className="text-sm text-mutedForeground">
-              No readiness checks are available yet for this tenant.
+              No activation checks are available yet for this tenant.
             </p>
           ) : null}
         </CardContent>
@@ -88,21 +88,21 @@ export default async function PilotAdminPage() {
         <TimestampCard
           title="Key timestamps"
           items={[
-            ["Last upload", readiness?.last_upload_at ?? null],
-            ["Last stock refresh", readiness?.last_stock_update_at ?? null],
-            ["Last exception update", readiness?.last_exception_update_at ?? null],
-            ["Last movement update", readiness?.last_movement_update_at ?? null],
+            ["Last signal load", readiness?.last_upload_at ?? null],
+            ["Last inventory signal", readiness?.last_stock_update_at ?? null],
+            ["Last continuity signal", readiness?.last_exception_update_at ?? null],
+            ["Last inbound signal", readiness?.last_movement_update_at ?? null],
           ]}
         />
         <Card className="bg-card/90 shadow-panel">
           <CardHeader>
-            <CardTitle>Go-live prompt</CardTitle>
+            <CardTitle>Activation prompt</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3 text-sm text-mutedForeground">
-            <p>1. Upload onboarding files and confirm ingestion counts look right.</p>
-            <p>2. Confirm stock-cover rows exist and critical/warning risks are understandable.</p>
-            <p>3. Run exception evaluation and assign owners for live pilot issues.</p>
-            <p>4. Review the executive dashboard before customer steering calls.</p>
+            <p>1. Load continuity signal files and confirm accepted rows.</p>
+            <p>2. Confirm cover contexts exist and exposure signals are understandable.</p>
+            <p>3. Review stale or missing operational sources.</p>
+            <p>4. Review the continuity overview before stakeholder calls.</p>
           </CardContent>
         </Card>
       </section>

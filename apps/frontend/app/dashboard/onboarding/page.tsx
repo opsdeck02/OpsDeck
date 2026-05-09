@@ -27,7 +27,7 @@ export default async function OnboardingPage() {
         <section className="od-panel p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <p className="text-sm font-semibold text-mutedForeground">Data connection control center</p>
+              <p className="text-sm font-semibold text-mutedForeground">Continuity signal activation</p>
               <h1 className="text-xl font-semibold">Operational source health</h1>
             </div>
             <Link className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primaryForeground" href="/dashboard/onboarding/microsoft">
@@ -35,20 +35,20 @@ export default async function OnboardingPage() {
             </Link>
           </div>
           <div className="mt-4 grid gap-3 md:grid-cols-4">
-            <StatusBlock label="Connected accounts" value={connections.length} status={connections.some((item) => item.auth_error) ? "Reconnect required" : "Ready"} />
-            <StatusBlock label="Active data sources" value={sources.filter((item) => item.is_active).length} status={sources.find((item) => item.sync_status === "auth_error")?.sync_status ?? sources[0]?.sync_status ?? "idle"} />
-            <StatusBlock label="Failing connectors" value={sources.filter((item) => item.sync_status === "auth_error").length} status={sources.some((item) => item.sync_status === "auth_error") ? "danger" : "clear"} />
+            <StatusBlock label="Connected sources" value={connections.length} status={connections.some((item) => item.auth_error) ? "Reconnect required" : "Ready"} />
+            <StatusBlock label="Active signal feeds" value={sources.filter((item) => item.is_active).length} status={sources.find((item) => item.sync_status === "auth_error")?.sync_status ?? sources[0]?.sync_status ?? "idle"} />
+            <StatusBlock label="Degraded sources" value={sources.filter((item) => item.sync_status === "auth_error").length} status={sources.some((item) => item.sync_status === "auth_error") ? "danger" : "clear"} />
             <StatusBlock label="Trust quality" value={sources.filter((item) => item.is_active && item.sync_status !== "auth_error").length} status="watching" />
           </div>
         </section>
       ) : (
         <section className="od-panel p-4">
-          <p className="text-sm font-semibold text-mutedForeground">Data connection control center</p>
+          <p className="text-sm font-semibold text-mutedForeground">Continuity signal activation</p>
           <h1 className="mt-1 text-xl font-semibold">Operational sources pending</h1>
           <div className="mt-4 grid gap-3 md:grid-cols-4">
-            <StatusBlock label="Shipments connected" value={0} status="manual" />
-            <StatusBlock label="Stock connected" value={0} status="manual" />
-            <StatusBlock label="Movement tracking" value={0} status="inactive" />
+            <StatusBlock label="Inbound feed" value={0} status="manual" />
+            <StatusBlock label="Inventory feed" value={0} status="manual" />
+            <StatusBlock label="Visibility feed" value={0} status="inactive" />
             <StatusBlock label="Trust quality" value={0} status="unknown" />
           </div>
         </section>

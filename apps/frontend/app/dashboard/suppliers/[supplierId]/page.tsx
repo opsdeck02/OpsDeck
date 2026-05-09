@@ -31,7 +31,7 @@ export default async function SupplierDetailPage({
     <main className="space-y-4">
       <section className="od-panel px-4 py-5">
         <Link href="/dashboard/suppliers" className="text-sm font-semibold text-primary hover:underline">
-          Back to suppliers
+          Back to reliability sources
         </Link>
         <div className="mt-3 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div>
@@ -50,11 +50,11 @@ export default async function SupplierDetailPage({
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {[
-          ["Total shipments", String(supplier.performance.total_shipments)],
-          ["On-time reliability", displayPercent(supplier.performance.on_time_reliability_pct)],
+          ["Inbound events", String(supplier.performance.total_shipments)],
+          ["Continuity reliability", displayPercent(supplier.performance.on_time_reliability_pct)],
           ["Avg delay", displayHours(supplier.performance.avg_eta_drift_hours)],
-          ["Tracking coverage", trackingCoverage(supplier.performance.risk_signal_pct)],
-          ["Active shipments", String(supplier.performance.active_shipments)],
+          ["Visibility coverage", trackingCoverage(supplier.performance.risk_signal_pct)],
+          ["Active exposure links", String(supplier.performance.active_shipments)],
           ["Exposure value", displayCurrency(supplier.performance.total_value_at_risk)],
           ["Materials", supplier.performance.materials_supplied.join(", ") || "-"],
           ["Ports used", supplier.performance.ports_used.join(", ") || "-"],
@@ -70,28 +70,28 @@ export default async function SupplierDetailPage({
 
       <Card>
         <CardHeader>
-          <CardTitle>Edit supplier</CardTitle>
+          <CardTitle>Edit reliability source</CardTitle>
         </CardHeader>
         <CardContent>
           <SupplierEditForm supplier={supplier} canManage={canManage} />
-          {!canManage ? <p className="text-sm text-mutedForeground">Tenant admin access is required to edit suppliers.</p> : null}
+          {!canManage ? <p className="text-sm text-mutedForeground">Tenant admin access is required to edit reliability sources.</p> : null}
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle>Linked shipments</CardTitle>
+          <CardTitle>Linked inbound dependencies</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="od-table-wrap">
             <table className="od-table min-w-[760px]">
               <thead>
                 <tr>
-                  <th>Shipment</th>
+                  <th>Inbound reference</th>
                   <th>Material</th>
                   <th>ETA</th>
                   <th>State</th>
-                  <th>Confidence</th>
+                  <th>Signal reliability</th>
                 </tr>
               </thead>
               <tbody>
@@ -111,7 +111,7 @@ export default async function SupplierDetailPage({
                 {supplier.linked_shipments.length === 0 ? (
                   <tr>
                     <td className="px-4 py-8 text-center text-mutedForeground" colSpan={5}>
-                      No shipments are linked to this supplier yet.
+                      No inbound dependencies are linked to this reliability source yet.
                     </td>
                   </tr>
                 ) : null}

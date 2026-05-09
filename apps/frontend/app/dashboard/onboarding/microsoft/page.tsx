@@ -7,9 +7,9 @@ import { MicrosoftFilePicker } from "@/app/dashboard/onboarding/components/Micro
 import type { MappingPreview, MicrosoftConnection, MicrosoftFile, TenantPlanSummary } from "@steelops/contracts";
 
 const fileTypes = [
-  { value: "shipment", label: "Shipment" },
-  { value: "stock", label: "Stock" },
-  { value: "threshold", label: "Threshold" },
+  { value: "shipment", label: "Inbound continuity" },
+  { value: "stock", label: "Inventory continuity" },
+  { value: "threshold", label: "Continuity threshold" },
 ];
 
 const frequencies = [
@@ -21,16 +21,16 @@ const frequencies = [
 ];
 
 const fieldLabels: Record<string, string> = {
-  shipment_id: "Shipment ID",
+  shipment_id: "Inbound reference",
   plant_code: "Plant code/name",
   material_code: "Material code/name",
   material_name: "Material name",
-  supplier_name: "Supplier / vendor",
+  supplier_name: "Reliability source",
   quantity_mt: "Quantity MT",
   planned_eta: "Planned ETA",
   current_eta: "Current ETA",
   delay_days: "Delay days",
-  current_state: "Shipment status",
+  current_state: "Inbound continuity state",
   latest_update_at: "Latest update time",
   on_hand_mt: "Current stock",
   quality_held_mt: "Blocked / quality-held stock",
@@ -218,7 +218,7 @@ export default function MicrosoftOnboardingPage() {
     return (
       <div className="grid gap-5">
         <div>
-          <p className="text-sm uppercase tracking-[0.18em] text-mutedForeground">Data source</p>
+          <p className="text-sm uppercase tracking-[0.18em] text-mutedForeground">Continuity signal source</p>
           <h1 className="text-2xl font-semibold">Checking plan access</h1>
         </div>
         <section className="rounded-md border bg-card p-5">
@@ -233,14 +233,14 @@ export default function MicrosoftOnboardingPage() {
       <div className="grid gap-5">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <p className="text-sm uppercase tracking-[0.18em] text-mutedForeground">Pilot onboarding</p>
-            <h1 className="text-2xl font-semibold">Manual upload only</h1>
+            <p className="text-sm uppercase tracking-[0.18em] text-mutedForeground">Continuity signal activation</p>
+            <h1 className="text-2xl font-semibold">Manual signal source</h1>
           </div>
           <Link className="rounded-md border px-3 py-2 text-sm" href="/dashboard/onboarding">Back</Link>
         </div>
         <section className="rounded-md border bg-card p-5">
           <p className="text-sm text-mutedForeground">
-            Microsoft 365 auto-sync is included in paid and enterprise plans. Pilot tenants can upload CSV or XLSX files manually from the onboarding page.
+            Microsoft 365 auto-sync is included in paid and enterprise plans. Pilot tenants can load continuity signals by CSV or XLSX from the source health page.
           </p>
         </section>
       </div>
@@ -251,8 +251,8 @@ export default function MicrosoftOnboardingPage() {
     <div className="grid gap-5">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <p className="text-sm uppercase tracking-[0.18em] text-mutedForeground">Data source</p>
-          <h1 className="text-2xl font-semibold">Microsoft 365 auto-sync</h1>
+          <p className="text-sm uppercase tracking-[0.18em] text-mutedForeground">Continuity signal source</p>
+          <h1 className="text-2xl font-semibold">Microsoft 365 signal sync</h1>
         </div>
         <Link className="rounded-md border px-3 py-2 text-sm" href="/dashboard/onboarding">Back</Link>
       </div>

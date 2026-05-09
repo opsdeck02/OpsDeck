@@ -22,7 +22,7 @@ const navItems: Array<{ href: string; label: string; roles: RoleName[] }> = [
   },
   {
     href: "/dashboard/risk-workspace",
-    label: "Risk Workspace",
+    label: "Risk workspace",
     roles: [
       "tenant_admin",
       "buyer_user",
@@ -34,7 +34,7 @@ const navItems: Array<{ href: string; label: string; roles: RoleName[] }> = [
   },
   {
     href: "/dashboard/shipments",
-    label: "Inbound",
+    label: "Inbound continuity",
     roles: [
       "tenant_admin",
       "buyer_user",
@@ -46,7 +46,7 @@ const navItems: Array<{ href: string; label: string; roles: RoleName[] }> = [
   },
   {
     href: "/dashboard/suppliers",
-    label: "Suppliers",
+    label: "Reliability sources",
     roles: [
       "tenant_admin",
       "buyer_user",
@@ -58,7 +58,7 @@ const navItems: Array<{ href: string; label: string; roles: RoleName[] }> = [
   },
   {
     href: "/dashboard/movements",
-    label: "Signals",
+    label: "Signal trust",
     roles: [
       "tenant_admin",
       "buyer_user",
@@ -70,7 +70,7 @@ const navItems: Array<{ href: string; label: string; roles: RoleName[] }> = [
   },
   {
     href: "/dashboard/onboarding",
-    label: "Admin",
+    label: "Source health",
     roles: ["tenant_admin", "buyer_user", "logistics_user", "planner_user"],
   },
   {
@@ -114,7 +114,7 @@ export function DashboardShell({
               <h1 className="mt-1 truncate text-lg font-semibold tracking-tight">
                 {isSuperadmin
                   ? "OpsDeck Superadmin Console"
-                  : "OpsDeck Continuity"}
+                  : "Continuity intelligence"}
               </h1>
             </div>
           </div>

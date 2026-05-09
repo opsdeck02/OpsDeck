@@ -50,9 +50,9 @@ export default async function ExceptionsPage({
       ) : null}
 
       <section className="grid gap-3 md:grid-cols-4">
-        <KpiCard label="Open signals" value={counts?.open_exceptions ?? 0} />
-        <KpiCard label="Critical signals" value={counts?.critical_exceptions ?? 0} tone="critical" />
-        <KpiCard label="Unassigned signals" value={counts?.unassigned_exceptions ?? 0} tone="warning" />
+        <KpiCard label="Open continuity signals" value={counts?.open_exceptions ?? 0} />
+        <KpiCard label="Critical exposure signals" value={counts?.critical_exceptions ?? 0} tone="critical" />
+        <KpiCard label="Unowned signals" value={counts?.unassigned_exceptions ?? 0} tone="warning" />
         <KpiCard label="Resolved recently" value={counts?.resolved_recently ?? 0} />
       </section>
 
@@ -65,13 +65,13 @@ export default async function ExceptionsPage({
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between gap-3">
-            <CardTitle>Operational signals</CardTitle>
+          <CardTitle>Continuity signals</CardTitle>
             <a href={exportHref} className="rounded-xl border px-3 py-2 text-xs font-semibold">
               Export CSV
             </a>
           </div>
           <p className="text-sm text-mutedForeground">
-            Deterministic tenant-scoped records created from stock, shipment, and inland signals.
+            Deterministic tenant-scoped records created from inventory, inbound, and visibility signals.
           </p>
         </CardHeader>
         <CardContent>
@@ -85,7 +85,7 @@ export default async function ExceptionsPage({
                   <th>Status</th>
                   <th>Owner</th>
                   <th>Plant / material</th>
-                  <th>Shipment</th>
+                  <th>Inbound ref</th>
                   <th>Updated</th>
                 </tr>
               </thead>

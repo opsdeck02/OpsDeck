@@ -28,14 +28,14 @@ export default async function StockCoverDetailPage({
             {row.plant_name} / {row.material_name}
           </CardTitle>
           <p className="text-sm text-mutedForeground">
-            Breakdown of the current MVP stock-cover estimate.
+            Continuity cover, exposure timing, and signal trust for this operating context.
           </p>
         </CardHeader>
         <CardContent className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <Metric label="Latest stock snapshot" value={formatDate(row.latest_snapshot_time)} />
           <Metric label="Threshold used" value={displayDays(calc.threshold_days)} />
-          <Metric label="Days of cover" value={displayDays(calc.days_of_cover)} />
-          <Metric label="Confidence" value={calc.confidence_level} />
+          <Metric label="Available cover" value={displayDays(calc.days_of_cover)} />
+          <Metric label="Signal reliability" value={calc.confidence_level} />
           <Metric label="Urgency band" value={formatUrgency(calc.urgency_band)} />
           <Metric label="Risk hours remaining" value={displayHours(calc.risk_hours_remaining)} />
           <Metric label="Production exposure" value={displayTonnes(calc.estimated_production_exposure_mt)} />
@@ -46,7 +46,7 @@ export default async function StockCoverDetailPage({
       <div className="grid gap-5 lg:grid-cols-[1.15fr_0.85fr]">
         <Card className="bg-card/90 shadow-panel">
           <CardHeader>
-            <CardTitle>Calculation breakdown</CardTitle>
+            <CardTitle>Continuity calculation</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3 text-sm">
             <Breakdown label="Current / total stock" value={displayTonnes(calc.current_stock_mt)} />
@@ -57,10 +57,10 @@ export default async function StockCoverDetailPage({
             <Breakdown label="Warning threshold" value={displayDays(calc.warning_days)} />
             <Breakdown label="Critical threshold" value={displayDays(calc.threshold_days)} />
             <Breakdown label="Estimated breach date" value={formatDate(calc.estimated_breach_date)} />
-            <Breakdown label="Linked shipments" value={String(calc.linked_shipment_count)} />
-            <Breakdown label="Weighted shipment count" value={calc.weighted_shipment_count} />
+            <Breakdown label="Linked inbound dependencies" value={String(calc.linked_shipment_count)} />
+            <Breakdown label="Weighted inbound count" value={calc.weighted_shipment_count} />
             <div className="flex items-center justify-between rounded-xl bg-muted px-4 py-3">
-              <span className="text-mutedForeground">Risk status</span>
+              <span className="text-mutedForeground">Continuity status</span>
               <Badge variant="outline">{calc.status.replace("_", " ")}</Badge>
             </div>
           </CardContent>
@@ -68,11 +68,11 @@ export default async function StockCoverDetailPage({
 
         <Card className="bg-card/90 shadow-panel">
           <CardHeader>
-            <CardTitle>Confidence and assumptions</CardTitle>
+            <CardTitle>Signal reliability and assumptions</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4 text-sm text-mutedForeground">
             <div>
-              <p className="font-medium text-foreground">Confidence reasons</p>
+              <p className="font-medium text-foreground">Reliability reasons</p>
               <ul className="mt-2 space-y-2">
                 {detail.confidence_reasons.map((reason) => (
                   <li key={reason} className="rounded-xl bg-muted px-4 py-3">
@@ -102,7 +102,7 @@ export default async function StockCoverDetailPage({
 
       <Card className="bg-card/90 shadow-panel">
         <CardHeader>
-          <CardTitle>Impact view</CardTitle>
+          <CardTitle>Operational exposure</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3 text-sm">
           <Breakdown label="Estimated production exposure" value={displayTonnes(calc.estimated_production_exposure_mt)} />
@@ -123,13 +123,13 @@ export default async function StockCoverDetailPage({
 
       <Card className="bg-card/90 shadow-panel">
         <CardHeader>
-          <CardTitle>Recommended action</CardTitle>
+          <CardTitle>Continuity response record</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3 text-sm">
-          <Breakdown label="Recommended action" value={calc.recommended_action_text ?? "—"} />
+          <Breakdown label="Response guidance" value={calc.recommended_action_text ?? "—"} />
           <Breakdown label="Owner role" value={calc.owner_role_recommended ?? "—"} />
-          <Breakdown label="Action deadline" value={formatDeadline(calc.action_deadline_hours)} />
-          <Breakdown label="Action status" value={(calc.action_status ?? "pending").replace("_", " ")} />
+          <Breakdown label="Response window" value={formatDeadline(calc.action_deadline_hours)} />
+          <Breakdown label="Response status" value={(calc.action_status ?? "pending").replace("_", " ")} />
           <Breakdown label="SLA timer" value={formatCountdown(calc.action_deadline_hours, calc.action_age_hours, calc.action_status)} />
           <Breakdown label="SLA state" value={calc.action_sla_breach ? "Breached" : "On track"} />
           <Breakdown label="Current owner" value={detail.current_owner ?? "Unassigned"} />
@@ -152,21 +152,21 @@ export default async function StockCoverDetailPage({
 
       <Card className="bg-card/90 shadow-panel">
         <CardHeader>
-          <CardTitle>Contributing shipments</CardTitle>
+          <CardTitle>Contributing inbound dependencies</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="overflow-hidden rounded-2xl border">
             <table className="w-full text-left text-sm">
               <thead className="bg-muted text-mutedForeground">
                 <tr>
-                  <th className="px-4 py-3 font-medium">Shipment</th>
-                  <th className="px-4 py-3 font-medium">Supplier</th>
+                  <th className="px-4 py-3 font-medium">Inbound ref</th>
+                  <th className="px-4 py-3 font-medium">Reliability source</th>
                   <th className="px-4 py-3 font-medium">Raw qty</th>
                   <th className="px-4 py-3 font-medium">Factor</th>
                   <th className="px-4 py-3 font-medium">Effective qty</th>
                   <th className="px-4 py-3 font-medium">ETA</th>
                   <th className="px-4 py-3 font-medium">State</th>
-                  <th className="px-4 py-3 font-medium">Confidence</th>
+                  <th className="px-4 py-3 font-medium">Signal reliability</th>
                   <th className="px-4 py-3 font-medium">Freshness</th>
                   <th className="px-4 py-3 font-medium">Explanation</th>
                 </tr>

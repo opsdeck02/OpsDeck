@@ -26,6 +26,6 @@ async function readJson(response: Response) {
   try {
     return await response.json();
   } catch {
-    return { detail: "Shipment API returned an invalid response." };
+    return { detail: "Inbound continuity API returned an invalid response." };
   }
 }

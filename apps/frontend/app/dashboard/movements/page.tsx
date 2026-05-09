@@ -37,7 +37,7 @@ export default async function MovementsPage({
   const combinedViewHref = buildMovementHref(searchParams, null);
   const portTable = (
     <MonitoringTable
-      headers={["Shipment", "Flow", "Port", "Waiting", "Freshness", "Trust"]}
+      headers={["Inbound ref", "Continuity path", "Node condition", "Waiting", "Freshness", "Trust"]}
       rows={portRows.map((row) => [
         <Link key={`${row.shipment_id}-link`} href={`/dashboard/shipments/${row.shipment_id}`} className="text-primary hover:underline">
           {row.shipment_id}
@@ -48,12 +48,12 @@ export default async function MovementsPage({
         freshnessBadge(row.freshness.freshness_label),
         trustBadge(row.confidence),
       ])}
-      empty="No port-monitoring records matched the current filters."
+      empty="No continuity signal degradation matched the current filters."
     />
   );
   const inlandTable = (
     <MonitoringTable
-      headers={["Shipment", "Flow", "Inland", "Expected arrival", "Freshness", "Trust"]}
+      headers={["Inbound ref", "Continuity path", "Inland condition", "Expected arrival", "Freshness", "Trust"]}
       rows={inlandRows.map((row) => [
         <Link key={`${row.shipment_id}-link`} href={`/dashboard/shipments/${row.shipment_id}`} className="text-primary hover:underline">
           {row.shipment_id}
@@ -64,7 +64,7 @@ export default async function MovementsPage({
         freshnessBadge(row.freshness.freshness_label),
         trustBadge(row.confidence),
       ])}
-      empty="No inland-monitoring records matched the current filters."
+      empty="No inbound continuity degradation matched the current filters."
     />
   );
 
@@ -72,7 +72,7 @@ export default async function MovementsPage({
     <div className="grid gap-4">
       <Card>
         <CardHeader>
-          <CardTitle>Movement intelligence</CardTitle>
+          <CardTitle>Continuity signal degradation</CardTitle>
         </CardHeader>
         <CardContent>
           <form className="grid gap-2 md:grid-cols-[minmax(220px,1fr)_160px_auto]">
@@ -80,7 +80,7 @@ export default async function MovementsPage({
               type="text"
               name="shipment_id"
               defaultValue={searchParams?.shipment_id ?? ""}
-              placeholder="Shipment ID or vessel"
+              placeholder="Inbound reference or vessel"
               className="rounded-xl border bg-card px-3 py-2 text-sm"
             />
             <label className="flex items-center gap-2 rounded-xl bg-slate-50 px-3 py-2 text-sm ring-1 ring-slate-900/5">
@@ -100,19 +100,19 @@ export default async function MovementsPage({
       {detail ? (
       <Card>
           <CardHeader>
-            <CardTitle>{detail.shipment.shipment_id} movement condition</CardTitle>
+            <CardTitle>{detail.shipment.shipment_id} continuity signal condition</CardTitle>
             <Badge variant="outline">{operationalTrustLabel(detail.overall_confidence)}</Badge>
           </CardHeader>
           <CardContent className="grid gap-4 lg:grid-cols-3">
             <SummaryBlock
-              title="Shipment"
+              title="Inbound dependency"
               primary={detail.shipment.shipment_state.replaceAll("_", " ")}
               subtext={`${detail.shipment.plant_name} · ${detail.shipment.material_name}`}
               confidence={detail.overall_confidence}
               notes={detail.progress_notes}
             />
             <SummaryBlock
-              title="Port"
+              title="Port signal"
               primary={detail.port_summary?.port_status.replaceAll("_", " ") ?? "No port feed"}
               subtext={detail.port_summary?.freshness.freshness_label ?? "unknown"}
               confidence={detail.port_summary?.confidence ?? "low"}
@@ -121,7 +121,7 @@ export default async function MovementsPage({
               }
             />
             <SummaryBlock
-              title="Inland"
+              title="Inland signal"
               primary={
                 detail.inland_summary?.dispatch_status.replaceAll("_", " ") ?? "No inland feed"
               }
@@ -137,7 +137,7 @@ export default async function MovementsPage({
           <CardContent className="pt-0">
             <div className="grid gap-4 lg:grid-cols-2">
               <div>
-                <p className="text-sm font-medium">Missing signals</p>
+                <p className="text-sm font-medium">Visibility degradation</p>
                 <div className="mt-3 space-y-2 text-sm text-mutedForeground">
                   {detail.missing_signals.map((note) => (
                     <div key={note} className="rounded-xl border border-dashed px-4 py-3">
@@ -146,13 +146,13 @@ export default async function MovementsPage({
                   ))}
                   {detail.missing_signals.length === 0 ? (
                     <div className="rounded-xl border border-dashed px-4 py-3">
-                      No obvious movement gaps are currently flagged.
+                      No obvious continuity visibility gaps are currently flagged.
                     </div>
                   ) : null}
                 </div>
               </div>
               <div>
-                <p className="text-sm font-medium">Latest freshness</p>
+                <p className="text-sm font-medium">Latest signal freshness</p>
                 <div className="mt-3 rounded-xl bg-muted px-4 py-3 text-sm">
                   <p>Label: {detail.overall_freshness.freshness_label}</p>
                   <p>Last update: {formatDate(detail.overall_freshness.last_updated_at)}</p>
@@ -167,10 +167,10 @@ export default async function MovementsPage({
         <Card>
           <CardHeader className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
-              <CardTitle>{activeView === "port" ? "Port view" : "Inland view"}</CardTitle>
+              <CardTitle>{activeView === "port" ? "Port signal view" : "Inland signal view"}</CardTitle>
             </div>
             <Link className="rounded-xl bg-slate-50 px-3 py-2 text-sm font-medium ring-1 ring-slate-900/5" href={combinedViewHref}>
-              Back to combined view
+              Back to continuity signals
             </Link>
           </CardHeader>
           <CardContent>{activeView === "port" ? portTable : inlandTable}</CardContent>
@@ -181,11 +181,11 @@ export default async function MovementsPage({
             <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <CardTitle>
                 <Link href={portViewHref} className="hover:text-primary hover:underline">
-                  Port feed
+                  Port degradation signals
                 </Link>
               </CardTitle>
               <Link className="rounded-xl bg-slate-50 px-3 py-2 text-xs font-semibold ring-1 ring-slate-900/5" href={portViewHref}>
-                Open full page
+                Inspect signals
               </Link>
             </CardHeader>
             <CardContent>{portTable}</CardContent>
@@ -195,11 +195,11 @@ export default async function MovementsPage({
             <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <CardTitle>
                 <Link href={inlandViewHref} className="hover:text-primary hover:underline">
-                  Inland feed
+                  Inland degradation signals
                 </Link>
               </CardTitle>
               <Link className="rounded-xl bg-slate-50 px-3 py-2 text-xs font-semibold ring-1 ring-slate-900/5" href={inlandViewHref}>
-                Open full page
+                Inspect signals
               </Link>
             </CardHeader>
             <CardContent>{inlandTable}</CardContent>

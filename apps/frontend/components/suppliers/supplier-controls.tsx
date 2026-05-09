@@ -23,7 +23,7 @@ export function SupplierCreateForm({ canManage }: { canManage: boolean }) {
       });
       const body = (await response.json().catch(() => null)) as { detail?: string } | null;
       if (!response.ok) {
-        setMessage(body?.detail ?? "Supplier could not be created.");
+        setMessage(body?.detail ?? "Reliability source could not be created.");
         return;
       }
       window.location.reload();
@@ -32,11 +32,11 @@ export function SupplierCreateForm({ canManage }: { canManage: boolean }) {
 
   return (
     <form action={submit} className="grid gap-3 rounded-2xl border bg-card p-4 md:grid-cols-4">
-      <input name="name" required placeholder="Supplier name" className="rounded-xl border bg-background px-3 py-2 text-sm" disabled={isPending} />
+      <input name="name" required placeholder="Source name" className="rounded-xl border bg-background px-3 py-2 text-sm" disabled={isPending} />
       <input name="code" required placeholder="Code" className="rounded-xl border bg-background px-3 py-2 text-sm" disabled={isPending} />
       <input name="primary_port" placeholder="Primary port" className="rounded-xl border bg-background px-3 py-2 text-sm" disabled={isPending} />
       <button type="submit" disabled={isPending} className="rounded-2xl bg-primary px-4 py-2 text-sm font-semibold text-primaryForeground disabled:opacity-60">
-        Add supplier
+        Add source
       </button>
       {message ? <p className="md:col-span-4 rounded-xl bg-muted px-3 py-2 text-sm">{message}</p> : null}
     </form>
@@ -68,7 +68,7 @@ export function SupplierEditForm({
       });
       const body = (await response.json().catch(() => null)) as { detail?: string } | null;
       if (!response.ok) {
-        setMessage(body?.detail ?? "Supplier could not be updated.");
+        setMessage(body?.detail ?? "Reliability source could not be updated.");
         return;
       }
       window.location.reload();
@@ -87,7 +87,7 @@ export function SupplierEditForm({
       <input name="material_categories" defaultValue={(supplier.material_categories ?? []).join(", ")} placeholder="Material categories, comma separated" className="rounded-xl border bg-background px-3 py-2 text-sm md:col-span-2" disabled={isPending} />
       <div className="flex flex-wrap gap-3 md:col-span-2">
         <button type="submit" disabled={isPending} className="rounded-2xl bg-primary px-4 py-2 text-sm font-semibold text-primaryForeground disabled:opacity-60">
-          Save supplier
+          Save source
         </button>
         <SupplierLinkButton supplierId={supplier.id} />
         <SupplierDeleteButton supplierId={supplier.id} />
@@ -112,7 +112,7 @@ function SupplierLinkButton({ supplierId }: { supplierId: string }) {
       }}
       className="rounded-2xl border px-4 py-2 text-sm font-semibold disabled:opacity-60"
     >
-      Link matching shipments
+      Link inbound dependencies
     </button>
   );
 }

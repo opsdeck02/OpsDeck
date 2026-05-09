@@ -96,7 +96,7 @@ function WorkspaceContent({ workspace }: { workspace: RiskWorkspaceResponse }) {
             <div className="grid gap-2.5 md:grid-cols-2 2xl:grid-cols-4">
               <SignalMetric
                 icon={<Boxes className="h-4 w-4" />}
-                label="Cover"
+                label="Continuity cover"
                 value={displayDays(risk?.days_of_cover)}
                 helper="available"
               />
@@ -112,14 +112,14 @@ function WorkspaceContent({ workspace }: { workspace: RiskWorkspaceResponse }) {
               />
               <SignalMetric
                 icon={<Truck className="h-4 w-4" />}
-                label="Movement"
+                label="Inbound dependency"
                 value={
                   risk?.shipment_reference ??
                   exposure?.shipment_reference ??
                   "Not linked"
                 }
                 helper={formatLabel(
-                  risk?.continuity_status ?? "movement context",
+                  risk?.continuity_status ?? "dependency context",
                 )}
                 tone={risk?.continuity_status === "degraded" ? "warning" : "default"}
               />
@@ -156,7 +156,7 @@ function WorkspaceFilters({ searchParams }: { searchParams?: SearchParams }) {
   return (
     <Card className="bg-card/90 shadow-panel">
       <CardHeader>
-        <CardTitle>Critical risk workspace</CardTitle>
+        <CardTitle>Continuity risk workspace</CardTitle>
       </CardHeader>
       <CardContent>
         <form className="grid gap-3 md:grid-cols-3 xl:grid-cols-[1fr_1fr_1fr_1fr_160px_auto]">
@@ -175,13 +175,13 @@ function WorkspaceFilters({ searchParams }: { searchParams?: SearchParams }) {
           <input
             name="shipment_reference"
             defaultValue={searchParams?.shipment_reference ?? ""}
-            placeholder="Shipment reference"
+            placeholder="Inbound reference"
             className="rounded-xl border bg-card px-3 py-2 text-sm"
           />
           <input
             name="risk_type"
             defaultValue={searchParams?.risk_type ?? ""}
-            placeholder="Risk category"
+            placeholder="Continuity risk"
             className="rounded-xl border bg-card px-3 py-2 text-sm"
           />
           <select
@@ -221,7 +221,7 @@ function WhyThisMatters({ workspace }: { workspace: RiskWorkspaceResponse }) {
         </div>
         <p className="text-sm leading-5 text-mutedForeground">
           {explainability?.summary ??
-            "OpsDeck does not have enough signal detail to explain this risk yet."}
+            "OpsDeck does not have enough signal detail to explain this continuity risk yet."}
         </p>
       </CardHeader>
       <CardContent>
@@ -231,7 +231,7 @@ function WhyThisMatters({ workspace }: { workspace: RiskWorkspaceResponse }) {
             value={driverLabel(explainability?.primary_driver)}
           />
           <ContextPill
-            label="Risk category"
+            label="Continuity risk"
             value={formatLabel(workspace.selected_risk?.risk_type)}
           />
         </div>
@@ -276,7 +276,7 @@ function TrustSummary({ workspace }: { workspace: RiskWorkspaceResponse }) {
       <CardHeader>
         <div className="flex items-center gap-2">
           <ShieldCheck className="h-5 w-5 text-primary" />
-          <CardTitle>Data trust</CardTitle>
+          <CardTitle>Continuity trust</CardTitle>
         </div>
       </CardHeader>
       <CardContent>
@@ -289,12 +289,12 @@ function TrustSummary({ workspace }: { workspace: RiskWorkspaceResponse }) {
           />
           <SignalMetric
             icon={<Clock3 className="h-4 w-4" />}
-            label="Tracking freshness"
+            label="Visibility freshness"
             value={formatLabel(freshness ?? "unknown")}
             helper="latest source"
           />
           <div className="rounded-xl bg-slate-50 p-3 ring-1 ring-slate-900/5">
-            <p className="text-xs font-semibold text-mutedForeground">Trust warnings</p>
+            <p className="text-xs font-semibold text-mutedForeground">Trust degradation</p>
             {warnings.length > 0 ? (
               <ul className="mt-3 space-y-2 text-sm">
                 {warnings.map((warning) => (
@@ -325,7 +325,7 @@ function ContinuitySummary({
       <CardHeader>
         <div className="flex items-center gap-2">
           <PackageCheck className="h-5 w-5 text-pressure-amber" />
-          <CardTitle>Operational exposure context</CardTitle>
+          <CardTitle>Operational dependency context</CardTitle>
         </div>
       </CardHeader>
       <CardContent>
@@ -350,7 +350,7 @@ function ContinuitySummary({
             </div>
           </div>
           <div className="rounded-xl bg-slate-50 p-3 ring-1 ring-slate-900/5">
-            <h3 className="font-semibold">Inbound movement condition</h3>
+            <h3 className="font-semibold">Inbound continuity condition</h3>
             <div className="mt-3 space-y-2">
               {shipments.slice(0, 3).map((shipment) => (
                 <ShipmentBlock
@@ -360,7 +360,7 @@ function ContinuitySummary({
               ))}
               {shipments.length === 0 ? (
                 <p className="text-sm text-mutedForeground">
-                  No inbound movement condition returned for this view.
+                  No inbound continuity condition returned for this view.
                 </p>
               ) : null}
             </div>
@@ -382,7 +382,7 @@ function TimelinePanel({
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <Clock3 className="h-5 w-5 text-primary" />
-            <CardTitle>Exposure timeline</CardTitle>
+            <CardTitle>Continuity signal chain</CardTitle>
           </div>
           <Badge variant="outline">{timeline.total} signals</Badge>
         </div>
@@ -394,7 +394,7 @@ function TimelinePanel({
           ))}
           {timeline.items.length === 0 ? (
             <p className="rounded-xl bg-slate-50 px-3 py-3 text-sm text-mutedForeground ring-1 ring-slate-900/5">
-              No historical signal chain detected.
+              No continuity signal chain detected.
             </p>
           ) : null}
         </div>
@@ -506,7 +506,7 @@ function ShipmentBlock({ shipment }: { shipment: SignalShipmentContinuity }) {
         <span>ETA {formatDate(shipment.eta)}</span>
         <span>Slip {displayDays(shipment.eta_slip_days)}</span>
         <span>
-          Tracking freshness {formatLabel(shipment.tracking_freshness_status)}
+          Visibility freshness {formatLabel(shipment.tracking_freshness_status)}
         </span>
       </div>
       <ul className="mt-3 space-y-1 text-sm text-mutedForeground">
@@ -537,7 +537,7 @@ function TimelineEntry({ entry }: { entry: SignalTimelineEntry }) {
           {formatLabel(entry.event_category)}
         </span>
         <span className="rounded-full bg-white px-3 py-1 ring-1 ring-slate-900/5">
-          Signal confidence {displayPercent(entry.confidence_score)}
+          Signal reliability {displayPercent(entry.confidence_score)}
         </span>
         <span className="rounded-full bg-white px-3 py-1 ring-1 ring-slate-900/5">
           Freshness {formatLabel(entry.freshness_status)}
@@ -664,8 +664,8 @@ function formatLabel(value?: string | null) {
 
 function driverLabel(value?: string | null) {
   if (value === "inventory_continuity") return "Available cover";
-  if (value === "shipment_continuity") return "Inbound movement";
-  if (value === "signal_trust") return "Data trust";
+  if (value === "shipment_continuity") return "Inbound continuity";
+  if (value === "signal_trust") return "Continuity trust";
   if (value === "missing_operational_context")
     return "Missing operational context";
   return formatLabel(value);

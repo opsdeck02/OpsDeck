@@ -39,10 +39,10 @@ export default async function ShipmentDetailPage({
       <div className="grid gap-5 lg:grid-cols-[1.15fr_0.85fr]">
         <Card className="bg-card/90 shadow-panel">
           <CardHeader>
-            <CardTitle>Shipment summary</CardTitle>
+            <CardTitle>Inbound continuity summary</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3 text-sm">
-            <Line label="Supplier" value={detail.supplier_name} />
+            <Line label="Reliability source" value={detail.supplier_name} />
             <Line label="Vessel" value={detail.shipment.vessel_name ?? "—"} />
             <Line label="Origin port" value={detail.shipment.origin_port ?? "—"} />
             <Line label="Destination port" value={detail.shipment.destination_port ?? "—"} />
@@ -56,11 +56,11 @@ export default async function ShipmentDetailPage({
 
         <Card className="bg-card/90 shadow-panel">
           <CardHeader>
-            <CardTitle>Confidence and movement gaps</CardTitle>
+            <CardTitle>Signal trust and visibility gaps</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4 text-sm text-mutedForeground">
             <div>
-              <p className="font-medium text-foreground">Confidence reasons</p>
+              <p className="font-medium text-foreground">Reliability reasons</p>
               <ul className="mt-2 space-y-2">
                 {detail.confidence_reasons.map((reason) => (
                   <li key={reason} className="rounded-xl bg-muted px-4 py-3">
@@ -80,7 +80,7 @@ export default async function ShipmentDetailPage({
               </ul>
             </div>
             <div>
-              <p className="font-medium text-foreground">Movement gaps</p>
+              <p className="font-medium text-foreground">Visibility gaps</p>
               <ul className="mt-2 space-y-2">
                 {detail.movement_gaps.map((note) => (
                   <li key={note} className="rounded-xl border border-dashed px-4 py-3">
@@ -89,7 +89,7 @@ export default async function ShipmentDetailPage({
                 ))}
                 {detail.movement_gaps.length === 0 ? (
                   <li className="rounded-xl border border-dashed px-4 py-3">
-                    No obvious movement data gaps are currently flagged.
+                    No obvious continuity visibility gaps are currently flagged.
                   </li>
                 ) : null}
               </ul>
@@ -101,7 +101,7 @@ export default async function ShipmentDetailPage({
       <div className="grid gap-5 lg:grid-cols-2">
         <Card className="bg-card/90 shadow-panel">
           <CardHeader>
-            <CardTitle>Latest port summary</CardTitle>
+            <CardTitle>Latest port signal</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3 text-sm">
             {detail.port_summary ? (
@@ -110,7 +110,7 @@ export default async function ShipmentDetailPage({
                 <Line label="Berth state" value={detail.port_summary.latest_berth_state.replaceAll("_", " ")} />
                 <Line label="Waiting time" value={`${Number(detail.port_summary.waiting_time_days).toFixed(2)} d`} />
                 <Line label="Freshness" value={detail.port_summary.freshness.freshness_label} />
-                <Line label="Confidence" value={detail.port_summary.confidence} />
+                <Line label="Signal reliability" value={detail.port_summary.confidence} />
               </>
             ) : (
               <p className="text-mutedForeground">No port summary is available yet.</p>
@@ -120,7 +120,7 @@ export default async function ShipmentDetailPage({
 
         <Card className="bg-card/90 shadow-panel">
           <CardHeader>
-            <CardTitle>Latest inland summary</CardTitle>
+            <CardTitle>Latest inland signal</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3 text-sm">
             {detail.inland_summary ? (
@@ -129,7 +129,7 @@ export default async function ShipmentDetailPage({
                 <Line label="Transporter" value={detail.inland_summary.transporter_name ?? "—"} />
                 <Line label="Expected arrival" value={formatDate(detail.inland_summary.expected_arrival)} />
                 <Line label="Freshness" value={detail.inland_summary.freshness.freshness_label} />
-                <Line label="Confidence" value={detail.inland_summary.confidence} />
+                <Line label="Signal reliability" value={detail.inland_summary.confidence} />
               </>
             ) : (
               <p className="text-mutedForeground">No inland summary is available yet.</p>
@@ -140,7 +140,7 @@ export default async function ShipmentDetailPage({
 
       <Card className="bg-card/90 shadow-panel">
         <CardHeader>
-          <CardTitle>Movement interpretation notes</CardTitle>
+          <CardTitle>Continuity interpretation notes</CardTitle>
         </CardHeader>
         <CardContent className="space-y-2 text-sm text-mutedForeground">
           {detail.movement_notes.map((note) => (
@@ -153,7 +153,7 @@ export default async function ShipmentDetailPage({
 
       <Card className="bg-card/90 shadow-panel">
         <CardHeader>
-          <CardTitle>ETA / update history</CardTitle>
+          <CardTitle>ETA and signal history</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           {detail.updates.map((update) => (
@@ -167,7 +167,7 @@ export default async function ShipmentDetailPage({
             </div>
           ))}
           {detail.updates.length === 0 ? (
-            <p className="text-sm text-mutedForeground">No shipment update history is available.</p>
+            <p className="text-sm text-mutedForeground">No inbound signal history is available.</p>
           ) : null}
         </CardContent>
       </Card>
@@ -175,7 +175,7 @@ export default async function ShipmentDetailPage({
       <div className="grid gap-5 lg:grid-cols-2">
         <Card className="bg-card/90 shadow-panel">
           <CardHeader>
-            <CardTitle>Port events</CardTitle>
+          <CardTitle>Port signal events</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3 text-sm">
             {detail.port_events.map((event, index) => (
@@ -193,7 +193,7 @@ export default async function ShipmentDetailPage({
 
         <Card className="bg-card/90 shadow-panel">
           <CardHeader>
-            <CardTitle>Inland movements</CardTitle>
+          <CardTitle>Inland signal events</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3 text-sm">
             {detail.inland_movements.map((movement, index) => (

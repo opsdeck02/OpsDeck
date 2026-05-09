@@ -22,7 +22,7 @@ export default async function ShipmentsPage({
     <div className="grid gap-4">
       <Card>
         <CardHeader>
-          <CardTitle>Inbound movement</CardTitle>
+          <CardTitle>Inbound continuity</CardTitle>
         </CardHeader>
         <CardContent>
           <form className="grid gap-3 md:grid-cols-[220px_1fr_auto]">
@@ -42,7 +42,7 @@ export default async function ShipmentsPage({
               type="search"
               name="search"
               defaultValue={searchParams?.search ?? ""}
-              placeholder="Search shipment ID or vessel"
+              placeholder="Search inbound reference or vessel"
               className="rounded-xl border bg-card px-3 py-2.5 text-sm"
             />
             <button
@@ -61,13 +61,13 @@ export default async function ShipmentsPage({
             <table className="od-table min-w-[920px]">
               <thead>
                 <tr>
-                  <th>Shipment</th>
+                  <th>Inbound reference</th>
                   <th>Plant</th>
                   <th>Material</th>
                   <th>Quantity</th>
                   <th>Vessel</th>
                   <th>ETA</th>
-                  <th>State</th>
+                  <th>Continuity state</th>
                   <th>Signal trust</th>
                 </tr>
               </thead>
@@ -98,7 +98,7 @@ export default async function ShipmentsPage({
                 {shipments.length === 0 ? (
                   <tr>
                     <td className="px-4 py-8 text-center text-mutedForeground" colSpan={8}>
-                      No shipments matched the current filters.
+                      No inbound continuity records matched the current filters.
                     </td>
                   </tr>
                 ) : null}

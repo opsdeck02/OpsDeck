@@ -39,7 +39,7 @@ export default async function ExceptionDetailPage({
           <Metric label="Triggered" value={formatDate(item.triggered_at)} />
           <Metric label="Updated" value={formatDate(item.updated_at)} />
           <Metric label="Due" value={item.due_at ? formatDate(item.due_at) : "—"} />
-          <Metric label="Shipment" value={item.linked_shipment?.label ?? "—"} />
+          <Metric label="Inbound ref" value={item.linked_shipment?.label ?? "—"} />
         </CardContent>
       </Card>
 
@@ -47,23 +47,23 @@ export default async function ExceptionDetailPage({
         <div className="space-y-5">
           <Card className="bg-card/90 shadow-panel">
             <CardHeader>
-              <CardTitle>Exception summary</CardTitle>
+              <CardTitle>Continuity signal summary</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
               <Line label="Summary" value={item.summary ?? "—"} />
               <Line label="Plant" value={item.linked_plant?.label ?? "—"} />
               <Line label="Material" value={item.linked_material?.label ?? "—"} />
               <Line label="Owner" value={item.current_owner?.full_name ?? "Unassigned"} />
-              <Line label="Recommended next step" value={item.recommended_next_step ?? "—"} />
-              <Line label="Action status" value={item.action_status.replace("_", " ")} />
-              <Line label="Action deadline" value={item.due_at ? formatDate(item.due_at) : "—"} />
+              <Line label="Response note" value={item.recommended_next_step ?? "—"} />
+              <Line label="Response status" value={item.action_status.replace("_", " ")} />
+              <Line label="Response window" value={item.due_at ? formatDate(item.due_at) : "—"} />
               <Line label="SLA" value={item.action_sla_breach ? "Breached" : "On track"} />
             </CardContent>
           </Card>
 
           <Card className="bg-card/90 shadow-panel">
             <CardHeader>
-              <CardTitle>Linked risk context</CardTitle>
+              <CardTitle>Linked continuity context</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
               {detail.linked_shipment_detail ? (
@@ -73,14 +73,14 @@ export default async function ExceptionDetailPage({
                     State: {detail.linked_shipment_detail.shipment_state.replaceAll("_", " ")}
                   </p>
                   <p className="text-mutedForeground">
-                    Confidence: {detail.linked_shipment_detail.confidence}
+                    Signal reliability: {detail.linked_shipment_detail.confidence}
                   </p>
                   <p className="text-mutedForeground">
                     Latest source: {detail.linked_shipment_detail.latest_status_source}
                   </p>
                 </div>
               ) : (
-                <p className="text-mutedForeground">No shipment is linked to this exception.</p>
+                <p className="text-mutedForeground">No inbound dependency is linked to this continuity signal.</p>
               )}
               <div className="space-y-2">
                 {detail.linked_context_notes.map((note) => (

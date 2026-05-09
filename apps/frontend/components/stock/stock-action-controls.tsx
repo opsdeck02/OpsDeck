@@ -26,7 +26,7 @@ export function StockActionControls({
       });
       const body = (await response.json()) as { detail?: string };
       if (!response.ok) {
-        setMessage(typeof body.detail === "string" ? body.detail : "Action update failed.");
+        setMessage(typeof body.detail === "string" ? body.detail : "Response update failed.");
         return;
       }
       window.location.reload();
@@ -47,7 +47,7 @@ export function StockActionControls({
             disabled={isPending}
             className="rounded-2xl border px-4 py-3 text-sm font-semibold disabled:opacity-60"
           >
-            Start
+            Start response
           </button>
         ) : null}
         {actionStatus !== "completed" ? (
