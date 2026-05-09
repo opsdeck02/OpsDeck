@@ -70,23 +70,23 @@ function WorkspaceContent({ workspace }: { workspace: RiskWorkspaceResponse }) {
   return (
     <>
       <section className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(300px,0.55fr)]">
-        <Card className="bg-card/90 shadow-panel">
-          <CardHeader>
+        <Card className={`overflow-hidden ${workspaceTone(risk?.severity)}`}>
+          <CardHeader className="text-white">
             <div className="flex flex-wrap items-center gap-2">
               <SeverityBadge value={risk?.severity ?? "unknown"} />
-              <Badge variant="outline">
+              <Badge className="bg-white/12 text-white ring-1 ring-white/15">
                 {formatLabel(risk?.risk_type ?? "risk")}
               </Badge>
               {exposure ? (
-                <Badge variant="outline">
+                <Badge className="bg-white/12 text-white ring-1 ring-white/15">
                   {formatLabel(exposure.exposure_level)} exposure
                 </Badge>
               ) : null}
             </div>
-            <CardTitle className="text-xl tracking-tight">
+            <CardTitle className="mt-3 text-3xl tracking-tight">
               {contextTitle(risk?.material_reference, risk?.plant_reference)}
             </CardTitle>
-            <p className="text-sm leading-6 text-mutedForeground">
+            <p className="max-w-3xl text-sm leading-6 text-white/68">
               {exposure?.operational_reason ??
                 explainability?.summary ??
                 "Operational risk context is available for review."}
@@ -155,10 +155,6 @@ function WorkspaceFilters({ searchParams }: { searchParams?: SearchParams }) {
     <Card className="bg-card/90 shadow-panel">
       <CardHeader>
         <CardTitle>Critical risk workspace</CardTitle>
-        <p className="text-sm text-mutedForeground">
-          One tenant-scoped view of what is exposed, why it is becoming risky,
-          how it formed, and how much to trust the signals.
-        </p>
       </CardHeader>
       <CardContent>
         <form className="grid gap-3 md:grid-cols-3 xl:grid-cols-[1fr_1fr_1fr_1fr_160px_auto]">
@@ -215,10 +211,10 @@ function WhyThisMatters({ workspace }: { workspace: RiskWorkspaceResponse }) {
     explainability?.reason_chain ?? workspace.selected_risk?.rule_reasons ?? [];
 
   return (
-    <Card className="bg-card/90 shadow-panel">
+    <Card>
       <CardHeader>
         <div className="flex items-center gap-2">
-          <Activity className="h-5 w-5 text-primary" />
+          <Activity className="h-5 w-5 text-pressure-red" />
           <CardTitle>Why this is becoming risky</CardTitle>
         </div>
         <p className="text-sm leading-6 text-mutedForeground">
@@ -227,7 +223,7 @@ function WhyThisMatters({ workspace }: { workspace: RiskWorkspaceResponse }) {
         </p>
       </CardHeader>
       <CardContent>
-        <div className="mb-5 grid gap-3 sm:grid-cols-2">
+        <div className="mb-4 grid gap-3 sm:grid-cols-2">
           <ContextPill
             label="Primary driver"
             value={driverLabel(explainability?.primary_driver)}
@@ -237,16 +233,19 @@ function WhyThisMatters({ workspace }: { workspace: RiskWorkspaceResponse }) {
             value={formatLabel(workspace.selected_risk?.risk_type)}
           />
         </div>
-        <div className="space-y-3">
+        <div className="relative space-y-0 pl-3">
+          <div className="absolute bottom-6 left-[24px] top-6 w-px bg-gradient-to-b from-red-300 via-amber-300 to-slate-200" />
           {reasonChain.map((reason, index) => (
             <div
               key={`${reason}-${index}`}
-              className="flex gap-3 rounded-xl border bg-card p-3"
+              className="relative flex gap-3 pb-4"
             >
-              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-primary">
+              <span className={`z-10 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${causalDotClass(index, reasonChain.length)}`}>
                 {index + 1}
               </span>
-              <p className="text-sm leading-6">{reason}</p>
+              <div className="min-w-0 rounded-xl bg-slate-50 px-3 py-2.5 ring-1 ring-slate-900/5">
+                <p className="text-sm font-medium leading-5">{reason}</p>
+              </div>
             </div>
           ))}
           {reasonChain.length === 0 ? (
@@ -271,16 +270,12 @@ function TrustSummary({ workspace }: { workspace: RiskWorkspaceResponse }) {
     workspace.explainability?.trust_context.worst_freshness_status;
 
   return (
-    <Card className="bg-card/90 shadow-panel">
+    <Card>
       <CardHeader>
         <div className="flex items-center gap-2">
           <ShieldCheck className="h-5 w-5 text-primary" />
           <CardTitle>Data trust</CardTitle>
         </div>
-        <p className="text-sm text-mutedForeground">
-          Confidence reflects how complete and reliable the signal is. Freshness
-          reflects how recently the source was updated.
-        </p>
       </CardHeader>
       <CardContent>
         <div className="grid gap-3">
@@ -296,10 +291,8 @@ function TrustSummary({ workspace }: { workspace: RiskWorkspaceResponse }) {
             value={formatLabel(freshness ?? "unknown")}
             helper="most stale source in view"
           />
-          <div className="rounded-xl border bg-card p-3">
-            <p className="text-xs uppercase tracking-[0.18em] text-mutedForeground">
-              Data trust notes
-            </p>
+          <div className="rounded-xl bg-slate-50 p-3 ring-1 ring-slate-900/5">
+            <p className="text-xs font-semibold text-mutedForeground">Trust warnings</p>
             {warnings.length > 0 ? (
               <ul className="mt-3 space-y-2 text-sm">
                 {warnings.map((warning) => (
@@ -328,20 +321,16 @@ function ContinuitySummary({
   shipments: SignalShipmentContinuity[];
 }) {
   return (
-    <Card className="bg-card/90 shadow-panel">
+    <Card>
       <CardHeader>
         <div className="flex items-center gap-2">
-          <PackageCheck className="h-5 w-5 text-primary" />
+          <PackageCheck className="h-5 w-5 text-pressure-amber" />
           <CardTitle>Operational exposure context</CardTitle>
         </div>
-        <p className="text-sm text-mutedForeground">
-          Current cover and inbound movement condition from existing operational
-          records.
-        </p>
       </CardHeader>
       <CardContent>
         <div className="grid gap-4">
-          <div className="rounded-xl border bg-card p-3">
+          <div className="rounded-xl bg-slate-50 p-3 ring-1 ring-slate-900/5">
             <h3 className="font-semibold">Available cover</h3>
             <div className="mt-4 grid gap-3 sm:grid-cols-3">
               {inventory.slice(0, 2).map((item) => (
@@ -357,7 +346,7 @@ function ContinuitySummary({
               ) : null}
             </div>
           </div>
-          <div className="rounded-xl border bg-card p-3">
+          <div className="rounded-xl bg-slate-50 p-3 ring-1 ring-slate-900/5">
             <h3 className="font-semibold">Inbound movement condition</h3>
             <div className="mt-4 space-y-3">
               {shipments.slice(0, 3).map((shipment) => (
@@ -385,19 +374,15 @@ function TimelinePanel({
   timeline: RiskWorkspaceResponse["timeline"];
 }) {
   return (
-    <Card className="bg-card/90 shadow-panel">
+    <Card>
       <CardHeader>
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <Clock3 className="h-5 w-5 text-primary" />
-            <CardTitle>How the risk formed</CardTitle>
+            <CardTitle>Exposure timeline</CardTitle>
           </div>
           <Badge variant="outline">{timeline.total} signals</Badge>
         </div>
-        <p className="text-sm text-mutedForeground">
-          The operational signals that led to this continuity risk, ordered by
-          when they occurred.
-        </p>
       </CardHeader>
       <CardContent>
         <div className="space-y-3">
@@ -423,28 +408,22 @@ function RelationshipPanel({
   const nodeById = new Map((graph?.nodes ?? []).map((node) => [node.id, node]));
 
   return (
-    <Card className="bg-card/90 shadow-panel">
+    <Card>
       <CardHeader>
         <div className="flex items-center gap-2">
           <GitBranch className="h-5 w-5 text-primary" />
           <CardTitle>Connected operational context</CardTitle>
         </div>
-        <p className="text-sm text-mutedForeground">
-          Linked plant, material, shipment, supplier, signal, and risk records
-          for this operational context.
-        </p>
       </CardHeader>
       <CardContent>
         <div className="grid gap-4">
-          <div className="rounded-2xl border bg-card p-4">
-            <p className="text-xs uppercase tracking-[0.18em] text-mutedForeground">
-              Connected records
-            </p>
+          <div className="rounded-2xl bg-slate-50 p-3 ring-1 ring-slate-900/5">
+            <p className="text-xs font-semibold text-mutedForeground">Connected records</p>
             <div className="mt-3 flex flex-wrap gap-2">
               {(graph?.nodes ?? []).slice(0, 12).map((node) => (
                 <span
                   key={node.id}
-                  className="rounded-full border bg-muted px-3 py-1 text-xs font-medium"
+                  className="rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-700 ring-1 ring-slate-900/5"
                 >
                   {formatLabel(node.type)}: {node.label}
                 </span>
@@ -460,7 +439,7 @@ function RelationshipPanel({
             {(graph?.edges ?? []).slice(0, 10).map((edge) => (
               <div
                 key={`${edge.from_node_id}-${edge.relationship}-${edge.to_node_id}`}
-                className="rounded-2xl border bg-card px-4 py-3 text-sm"
+                className="rounded-xl bg-slate-50 px-3 py-2.5 text-sm ring-1 ring-slate-900/5"
               >
                 <span className="font-medium">
                   {nodeById.get(edge.from_node_id)?.label ?? edge.from_node_id}
@@ -501,7 +480,7 @@ function InventoryBlock({ item }: { item: SignalInventoryContinuity }) {
 
 function ShipmentBlock({ shipment }: { shipment: SignalShipmentContinuity }) {
   return (
-    <div className="rounded-xl border bg-muted/40 p-3">
+    <div className={`rounded-xl p-3 ring-1 ${shipment.status === "degraded" ? "bg-red-50 ring-red-200" : shipment.status === "watch" ? "bg-amber-50 ring-amber-200" : "bg-white ring-slate-900/5"}`}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="font-semibold">{shipment.shipment_reference}</p>
         <Badge variant="outline">{formatLabel(shipment.status)}</Badge>
@@ -524,7 +503,7 @@ function ShipmentBlock({ shipment }: { shipment: SignalShipmentContinuity }) {
 
 function TimelineEntry({ entry }: { entry: SignalTimelineEntry }) {
   return (
-    <div className="rounded-xl border bg-card p-3">
+    <div className="rounded-xl bg-slate-50 p-3 ring-1 ring-slate-900/5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="font-semibold">{entry.title}</p>
@@ -537,16 +516,16 @@ function TimelineEntry({ entry }: { entry: SignalTimelineEntry }) {
         </span>
       </div>
       <div className="mt-3 flex flex-wrap gap-2 text-xs">
-        <span className="rounded-full border px-3 py-1">
+        <span className="rounded-full bg-white px-3 py-1 ring-1 ring-slate-900/5">
           {formatLabel(entry.event_category)}
         </span>
-        <span className="rounded-full border px-3 py-1">
+        <span className="rounded-full bg-white px-3 py-1 ring-1 ring-slate-900/5">
           Signal confidence {displayPercent(entry.confidence_score)}
         </span>
-        <span className="rounded-full border px-3 py-1">
+        <span className="rounded-full bg-white px-3 py-1 ring-1 ring-slate-900/5">
           Freshness {formatLabel(entry.freshness_status)}
         </span>
-        <span className="rounded-full border px-3 py-1">
+        <span className="rounded-full bg-white px-3 py-1 ring-1 ring-slate-900/5">
           {formatLabel(entry.source_type)}
         </span>
       </div>
@@ -566,12 +545,12 @@ function SignalMetric({
   helper: string;
 }) {
   return (
-    <div className="rounded-xl border bg-card p-3">
+    <div className="rounded-xl bg-white/84 p-3 ring-1 ring-slate-900/5">
       <div className="flex items-center gap-2 text-mutedForeground">
         {icon}
-        <p className="text-xs uppercase tracking-[0.18em]">{label}</p>
+        <p className="text-xs font-semibold">{label}</p>
       </div>
-      <p className="mt-2 break-words text-base font-semibold">{value}</p>
+      <p className="mt-2 break-words text-lg font-semibold">{value}</p>
       <p className="mt-1 text-xs text-mutedForeground">{helper}</p>
     </div>
   );
@@ -579,8 +558,8 @@ function SignalMetric({
 
 function ContextPill({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-xl border bg-card px-3 py-2.5">
-      <p className="text-xs uppercase tracking-[0.18em] text-mutedForeground">
+    <div className="rounded-xl bg-white px-3 py-2.5 ring-1 ring-slate-900/5">
+      <p className="text-xs font-semibold text-mutedForeground">
         {label}
       </p>
       <p className="mt-1 break-words text-sm font-semibold">{value}</p>
@@ -591,19 +570,31 @@ function ContextPill({ label, value }: { label: string; value: string }) {
 function SeverityBadge({ value }: { value: string }) {
   const className =
     value === "critical"
-      ? "border-red-300 bg-red-50 text-red-700"
+      ? "bg-red-500 text-white"
       : value === "high"
-        ? "border-amber-300 bg-amber-50 text-amber-800"
+        ? "bg-amber-500 text-white"
         : value === "medium"
-          ? "border-sky-200 bg-sky-50 text-sky-700"
-          : "border bg-card text-mutedForeground";
+          ? "bg-blue-500 text-white"
+          : "bg-slate-200 text-slate-700";
   return (
     <span
-      className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] ${className}`}
+      className={`rounded-full px-3 py-1 text-xs font-semibold ${className}`}
     >
       {value}
     </span>
   );
+}
+
+function workspaceTone(severity?: string | null) {
+  if (severity === "critical") return "bg-slate-950 shadow-nerve";
+  if (severity === "high") return "bg-slate-950 shadow-panel";
+  return "bg-slate-900 shadow-panel";
+}
+
+function causalDotClass(index: number, length: number) {
+  if (index === length - 1) return "bg-red-500 text-white";
+  if (index > 0) return "bg-amber-400 text-slate-950";
+  return "bg-blue-500 text-white";
 }
 
 function UnavailableState() {

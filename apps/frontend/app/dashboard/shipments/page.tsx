@@ -20,12 +20,9 @@ export default async function ShipmentsPage({
 
   return (
     <div className="grid gap-4">
-      <Card className="bg-card/90 shadow-panel">
+      <Card>
         <CardHeader>
           <CardTitle>Inbound movement</CardTitle>
-          <p className="text-sm text-mutedForeground">
-            Tenant-scoped inbound shipments with movement condition, confidence, and latest source.
-          </p>
         </CardHeader>
         <CardContent>
           <form className="grid gap-3 md:grid-cols-[220px_1fr_auto]">
@@ -58,26 +55,26 @@ export default async function ShipmentsPage({
         </CardContent>
       </Card>
 
-      <Card className="bg-card/90 shadow-panel">
+      <Card>
         <CardContent>
-          <div className="overflow-x-auto rounded-xl border">
-            <table className="min-w-[920px] w-full text-left text-sm">
-              <thead className="bg-muted text-mutedForeground">
+          <div className="od-table-wrap">
+            <table className="od-table min-w-[920px]">
+              <thead>
                 <tr>
-                  <th className="px-3 py-2.5 font-medium">Shipment</th>
-                  <th className="px-3 py-2.5 font-medium">Plant</th>
-                  <th className="px-3 py-2.5 font-medium">Material</th>
-                  <th className="px-3 py-2.5 font-medium">Quantity</th>
-                  <th className="px-3 py-2.5 font-medium">Vessel</th>
-                  <th className="px-3 py-2.5 font-medium">ETA</th>
-                  <th className="px-3 py-2.5 font-medium">State</th>
-                  <th className="px-3 py-2.5 font-medium">Confidence</th>
+                  <th>Shipment</th>
+                  <th>Plant</th>
+                  <th>Material</th>
+                  <th>Quantity</th>
+                  <th>Vessel</th>
+                  <th>ETA</th>
+                  <th>State</th>
+                  <th>Confidence</th>
                 </tr>
               </thead>
               <tbody>
                 {shipments.map((shipment) => (
-                  <tr key={shipment.id} className="border-t bg-card">
-                    <td className="px-3 py-2.5 font-medium">
+                  <tr key={shipment.id}>
+                    <td className="font-medium">
                       <Link
                         href={`/dashboard/shipments/${shipment.shipment_id}`}
                         className="text-primary hover:underline"
@@ -85,15 +82,15 @@ export default async function ShipmentsPage({
                         {shipment.shipment_id}
                       </Link>
                     </td>
-                    <td className="px-3 py-2.5">{shipment.plant_name}</td>
-                    <td className="px-3 py-2.5">{shipment.material_name}</td>
-                    <td className="px-3 py-2.5">{Number(shipment.quantity_mt).toLocaleString()} MT</td>
-                    <td className="px-3 py-2.5">{shipment.vessel_name ?? "—"}</td>
-                    <td className="px-3 py-2.5">{formatDate(shipment.current_eta)}</td>
-                    <td className="px-3 py-2.5">
+                    <td>{shipment.plant_name}</td>
+                    <td>{shipment.material_name}</td>
+                    <td>{Number(shipment.quantity_mt).toLocaleString()} MT</td>
+                    <td>{shipment.vessel_name ?? "—"}</td>
+                    <td>{formatDate(shipment.current_eta)}</td>
+                    <td>
                       <StateBadge state={shipment.shipment_state} />
                     </td>
-                    <td className="px-3 py-2.5">
+                    <td>
                       <Badge variant="outline">{shipment.confidence}</Badge>
                     </td>
                   </tr>
@@ -117,16 +114,16 @@ export default async function ShipmentsPage({
 function StateBadge({ state }: { state: string }) {
   const className =
     state === "cancelled"
-      ? "border bg-card text-mutedForeground"
+      ? "od-status-passive"
       : state === "delivered"
-        ? "border-accent bg-muted text-accent"
-        : state === "discharging"
-          ? "border-sky-200 bg-sky-50 text-sky-700"
+        ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
+      : state === "discharging"
+          ? "od-status-warning"
           : state === "at_port"
-            ? "border-accent bg-muted text-primary"
-            : "border-accent bg-muted text-accent";
+            ? "od-status-warning"
+            : "od-status-info";
   return (
-    <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${className}`}>
+    <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${className}`}>
       {state.replace("_", " ")}
     </span>
   );

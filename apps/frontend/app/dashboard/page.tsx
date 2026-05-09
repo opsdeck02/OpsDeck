@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { AlertTriangle, ArrowRight, Boxes, ShieldAlert, TimerReset } from "lucide-react";
+import { AlertTriangle, ArrowRight, Boxes, Clock3, ShieldAlert, TimerReset } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -24,40 +24,70 @@ export default async function DashboardPage() {
   const topRisks = executive?.top_risks ?? [];
   const criticalRisks = kpis?.critical_risks ?? 0;
   const shortestDaysToLineStop = shortestDays(topRisks);
+  const leadRisk = topRisks[0] ?? null;
   const dataFreshnessLabel = executive?.automated_data_freshness?.data_freshness_status
     ?? executive?.stock_freshness.freshness_label
     ?? "unknown";
 
   return (
     <main className="min-w-0">
-      <div className="flex min-w-0 flex-col gap-4">
-        <section className="overflow-hidden rounded-2xl border bg-card/85 shadow-panel backdrop-blur">
-          <div className="flex flex-col gap-4 px-4 py-5 lg:flex-row lg:items-center lg:justify-between lg:px-5">
-            <div className="max-w-3xl space-y-3">
-              <Badge variant="outline">Continuity intelligence</Badge>
-              <div className="space-y-2">
-                <h1 className="max-w-4xl text-2xl font-semibold tracking-tight">
-                  Continuity exposure overview
-                </h1>
-                <p className="text-sm text-mutedForeground">
-                  A compact view of exposed materials, inbound movement, and signal trust for the current tenant.
-                </p>
+      <div className="flex min-w-0 flex-col gap-3">
+        <section className="overflow-hidden rounded-3xl bg-slate-950 text-white shadow-nerve">
+          <div className="grid gap-4 p-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
+            <div className="min-w-0 rounded-2xl bg-white/[0.06] p-4 ring-1 ring-white/10">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge className={leadRisk?.status === "critical" ? "bg-red-500 text-white" : criticalRisks > 0 ? "bg-red-500 text-white" : "bg-blue-500 text-white"}>
+                  Continuity nerve center
+                </Badge>
+                <span className="text-xs text-white/60">{activeTenant}</span>
               </div>
+              <h1 className="mt-4 max-w-3xl text-3xl font-semibold leading-tight tracking-tight lg:text-4xl">
+                {leadRisk
+                  ? `${leadRisk.material_name} exposure at ${leadRisk.plant_name}`
+                  : "No critical exposure detected"}
+              </h1>
+              <p className="mt-3 max-w-2xl text-sm leading-6 text-white/68">
+                {leadRisk
+                  ? `${rootCauseFor(leadRisk)}. Available cover is ${displayDays(leadRisk.days_of_cover)} with next inbound ${formatDate(leadRisk.next_inbound_eta)}.`
+                  : "Continuity signals are currently stable across loaded plant and material combinations."}
+              </p>
               <Link
                 href="/dashboard/risk-workspace"
-                className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primaryForeground"
+                className="mt-5 inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-slate-950"
               >
                 Open Risk Workspace
                 <ArrowRight className="h-4 w-4" />
               </Link>
             </div>
-            <div className="shrink-0 rounded-2xl bg-primary px-4 py-3 text-primaryForeground shadow-panel">
-              <p className="text-xs uppercase tracking-[0.22em] text-primaryForeground/70">
-                Active tenant
-              </p>
-              <p className="mt-1 text-lg font-semibold">
-                {activeTenant}
-              </p>
+            <div className="grid min-w-0 gap-3 sm:grid-cols-2">
+              <PressureMetric
+                label="What is exposed"
+                value={leadRisk?.material_name ?? "None"}
+                helper={leadRisk?.plant_name ?? "Current loaded context"}
+                tone={criticalRisks > 0 ? "critical" : "info"}
+              />
+              <PressureMetric
+                label="How soon"
+                value={displayDays(shortestDaysToLineStop)}
+                helper="shortest available cover"
+                tone={criticalRisks > 0 ? "critical" : "passive"}
+              />
+              <PressureMetric
+                label="Why"
+                value={leadRisk ? rootCauseFor(leadRisk) : "Stable cover"}
+                helper="primary continuity driver"
+                tone={leadRisk?.status === "warning" ? "warning" : criticalRisks > 0 ? "critical" : "passive"}
+              />
+              <PressureMetric
+                label="Trust"
+                value={dataFreshnessLabel}
+                helper={
+                  executive?.automated_data_freshness
+                    ? `${executive.automated_data_freshness.data_freshness_age_minutes ?? "unknown"} min age`
+                    : "stock freshness"
+                }
+                tone={freshnessTone(dataFreshnessLabel)}
+              />
             </div>
           </div>
         </section>
@@ -74,7 +104,7 @@ export default async function DashboardPage() {
         ) : null}
 
         {criticalRisks > 0 ? (
-          <section className="rounded-2xl border border-red-300 bg-red-50 px-5 py-3 text-red-950 shadow-panel">
+          <section className="rounded-2xl bg-red-50 px-4 py-3 text-red-950 ring-1 ring-red-200">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
               <div className="rounded-xl bg-red-600 p-2.5 text-white">
                 <AlertTriangle className="h-5 w-5" />
@@ -88,24 +118,6 @@ export default async function DashboardPage() {
             </div>
           </section>
         ) : null}
-
-        <Card className="bg-card/90 shadow-panel">
-          <CardContent className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <p className="text-sm font-semibold">Open Risk Workspace</p>
-              <p className="mt-1 text-sm text-mutedForeground">
-                See what is exposed, why it is becoming risky, how it formed, and how much to trust the signal.
-              </p>
-            </div>
-            <Link
-              href="/dashboard/risk-workspace"
-              className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-semibold hover:border-primary"
-            >
-              Open workspace
-              <ArrowRight className="h-4 w-4" />
-            </Link>
-          </CardContent>
-        </Card>
 
         <section className="grid min-w-0 gap-3 md:grid-cols-2 xl:grid-cols-4">
           {[
@@ -126,16 +138,16 @@ export default async function DashboardPage() {
           ].map((metric, index) => {
             const Icon = icons[index % icons.length];
             return (
-              <Card key={metric.label} className="relative min-w-0 overflow-hidden rounded-2xl bg-card/90 shadow-panel">
-                <CardHeader className="min-w-0 space-y-2 px-4 pb-2 pt-4">
-                  <div className="absolute right-4 top-4 rounded-xl bg-muted p-2.5 text-primary">
+              <Card key={metric.label} className="relative min-w-0 overflow-hidden">
+                <CardHeader className="min-w-0 space-y-2">
+                  <div className="absolute right-4 top-4 rounded-xl bg-slate-100 p-2 text-mutedForeground">
                     <Icon className="h-4 w-4" />
                   </div>
                   <div className="min-w-0 pr-12">
                     <CardTitle className="text-sm font-medium leading-snug text-mutedForeground">
                       {metric.label}
                     </CardTitle>
-                    <p className="mt-2 break-words text-xl font-semibold leading-tight tracking-tight">{metric.value}</p>
+                    <p className="mt-2 break-words text-2xl font-semibold leading-tight tracking-tight">{metric.value}</p>
                   </div>
                 </CardHeader>
                 <CardContent className="px-4 pb-4">
@@ -146,8 +158,8 @@ export default async function DashboardPage() {
           })}
         </section>
 
-        <section className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1.25fr)_minmax(280px,0.75fr)]">
-          <Card className="min-w-0 bg-card/90 shadow-panel">
+        <section className="grid min-w-0 gap-3 xl:grid-cols-[minmax(0,1.28fr)_minmax(280px,0.72fr)]">
+          <Card className="min-w-0">
             <CardHeader>
               <div className="flex items-center justify-between gap-3">
                 <CardTitle>Current exposure signals</CardTitle>
@@ -158,25 +170,20 @@ export default async function DashboardPage() {
                   Review workspace
                 </Link>
               </div>
-              <p className="text-sm text-mutedForeground">
-                Highest-priority plant/material continuity signals from available stock.
-              </p>
-              <div className="mt-3 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
-                Blocked or in-transit inventory is not counted as usable cover until available.
-              </div>
+              <p className="text-sm text-mutedForeground">Highest-pressure plant/material signals.</p>
             </CardHeader>
             <CardContent>
-              <div className="space-y-3">
+              <div className="space-y-2">
                 {topRisks.map((row) => (
                   <div
                     key={`${row.plant_id}-${row.material_id}`}
-                    className="min-w-0 rounded-2xl border bg-card p-4"
+                    className={`min-w-0 rounded-2xl p-3 ring-1 ${signalRowClass(row.status)}`}
                   >
                     <div className="flex min-w-0 flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
                       <div className="min-w-0">
                         <Link
                           href={`/dashboard/stock-cover/${row.plant_id}/${row.material_id}`}
-                          className="break-words text-base font-semibold text-primary hover:underline"
+                          className="break-words text-base font-semibold text-foreground hover:text-primary"
                         >
                           {row.material_name}
                         </Link>
@@ -184,10 +191,10 @@ export default async function DashboardPage() {
                       </div>
                       <div className="flex flex-wrap items-center gap-2">
                         <StatusBadge status={row.status} />
-                        <Badge variant="outline">{rootCauseFor(row)}</Badge>
+                        <span className="rounded-full bg-white/70 px-2.5 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-900/10">{rootCauseFor(row)}</span>
                       </div>
                     </div>
-                    <div className="mt-4 grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                    <div className="mt-3 grid min-w-0 gap-2 sm:grid-cols-2 xl:grid-cols-4">
                       <RiskMetric
                         label="Available stock"
                         value={displayTonnes(row.usable_stock_mt)}
@@ -206,7 +213,7 @@ export default async function DashboardPage() {
                         helper={`threshold ${displayDays(row.threshold_days)}`}
                       />
                     </div>
-                    <div className="mt-4 grid min-w-0 gap-3 border-t pt-4 md:grid-cols-[minmax(0,1fr)_minmax(0,0.85fr)]">
+                    <div className="mt-3 grid min-w-0 gap-3 border-t border-slate-900/10 pt-3 md:grid-cols-[minmax(0,1fr)_minmax(0,0.85fr)]">
                       <DecisionField label="Signal" value={rootCauseFor(row)} />
                       <div className="min-w-0">
                         <p className="text-xs uppercase tracking-[0.18em] text-mutedForeground">Exposure value</p>
@@ -221,7 +228,7 @@ export default async function DashboardPage() {
                   </div>
                 ))}
                 {topRisks.length === 0 ? (
-                  <div className="rounded-2xl border bg-card px-4 py-8 text-center text-sm text-mutedForeground">
+                  <div className="rounded-2xl bg-slate-50 px-4 py-8 text-center text-sm text-mutedForeground ring-1 ring-slate-900/5">
                     {stockSummary && stockSummary.total_combinations > 0
                       ? `${stockSummary.total_combinations} plant/material combinations loaded. All are currently safe, so no warning or critical risks are flagged.`
                       : "No warning or critical combinations are currently flagged."}
@@ -229,7 +236,7 @@ export default async function DashboardPage() {
                 ) : null}
               </div>
               {(executive?.top_risks ?? []).length === 0 && (stockSummary?.rows.length ?? 0) > 0 ? (
-                <div className="mt-4 rounded-2xl border bg-muted/40 p-4 text-sm">
+                <div className="mt-3 rounded-2xl bg-slate-50 p-3 text-sm ring-1 ring-slate-900/5">
                   <p className="font-semibold">Uploaded data is loaded</p>
                   <p className="mt-1 text-mutedForeground">
                     Current stock-cover output is safe for the loaded combinations.
@@ -239,7 +246,7 @@ export default async function DashboardPage() {
                       <Link
                         key={`${row.plant_id}-${row.material_id}`}
                         href={`/dashboard/stock-cover/${row.plant_id}/${row.material_id}`}
-                        className="rounded-xl border bg-card px-4 py-3 hover:border-primary"
+                        className="rounded-xl bg-white px-3 py-2.5 ring-1 ring-slate-900/5 hover:ring-primary/40"
                       >
                         <div className="flex items-center justify-between gap-3">
                           <span className="font-medium">{row.material_name}</span>
@@ -285,12 +292,40 @@ function RiskMetric({
   prominent?: boolean;
 }) {
   return (
-    <div className="min-w-0 rounded-xl bg-muted px-3 py-3">
-      <p className="text-xs uppercase tracking-[0.16em] text-mutedForeground">{label}</p>
+    <div className="min-w-0 rounded-xl bg-white/62 px-3 py-2.5 ring-1 ring-slate-900/5">
+      <p className="text-xs font-semibold text-mutedForeground">{label}</p>
       <p className={`mt-1 break-words font-semibold ${prominent ? "text-lg text-foreground" : "text-foreground"}`}>
         {value}
       </p>
       {helper ? <p className="mt-1 break-words text-xs text-mutedForeground">{helper}</p> : null}
+    </div>
+  );
+}
+
+function PressureMetric({
+  label,
+  value,
+  helper,
+  tone,
+}: {
+  label: string;
+  value: string;
+  helper: string;
+  tone: "critical" | "warning" | "info" | "passive";
+}) {
+  const toneClass =
+    tone === "critical"
+      ? "bg-red-500/14 text-red-50 ring-red-300/30"
+      : tone === "warning"
+        ? "bg-amber-400/14 text-amber-50 ring-amber-200/30"
+        : tone === "info"
+          ? "bg-blue-400/14 text-blue-50 ring-blue-200/30"
+          : "bg-white/8 text-white ring-white/10";
+  return (
+    <div className={`min-w-0 rounded-2xl p-4 ring-1 ${toneClass}`}>
+      <p className="text-xs font-semibold text-white/55">{label}</p>
+      <p className="mt-2 truncate text-2xl font-semibold leading-none">{value}</p>
+      <p className="mt-2 truncate text-xs text-white/58">{helper}</p>
     </div>
   );
 }
@@ -387,14 +422,28 @@ function FreshnessCard({ title, items }: { title: string; items: Array<[string, 
 function StatusBadge({ status }: { status: string }) {
   const className =
     status === "critical"
-      ? "border-red-300 bg-red-50 text-red-700"
+      ? "od-status-critical"
       : status === "warning"
-        ? "border-amber-300 bg-amber-50 text-amber-700"
+        ? "od-status-warning"
         : status === "insufficient_data"
-          ? "border bg-card text-mutedForeground"
-          : "border-green-300 bg-green-50 text-green-700";
+          ? "od-status-passive"
+          : "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200";
   const label = status === "safe" ? "healthy" : status.replace("_", " ");
-  return <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${className}`}>{label}</span>;
+  return <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${className}`}>{label}</span>;
+}
+
+function signalRowClass(status: string) {
+  if (status === "critical") return "bg-red-50/90 ring-red-200";
+  if (status === "warning") return "bg-amber-50/90 ring-amber-200";
+  return "bg-slate-50 ring-slate-200/70";
+}
+
+function freshnessTone(value: string): "critical" | "warning" | "info" | "passive" {
+  const normalized = value.toLowerCase();
+  if (normalized.includes("critical") || normalized.includes("stale")) return "critical";
+  if (normalized.includes("aging") || normalized.includes("delayed")) return "warning";
+  if (normalized.includes("fresh")) return "info";
+  return "passive";
 }
 
 function shortestDays(

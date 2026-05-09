@@ -62,7 +62,7 @@ export default async function ExceptionsPage({
         canManage={canManage}
       />
 
-      <Card className="bg-card/90 shadow-panel">
+      <Card>
         <CardHeader>
           <div className="flex items-center justify-between gap-3">
             <CardTitle>Operational signals</CardTitle>
@@ -75,41 +75,41 @@ export default async function ExceptionsPage({
           </p>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto rounded-xl border">
-            <table className="min-w-[1040px] w-full text-left text-sm">
-              <thead className="bg-muted text-mutedForeground">
+          <div className="od-table-wrap">
+            <table className="od-table min-w-[1040px]">
+              <thead>
                 <tr>
-                  <th className="px-3 py-2.5 font-medium">Signal</th>
-                  <th className="px-3 py-2.5 font-medium">Type</th>
-                  <th className="px-3 py-2.5 font-medium">Severity</th>
-                  <th className="px-3 py-2.5 font-medium">Status</th>
-                  <th className="px-3 py-2.5 font-medium">Owner</th>
-                  <th className="px-3 py-2.5 font-medium">Plant / material</th>
-                  <th className="px-3 py-2.5 font-medium">Shipment</th>
-                  <th className="px-3 py-2.5 font-medium">Updated</th>
+                  <th>Signal</th>
+                  <th>Type</th>
+                  <th>Severity</th>
+                  <th>Status</th>
+                  <th>Owner</th>
+                  <th>Plant / material</th>
+                  <th>Shipment</th>
+                  <th>Updated</th>
                 </tr>
               </thead>
               <tbody>
                 {items.map((item) => (
-                  <tr key={item.id} className="border-t bg-card">
-                    <td className="px-3 py-2.5 font-medium">
+                  <tr key={item.id}>
+                    <td className="font-medium">
                       <Link href={`/dashboard/exceptions/${item.id}`} className="text-primary hover:underline">
                         {item.title}
                       </Link>
                     </td>
-                    <td className="px-3 py-2.5">{item.type.replaceAll("_", " ")}</td>
-                    <td className="px-3 py-2.5">
+                    <td>{item.type.replaceAll("_", " ")}</td>
+                    <td>
                       <SeverityBadge severity={item.severity} />
                     </td>
-                    <td className="px-3 py-2.5">
+                    <td>
                       <StatusBadge status={item.status} />
                     </td>
-                    <td className="px-3 py-2.5">{item.current_owner?.full_name ?? "Unassigned"}</td>
-                    <td className="px-3 py-2.5">
+                    <td>{item.current_owner?.full_name ?? "Unassigned"}</td>
+                    <td>
                       {item.linked_plant?.label ?? "—"} / {item.linked_material?.label ?? "—"}
                     </td>
-                    <td className="px-3 py-2.5">{item.linked_shipment?.label ?? "—"}</td>
-                    <td className="px-3 py-2.5">{formatDate(item.updated_at)}</td>
+                    <td>{item.linked_shipment?.label ?? "—"}</td>
+                    <td>{formatDate(item.updated_at)}</td>
                   </tr>
                 ))}
                 {items.length === 0 ? (
@@ -145,12 +145,12 @@ function KpiCard({
         : "text-foreground";
 
   return (
-    <Card className="bg-card/90 shadow-panel">
+    <Card>
       <CardHeader>
         <CardTitle className="text-sm font-medium text-mutedForeground">{label}</CardTitle>
       </CardHeader>
       <CardContent>
-        <p className={`text-3xl font-semibold tracking-tight ${className}`}>{value}</p>
+        <p className={`text-2xl font-semibold tracking-tight ${className}`}>{value}</p>
       </CardContent>
     </Card>
   );
@@ -159,13 +159,13 @@ function KpiCard({
 function SeverityBadge({ severity }: { severity: string }) {
   const className =
     severity === "critical"
-      ? "border-accent bg-muted text-primary"
+      ? "od-status-critical"
       : severity === "high"
-        ? "border-accent bg-muted text-primary"
+        ? "od-status-warning"
         : severity === "medium"
-          ? "border-sky-200 bg-sky-50 text-sky-700"
-          : "border bg-card text-mutedForeground";
-  return <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${className}`}>{severity}</span>;
+          ? "od-status-info"
+          : "od-status-passive";
+  return <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${className}`}>{severity}</span>;
 }
 
 function StatusBadge({ status }: { status: string }) {

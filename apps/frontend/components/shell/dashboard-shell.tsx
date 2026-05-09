@@ -100,9 +100,9 @@ export function DashboardShell({
     : navItems.filter((item) => role && item.roles.includes(role)));
 
   return (
-    <div className="min-h-screen overflow-x-hidden px-3 py-4 sm:px-5 lg:px-6">
-      <div className="mx-auto flex w-full max-w-[1440px] flex-col gap-4">
-        <header className="flex flex-col gap-3 rounded-2xl border bg-card/90 px-4 py-3 shadow-panel backdrop-blur md:flex-row md:items-center md:justify-between">
+    <div className="min-h-screen overflow-x-hidden px-3 py-3 sm:px-4 lg:px-5">
+      <div className="mx-auto flex w-full max-w-[1480px] flex-col gap-3">
+        <header className="flex flex-col gap-3 rounded-2xl bg-white/76 px-4 py-3 shadow-panel ring-1 ring-slate-900/5 backdrop-blur md:flex-row md:items-center md:justify-between">
           <div className="flex min-w-0 items-center gap-3">
             <OpsDeckLogo compact />
             <div className="min-w-0">
@@ -111,7 +111,7 @@ export function DashboardShell({
                   ? "Global administration"
                   : activeMembership?.tenant_name}
               </p>
-              <h1 className="mt-1 truncate text-xl font-semibold tracking-tight">
+              <h1 className="mt-1 truncate text-lg font-semibold tracking-tight">
                 {isSuperadmin
                   ? "OpsDeck Superadmin Console"
                   : "OpsDeck Continuity"}
@@ -128,13 +128,13 @@ export function DashboardShell({
             <LogoutButton />
           </div>
         </header>
-        <div className="grid min-w-0 gap-4 lg:grid-cols-[168px_minmax(0,1fr)]">
-          <nav className="h-fit rounded-2xl border bg-card/85 p-2 shadow-panel">
+        <div className="grid min-w-0 gap-3 lg:grid-cols-[136px_minmax(0,1fr)]">
+          <nav className="h-fit rounded-2xl bg-white/70 p-1.5 shadow-panel ring-1 ring-slate-900/5 backdrop-blur">
             {visibleItems.map((item) => (
               <Link
                 key={item.href}
                 href={item.href}
-                className="block rounded-xl px-3 py-2.5 text-sm font-medium text-mutedForeground transition hover:bg-muted hover:text-foreground"
+                className="block rounded-xl px-2.5 py-2 text-sm font-medium text-mutedForeground transition hover:bg-slate-100 hover:text-foreground"
               >
                 {item.label}
               </Link>

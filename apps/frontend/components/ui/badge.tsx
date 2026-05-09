@@ -4,12 +4,12 @@ import type { HTMLAttributes } from "react";
 import { cn } from "@/lib/utils";
 
 const badgeVariants = cva(
-  "inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium uppercase tracking-[0.18em]",
+  "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold",
   {
     variants: {
       variant: {
-        default: "border-primary bg-primary text-primaryForeground",
-        outline: "border-border bg-card text-foreground",
+        default: "bg-primary text-primaryForeground",
+        outline: "bg-slate-100 text-slate-700 ring-1 ring-slate-200",
       },
     },
     defaultVariants: {
@@ -25,4 +25,3 @@ export function Badge({
 }: HTMLAttributes<HTMLDivElement> & VariantProps<typeof badgeVariants>) {
   return <div className={cn(badgeVariants({ variant }), className)} {...props} />;
 }
-

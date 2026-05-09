@@ -76,7 +76,7 @@ export default async function MovementsPage({
 
   return (
     <div className="grid gap-4">
-      <Card className="bg-card/90 shadow-panel">
+      <Card>
         <CardHeader>
           <CardTitle>Signal monitoring</CardTitle>
           <p className="text-sm text-mutedForeground">
@@ -131,7 +131,7 @@ export default async function MovementsPage({
       </Card>
 
       {detail ? (
-        <Card className="bg-card/90 shadow-panel">
+      <Card>
           <CardHeader>
             <CardTitle>Combined movement detail</CardTitle>
             <p className="text-sm text-mutedForeground">
@@ -199,7 +199,7 @@ export default async function MovementsPage({
       ) : null}
 
       {activeView ? (
-        <Card className="bg-card/90 shadow-panel">
+        <Card>
           <CardHeader className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
               <CardTitle>{activeView === "port" ? "Port view" : "Inland view"}</CardTitle>
@@ -215,7 +215,7 @@ export default async function MovementsPage({
         </Card>
       ) : (
         <div className="grid gap-4 xl:grid-cols-2">
-          <Card className="bg-card/90 shadow-panel">
+          <Card>
             <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <CardTitle>
                 <Link href={portViewHref} className="hover:text-primary hover:underline">
@@ -229,7 +229,7 @@ export default async function MovementsPage({
             <CardContent>{portTable}</CardContent>
           </Card>
 
-          <Card className="bg-card/90 shadow-panel">
+          <Card>
             <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <CardTitle>
                 <Link href={inlandViewHref} className="hover:text-primary hover:underline">
@@ -290,12 +290,12 @@ function MonitoringTable({
   empty: string;
 }) {
   return (
-    <div className="overflow-x-auto rounded-xl border">
-      <table className="min-w-[960px] w-full text-left text-sm">
-        <thead className="bg-muted text-mutedForeground">
+    <div className="od-table-wrap">
+      <table className="od-table min-w-[920px]">
+        <thead>
           <tr>
             {headers.map((header) => (
-              <th key={header} className="whitespace-nowrap px-3 py-2.5 font-medium">
+              <th key={header}>
                 {header}
               </th>
             ))}
@@ -303,9 +303,9 @@ function MonitoringTable({
         </thead>
         <tbody>
           {rows.map((row, rowIndex) => (
-            <tr key={rowIndex} className="border-t bg-card">
+            <tr key={rowIndex}>
               {row.map((cell, cellIndex) => (
-                <td key={cellIndex} className="whitespace-nowrap px-3 py-2.5">
+                <td key={cellIndex} className="whitespace-nowrap">
                   {cell}
                 </td>
               ))}
@@ -326,10 +326,10 @@ function MonitoringTable({
 
 function stateBadge(label: string, delayed: boolean) {
   const className = delayed
-    ? "border-accent bg-muted text-primary"
-    : "border-sky-200 bg-sky-50 text-sky-700";
+    ? "od-status-warning"
+    : "od-status-info";
   return (
-    <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${className}`}>
+    <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${className}`}>
       {label.replaceAll("_", " ")}
     </span>
   );
@@ -338,12 +338,12 @@ function stateBadge(label: string, delayed: boolean) {
 function freshnessBadge(label: string) {
   const className =
     label === "fresh"
-      ? "border-accent bg-muted text-accent"
+      ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
       : label === "aging"
-        ? "border-accent bg-muted text-primary"
-        : "border bg-card text-mutedForeground";
+        ? "od-status-warning"
+        : "od-status-passive";
   return (
-    <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${className}`}>
+    <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${className}`}>
       {label}
     </span>
   );

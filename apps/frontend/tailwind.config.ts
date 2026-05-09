@@ -10,28 +10,35 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        background: "#ffffff",
-        foreground: "#114d86",
-        card: "hsl(0 0% 100%)",
-        border: "#b7b7b2",
-        muted: "#e6f2ff",
-        mutedForeground: "#114d86",
-        primary: "#114d86",
+        background: "#f6f8fb",
+        foreground: "#172033",
+        card: "#ffffff",
+        border: "#d8dee8",
+        muted: "#eef3f8",
+        mutedForeground: "#667085",
+        primary: "#164f86",
         primaryForeground: "#ffffff",
-        accent: "#3a8dde",
+        accent: "#2f80d1",
         accentForeground: "#ffffff",
-        success: "#3a8dde",
-        warning: "#b7b7b2",
+        success: "#1f9d6a",
+        warning: "#c47a18",
+        pressure: {
+          blue: "#164f86",
+          amber: "#c47a18",
+          red: "#c73737",
+          grey: "#667085",
+        },
       },
       fontFamily: {
         sans: ["var(--font-sans)", "ui-sans-serif", "system-ui"],
       },
       boxShadow: {
-        panel: "0 18px 45px -22px rgba(17, 77, 134, 0.28)",
+        panel: "0 20px 50px -34px rgba(23, 32, 51, 0.32)",
+        nerve: "0 24px 80px -40px rgba(199, 55, 55, 0.45)",
       },
       backgroundImage: {
         "hero-grid":
-          "radial-gradient(circle at top left, rgba(58, 141, 222, 0.16), transparent 28%), radial-gradient(circle at bottom right, rgba(17, 77, 134, 0.13), transparent 34%)",
+          "radial-gradient(circle at top left, rgba(47, 128, 209, 0.14), transparent 30%), radial-gradient(circle at bottom right, rgba(199, 55, 55, 0.08), transparent 34%)",
       },
     },
   },

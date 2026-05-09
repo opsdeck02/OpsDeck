@@ -19,7 +19,7 @@ export default async function SuppliersPage() {
 
   return (
     <main className="space-y-4">
-      <section className="rounded-2xl border bg-card/90 px-4 py-5 shadow-panel">
+      <section className="od-panel px-4 py-5">
         <div className="flex flex-col gap-2">
           <Badge variant="outline">Supplier master</Badge>
           <h1 className="text-2xl font-semibold tracking-tight">Supplier reliability memory</h1>
@@ -31,42 +31,42 @@ export default async function SuppliersPage() {
 
       <SupplierCreateForm canManage={canManage} />
 
-      <Card className="bg-card/90 shadow-panel">
+      <Card>
         <CardHeader>
           <CardTitle>Suppliers</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto rounded-xl border">
-            <table className="min-w-[1040px] w-full text-left text-sm">
-              <thead className="bg-muted text-mutedForeground">
+          <div className="od-table-wrap">
+            <table className="od-table min-w-[1040px]">
+              <thead>
                 <tr>
-                  <th className="px-3 py-2.5 font-medium">Name</th>
-                  <th className="px-3 py-2.5 font-medium">Primary Port</th>
-                  <th className="px-3 py-2.5 font-medium">Materials</th>
-                  <th className="px-3 py-2.5 font-medium">Reliability Grade</th>
-                  <th className="px-3 py-2.5 font-medium">On-Time %</th>
-                  <th className="px-3 py-2.5 font-medium">Avg ETA Drift</th>
-                  <th className="px-3 py-2.5 font-medium">Signal %</th>
-                  <th className="px-3 py-2.5 font-medium">Active Shipments</th>
-                  <th className="px-3 py-2.5 font-medium">Record</th>
+                  <th>Name</th>
+                  <th>Primary Port</th>
+                  <th>Materials</th>
+                  <th>Reliability</th>
+                  <th>On-Time</th>
+                  <th>ETA Drift</th>
+                  <th>Signal</th>
+                  <th>Active</th>
+                  <th>Record</th>
                 </tr>
               </thead>
               <tbody>
                 {suppliers.map((supplier) => (
-                  <tr key={supplier.id} className="border-t bg-card">
-                    <td className="px-3 py-2.5 font-medium">
+                  <tr key={supplier.id}>
+                    <td className="font-medium">
                       <Link href={`/dashboard/suppliers/${supplier.id}`} className="text-primary hover:underline">
                         {supplier.name}
                       </Link>
                     </td>
-                    <td className="px-3 py-2.5">{supplier.primary_port ?? "-"}</td>
-                    <td className="px-3 py-2.5">{supplier.performance.materials_supplied.join(", ") || "-"}</td>
-                    <td className="px-3 py-2.5"><GradeBadge grade={supplier.performance.reliability_grade} /></td>
-                    <td className="px-3 py-2.5">{displayPercent(supplier.performance.on_time_reliability_pct)}</td>
-                    <td className="px-3 py-2.5">{displayHours(supplier.performance.avg_eta_drift_hours)}</td>
-                    <td className="px-3 py-2.5">{displayPercent(supplier.performance.risk_signal_pct)}</td>
-                    <td className="px-3 py-2.5">{supplier.performance.active_shipments}</td>
-                    <td className="px-3 py-2.5">
+                    <td>{supplier.primary_port ?? "-"}</td>
+                    <td>{supplier.performance.materials_supplied.join(", ") || "-"}</td>
+                    <td><GradeBadge grade={supplier.performance.reliability_grade} /></td>
+                    <td>{displayPercent(supplier.performance.on_time_reliability_pct)}</td>
+                    <td>{displayHours(supplier.performance.avg_eta_drift_hours)}</td>
+                    <td>{displayPercent(supplier.performance.risk_signal_pct)}</td>
+                    <td>{supplier.performance.active_shipments}</td>
+                    <td>
                       <Link href={`/dashboard/suppliers/${supplier.id}`} className="rounded-xl border px-3 py-2 text-xs font-semibold">
                         View
                       </Link>
@@ -92,13 +92,13 @@ export default async function SuppliersPage() {
 function GradeBadge({ grade }: { grade: string }) {
   const className =
     grade === "A"
-      ? "border-accent bg-muted text-accent"
+      ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
       : grade === "B"
-        ? "border-accent bg-muted text-primary"
+        ? "od-status-info"
         : grade === "C"
-          ? "border-accent bg-muted text-primary"
-          : "border-accent bg-muted text-primary";
-  return <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${className}`}>{grade}</span>;
+          ? "od-status-warning"
+          : "od-status-critical";
+  return <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${className}`}>{grade}</span>;
 }
 
 function displayPercent(value: string) {

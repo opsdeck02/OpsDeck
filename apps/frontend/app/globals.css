@@ -14,3 +14,70 @@ body {
   @apply border-border;
 }
 
+@layer base {
+  html {
+    text-rendering: geometricPrecision;
+  }
+
+  body {
+    overflow-x: hidden;
+  }
+}
+
+@layer components {
+  .od-surface {
+    @apply rounded-2xl bg-card shadow-panel;
+  }
+
+  .od-panel {
+    @apply rounded-2xl bg-white/80 shadow-panel ring-1 ring-slate-900/5;
+  }
+
+  .od-panel-muted {
+    @apply rounded-2xl bg-slate-50/80 ring-1 ring-slate-900/5;
+  }
+
+  .od-hairline {
+    @apply border-slate-200/70;
+  }
+
+  .od-kicker {
+    @apply text-[11px] font-semibold uppercase tracking-[0.14em] text-mutedForeground;
+  }
+
+  .od-number {
+    @apply text-2xl font-semibold leading-none tracking-normal text-foreground;
+  }
+
+  .od-table-wrap {
+    @apply overflow-x-auto rounded-2xl bg-white shadow-panel ring-1 ring-slate-900/5;
+  }
+
+  .od-table {
+    @apply w-full border-separate border-spacing-0 text-left text-sm;
+  }
+
+  .od-table th {
+    @apply whitespace-nowrap bg-slate-50 px-3 py-2 text-xs font-semibold text-mutedForeground;
+  }
+
+  .od-table td {
+    @apply border-t border-slate-100 px-3 py-2.5 align-middle;
+  }
+
+  .od-status-critical {
+    @apply bg-red-50 text-red-700 ring-1 ring-red-200;
+  }
+
+  .od-status-warning {
+    @apply bg-amber-50 text-amber-800 ring-1 ring-amber-200;
+  }
+
+  .od-status-info {
+    @apply bg-blue-50 text-blue-800 ring-1 ring-blue-200;
+  }
+
+  .od-status-passive {
+    @apply bg-slate-100 text-slate-600 ring-1 ring-slate-200;
+  }
+}
