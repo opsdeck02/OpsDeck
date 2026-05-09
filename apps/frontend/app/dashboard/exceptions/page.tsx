@@ -37,22 +37,22 @@ export default async function ExceptionsPage({
   const exportHref = `/api/exports/exceptions${buildExportQuery(searchParams)}`;
 
   return (
-    <div className="grid gap-5">
+    <div className="grid gap-4">
       {!response ? (
         <Card className="bg-card/90 shadow-panel">
           <CardHeader>
-            <CardTitle>Exceptions unavailable</CardTitle>
+            <CardTitle>Signals unavailable</CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-mutedForeground">
-            Exception data could not be loaded for this tenant right now. Retry once the API connection is back.
+            Signal data could not be loaded for this tenant right now. Retry once the API connection is back.
           </CardContent>
         </Card>
       ) : null}
 
-      <section className="grid gap-4 md:grid-cols-4">
-        <KpiCard label="Open exceptions" value={counts?.open_exceptions ?? 0} />
-        <KpiCard label="Critical exceptions" value={counts?.critical_exceptions ?? 0} tone="critical" />
-        <KpiCard label="Unassigned exceptions" value={counts?.unassigned_exceptions ?? 0} tone="warning" />
+      <section className="grid gap-3 md:grid-cols-4">
+        <KpiCard label="Open signals" value={counts?.open_exceptions ?? 0} />
+        <KpiCard label="Critical signals" value={counts?.critical_exceptions ?? 0} tone="critical" />
+        <KpiCard label="Unassigned signals" value={counts?.unassigned_exceptions ?? 0} tone="warning" />
         <KpiCard label="Resolved recently" value={counts?.resolved_recently ?? 0} />
       </section>
 
@@ -65,57 +65,57 @@ export default async function ExceptionsPage({
       <Card className="bg-card/90 shadow-panel">
         <CardHeader>
           <div className="flex items-center justify-between gap-3">
-            <CardTitle>Exception workflow</CardTitle>
-            <a href={exportHref} className="rounded-2xl border px-4 py-2 text-xs font-semibold">
+            <CardTitle>Operational signals</CardTitle>
+            <a href={exportHref} className="rounded-xl border px-3 py-2 text-xs font-semibold">
               Export CSV
             </a>
           </div>
           <p className="text-sm text-mutedForeground">
-            Deterministic tenant-scoped cases created from stock, shipment, and inland risk signals.
+            Deterministic tenant-scoped records created from stock, shipment, and inland signals.
           </p>
         </CardHeader>
         <CardContent>
-          <div className="overflow-hidden rounded-2xl border">
-            <table className="w-full text-left text-sm">
+          <div className="overflow-x-auto rounded-xl border">
+            <table className="min-w-[1040px] w-full text-left text-sm">
               <thead className="bg-muted text-mutedForeground">
                 <tr>
-                  <th className="px-4 py-3 font-medium">Exception</th>
-                  <th className="px-4 py-3 font-medium">Type</th>
-                  <th className="px-4 py-3 font-medium">Severity</th>
-                  <th className="px-4 py-3 font-medium">Status</th>
-                  <th className="px-4 py-3 font-medium">Owner</th>
-                  <th className="px-4 py-3 font-medium">Plant / material</th>
-                  <th className="px-4 py-3 font-medium">Shipment</th>
-                  <th className="px-4 py-3 font-medium">Updated</th>
+                  <th className="px-3 py-2.5 font-medium">Signal</th>
+                  <th className="px-3 py-2.5 font-medium">Type</th>
+                  <th className="px-3 py-2.5 font-medium">Severity</th>
+                  <th className="px-3 py-2.5 font-medium">Status</th>
+                  <th className="px-3 py-2.5 font-medium">Owner</th>
+                  <th className="px-3 py-2.5 font-medium">Plant / material</th>
+                  <th className="px-3 py-2.5 font-medium">Shipment</th>
+                  <th className="px-3 py-2.5 font-medium">Updated</th>
                 </tr>
               </thead>
               <tbody>
                 {items.map((item) => (
                   <tr key={item.id} className="border-t bg-card">
-                    <td className="px-4 py-3 font-medium">
+                    <td className="px-3 py-2.5 font-medium">
                       <Link href={`/dashboard/exceptions/${item.id}`} className="text-primary hover:underline">
                         {item.title}
                       </Link>
                     </td>
-                    <td className="px-4 py-3">{item.type.replaceAll("_", " ")}</td>
-                    <td className="px-4 py-3">
+                    <td className="px-3 py-2.5">{item.type.replaceAll("_", " ")}</td>
+                    <td className="px-3 py-2.5">
                       <SeverityBadge severity={item.severity} />
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-3 py-2.5">
                       <StatusBadge status={item.status} />
                     </td>
-                    <td className="px-4 py-3">{item.current_owner?.full_name ?? "Unassigned"}</td>
-                    <td className="px-4 py-3">
+                    <td className="px-3 py-2.5">{item.current_owner?.full_name ?? "Unassigned"}</td>
+                    <td className="px-3 py-2.5">
                       {item.linked_plant?.label ?? "—"} / {item.linked_material?.label ?? "—"}
                     </td>
-                    <td className="px-4 py-3">{item.linked_shipment?.label ?? "—"}</td>
-                    <td className="px-4 py-3">{formatDate(item.updated_at)}</td>
+                    <td className="px-3 py-2.5">{item.linked_shipment?.label ?? "—"}</td>
+                    <td className="px-3 py-2.5">{formatDate(item.updated_at)}</td>
                   </tr>
                 ))}
                 {items.length === 0 ? (
                   <tr>
                     <td className="px-4 py-8 text-center text-mutedForeground" colSpan={8}>
-                      No exceptions matched the current filters. Use “Evaluate exceptions” to refresh cases.
+                      No signals matched the current filters.
                     </td>
                   </tr>
                 ) : null}

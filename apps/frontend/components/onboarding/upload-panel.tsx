@@ -383,21 +383,21 @@ export function UploadPanel({
   }
 
   return (
-    <div className="grid gap-5 lg:grid-cols-[1fr_0.9fr]">
-      <section className="rounded-3xl border bg-card/90 p-6 shadow-panel">
+    <div className="grid gap-4 lg:grid-cols-[1fr_0.9fr]">
+      <section className="rounded-xl border bg-card/90 p-3 shadow-panel">
         <div className="space-y-2">
-          <h2 className="text-xl font-semibold">Upload onboarding data</h2>
+          <h2 className="text-lg font-semibold">Upload onboarding data</h2>
           <p className="text-sm text-mutedForeground">
             Upload CSV or XLSX files for shipments, stock snapshots, or thresholds.
           </p>
         </div>
-        <form onSubmit={uploadFile} className="mt-6 space-y-4">
+        <form onSubmit={uploadFile} className="mt-4 space-y-3">
           <label className="block space-y-2 text-sm font-medium">
             <span>File type</span>
             <select
               value={fileType}
               onChange={(event) => setFileType(event.target.value)}
-              className="w-full rounded-2xl border bg-card px-4 py-3"
+              className="w-full rounded-xl border bg-card px-3 py-2.5"
             >
               {fileTypes.map((type) => (
                 <option key={type.value} value={type.value}>
@@ -413,12 +413,12 @@ export function UploadPanel({
                 type="file"
                 accept=".csv,.xlsx"
                 onChange={(event) => onFileSelected(event.target.files?.[0] ?? null)}
-                className="w-full rounded-2xl border bg-card px-4 py-3"
+                className="w-full rounded-xl border bg-card px-3 py-2.5"
               />
             </label>
           ) : null}
           {automatedSourcesEnabled ? (
-            <div className="rounded-2xl border bg-muted/40 p-4">
+            <div className="rounded-xl border bg-muted/40 p-3">
               <p className="font-medium">Upload mode</p>
               <p className="mt-1 text-sm text-mutedForeground">
                 Choose one path: manual file upload or direct URL upload.
@@ -431,7 +431,7 @@ export function UploadPanel({
                     setMappingPreview(null);
                     setMappingOverrides({});
                   }}
-                  className={`rounded-2xl border px-4 py-2 text-xs font-semibold ${uploadMode === "file" ? "bg-primary text-primaryForeground" : ""}`}
+                  className={`rounded-xl border px-4 py-2 text-xs font-semibold ${uploadMode === "file" ? "bg-primary text-primaryForeground" : ""}`}
                 >
                   Manual file
                 </button>
@@ -442,7 +442,7 @@ export function UploadPanel({
                     setMappingPreview(null);
                     setMappingOverrides({});
                   }}
-                  className={`rounded-2xl border px-4 py-2 text-xs font-semibold ${uploadMode === "url" ? "bg-primary text-primaryForeground" : ""}`}
+                  className={`rounded-xl border px-4 py-2 text-xs font-semibold ${uploadMode === "url" ? "bg-primary text-primaryForeground" : ""}`}
                 >
                   URL upload
                 </button>
@@ -452,7 +452,7 @@ export function UploadPanel({
                   <select
                     value={sourceType}
                     onChange={(event) => setSourceType(event.target.value as "google_sheets" | "excel_online")}
-                    className="rounded-2xl border bg-card px-4 py-3 text-sm"
+                    className="rounded-xl border bg-card px-3 py-2.5 text-sm"
                   >
                     <option value="excel_online">Excel / OneDrive direct link</option>
                     <option value="google_sheets">Google Sheets public link</option>
@@ -462,13 +462,13 @@ export function UploadPanel({
                       value={sourceUrl}
                       onChange={(event) => setSourceUrl(event.target.value)}
                       placeholder="Paste OneDrive, Google Drive, SharePoint, CSV, or XLSX URL"
-                      className="rounded-2xl border bg-card px-4 py-3 text-sm"
+                      className="rounded-xl border bg-card px-3 py-2.5 text-sm"
                     />
                     <button
                       type="button"
                       onClick={previewUrlMapping}
                       disabled={isPending}
-                      className="rounded-2xl border px-4 py-3 text-sm font-medium disabled:opacity-60"
+                      className="rounded-xl border px-3 py-2.5 text-sm font-medium disabled:opacity-60"
                     >
                       Preview mapping
                     </button>
@@ -485,20 +485,20 @@ export function UploadPanel({
               ) : null}
             </div>
           ) : (
-            <div className="rounded-2xl border bg-muted/40 p-4">
+            <div className="rounded-xl border bg-muted/40 p-3">
               <p className="font-medium">Manual onboarding</p>
               <p className="mt-1 text-sm text-mutedForeground">
                 Pilot tenants can upload CSV or XLSX files manually. URL ingestion and Microsoft 365 auto-sync are included in paid and enterprise plans.
               </p>
             </div>
           )}
-          <div className="rounded-2xl border p-4">
+          <div className="rounded-xl border p-3">
             <p className="font-medium">Column mapping review</p>
             <p className="mt-1 text-sm text-mutedForeground">
               OpsDeck now suggests forgiving matches for different Indian column names. You can override any mapping before upload.
             </p>
             <div className="mt-3 space-y-3">
-              <div className="rounded-2xl bg-muted/50 p-3 text-sm">
+              <div className="rounded-xl bg-muted/50 p-3 text-sm">
                 <p className="font-medium">Required OpsDeck columns for this upload</p>
                 <div className="mt-2 flex flex-wrap gap-2">
                   {(mappingPreview?.required_fields ?? []).map((field) => (
@@ -517,7 +517,7 @@ export function UploadPanel({
                 ) : null}
               </div>
               {mappingPreview ? (
-                <div className="rounded-2xl bg-muted/50 p-3 text-sm">
+                <div className="rounded-xl bg-muted/50 p-3 text-sm">
                   <p className="font-medium">Columns found in your upload</p>
                   <p className="mt-1 break-words text-mutedForeground">{mappingPreview.headers.join(", ")}</p>
                 </div>
@@ -526,7 +526,7 @@ export function UploadPanel({
                 <p className="text-sm text-mutedForeground">Choose a file to preview header mapping.</p>
               ) : (
                 mappingPreview.suggestions.map((item) => (
-                  <div key={item.source_header} className="grid gap-2 rounded-2xl border bg-card p-3 md:grid-cols-[1fr_1fr_auto]">
+                  <div key={item.source_header} className="grid gap-2 rounded-xl border bg-card p-3 md:grid-cols-[1fr_1fr_auto]">
                     <div>
                       <p className="text-xs text-mutedForeground">Incoming column</p>
                       <p className="font-medium">{item.source_header}</p>
@@ -541,7 +541,7 @@ export function UploadPanel({
                             [item.source_header]: event.target.value,
                           }))
                         }
-                        className="w-full rounded-2xl border bg-card px-4 py-2 text-sm"
+                        className="w-full rounded-xl border bg-card px-4 py-2 text-sm"
                       >
                         <option value="">Ignore column</option>
                         {mappingPreview.required_fields.map((value) => (
@@ -565,7 +565,7 @@ export function UploadPanel({
             </div>
           </div>
           {automatedSourcesEnabled ? (
-            <div className="rounded-2xl border p-4">
+            <div className="rounded-xl border p-3">
               <p className="font-medium">URL source for automated ingestion</p>
               <p className="mt-1 text-sm text-mutedForeground">
                 Save a Google Sheets or Excel Online URL here if you want the same dataset to sync without manual file uploads.
@@ -580,7 +580,7 @@ export function UploadPanel({
                         source_type: event.target.value as "google_sheets" | "excel_online",
                       }))
                     }
-                    className="rounded-2xl border bg-card px-4 py-3 text-sm"
+                    className="rounded-xl border bg-card px-3 py-2.5 text-sm"
                   >
                     <option value="google_sheets">Google Sheets</option>
                     <option value="excel_online">Excel Online</option>
@@ -593,7 +593,7 @@ export function UploadPanel({
                         dataset_type: event.target.value as "shipments" | "stock" | "thresholds",
                       }))
                     }
-                    className="rounded-2xl border bg-card px-4 py-3 text-sm"
+                    className="rounded-xl border bg-card px-3 py-2.5 text-sm"
                   >
                     <option value="shipments">Shipments</option>
                     <option value="stock">Stock</option>
@@ -604,13 +604,13 @@ export function UploadPanel({
                   value={dataSourceForm.source_name}
                   onChange={(event) => setDataSourceForm((current) => ({ ...current, source_name: event.target.value }))}
                   placeholder="Source name"
-                  className="rounded-2xl border bg-card px-4 py-3 text-sm"
+                  className="rounded-xl border bg-card px-3 py-2.5 text-sm"
                 />
                 <input
                   value={dataSourceForm.source_url}
                   onChange={(event) => setDataSourceForm((current) => ({ ...current, source_url: event.target.value }))}
                   placeholder="OneDrive, Google Drive, SharePoint, CSV, or XLSX URL"
-                  className="rounded-2xl border bg-card px-4 py-3 text-sm"
+                  className="rounded-xl border bg-card px-3 py-2.5 text-sm"
                 />
                 <div className="flex flex-wrap items-center gap-2 text-xs text-mutedForeground">
                   <span className="rounded-full border bg-card px-3 py-1 font-medium text-primary">
@@ -626,7 +626,7 @@ export function UploadPanel({
                     setDataSourceForm((current) => ({ ...current, mapping_config_text: event.target.value }))
                   }
                   placeholder={'Optional source config JSON\n{"sheet_gid":"0"}'}
-                  className="min-h-24 rounded-2xl border bg-card px-4 py-3 text-sm"
+                  className="min-h-24 rounded-xl border bg-card px-3 py-2.5 text-sm"
                 />
                 <div className="grid gap-3 md:grid-cols-[1fr_auto]">
                   <input
@@ -634,14 +634,14 @@ export function UploadPanel({
                     onChange={(event) =>
                       setDataSourceForm((current) => ({ ...current, sync_frequency_minutes: event.target.value }))
                     }
-                    className="rounded-2xl border bg-card px-4 py-3 text-sm"
+                    className="rounded-xl border bg-card px-3 py-2.5 text-sm"
                     placeholder="Sync frequency minutes"
                   />
                   <button
                     type="button"
                     onClick={saveDataSource}
                     disabled={isPending}
-                    className="rounded-2xl border px-4 py-3 text-sm font-medium disabled:opacity-60"
+                    className="rounded-xl border px-3 py-2.5 text-sm font-medium disabled:opacity-60"
                   >
                     {editingSourceId ? "Update URL source" : "Save URL source"}
                   </button>
@@ -649,7 +649,7 @@ export function UploadPanel({
               </div>
               <div className="mt-3 space-y-3">
                 {dataSources.map((source) => (
-                  <div key={source.id} className="rounded-2xl border bg-card p-3 text-sm">
+                  <div key={source.id} className="rounded-xl border bg-card p-3 text-sm">
                     <div className="flex items-center justify-between gap-3">
                       <div>
                         <p className="font-medium">{source.source_name}</p>
@@ -662,14 +662,14 @@ export function UploadPanel({
                       <button
                         type="button"
                         onClick={() => runSyncNow(source.id)}
-                        className="rounded-2xl bg-primary px-4 py-2 text-xs font-semibold text-primaryForeground"
+                        className="rounded-xl bg-primary px-4 py-2 text-xs font-semibold text-primaryForeground"
                       >
                         Run sync now
                       </button>
                       <button
                         type="button"
                         onClick={() => populateDataSourceForm(source)}
-                        className="rounded-2xl border px-4 py-2 text-xs font-semibold"
+                        className="rounded-xl border px-4 py-2 text-xs font-semibold"
                       >
                         Edit
                       </button>
@@ -686,7 +686,7 @@ export function UploadPanel({
             <button
               type="submit"
               disabled={isPending}
-              className="rounded-2xl bg-primary px-5 py-3 text-sm font-semibold text-primaryForeground disabled:opacity-60"
+              className="rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primaryForeground disabled:opacity-60"
             >
               {isPending ? "Uploading..." : automatedSourcesEnabled && uploadMode === "url" ? "Upload URL" : "Upload file"}
             </button>
@@ -694,7 +694,7 @@ export function UploadPanel({
               <a
                 key={type.value}
                 href={`/api/ingestion/templates/${type.value}`}
-                className="rounded-2xl border px-4 py-3 text-sm font-medium"
+                className="rounded-xl border px-3 py-2.5 text-sm font-medium"
               >
                 {type.value} template
               </a>
@@ -703,15 +703,15 @@ export function UploadPanel({
               type="button"
               onClick={clearUploadedData}
               disabled={isPending}
-              className="rounded-2xl border border-accent px-4 py-3 text-sm font-medium text-primary disabled:opacity-60"
+              className="rounded-xl border border-accent px-3 py-2.5 text-sm font-medium text-primary disabled:opacity-60"
             >
               Delete uploaded data
             </button>
           </div>
         </form>
-        {error ? <p className="mt-4 rounded-2xl bg-muted p-4 text-sm text-primary">{error}</p> : null}
+        {error ? <p className="mt-4 rounded-xl bg-muted p-3 text-sm text-primary">{error}</p> : null}
         {result ? (
-          <div className="mt-5 rounded-2xl bg-muted p-4 text-sm">
+          <div className="mt-5 rounded-xl bg-muted p-3 text-sm">
             <p className="font-semibold">Upload summary</p>
             <p>Rows received: {result.rows_received}</p>
             <p>Accepted: {result.rows_accepted}</p>
@@ -732,14 +732,14 @@ export function UploadPanel({
           </div>
         ) : null}
       </section>
-      <section className="rounded-3xl border bg-card/90 p-6 shadow-panel">
-        <h2 className="text-xl font-semibold">Ingestion history</h2>
+      <section className="rounded-xl border bg-card/90 p-3 shadow-panel">
+        <h2 className="text-lg font-semibold">Ingestion history</h2>
         <div className="mt-4 space-y-3">
           {historyError ? (
-            <p className="rounded-2xl bg-muted p-4 text-sm text-primary">{historyError}</p>
+            <p className="rounded-xl bg-muted p-3 text-sm text-primary">{historyError}</p>
           ) : null}
           {history.map((job) => (
-            <div key={job.id} className="rounded-2xl border bg-card p-4 text-sm">
+            <div key={job.id} className="rounded-xl border bg-card p-3 text-sm">
               <div className="flex items-center justify-between gap-3">
                 <span className="font-semibold">{job.file_type}</span>
                 <span className="rounded-full bg-muted px-3 py-1 text-xs">{job.status}</span>

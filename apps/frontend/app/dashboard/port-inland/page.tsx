@@ -198,25 +198,25 @@ export default function PortInlandMonitoringPage() {
   }
 
   return (
-    <div className="grid gap-5">
-      <section className="rounded-3xl border bg-card/90 p-6 shadow-panel">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+    <div className="grid gap-4">
+      <section className="rounded-2xl border bg-card/90 p-4 shadow-panel">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
           <div>
             <p className="text-xs uppercase tracking-[0.22em] text-mutedForeground">
               Port & inland monitoring
             </p>
-            <h2 className="mt-2 text-2xl font-semibold tracking-tight">
+            <h2 className="mt-1 text-xl font-semibold tracking-tight">
               Container tracking
             </h2>
           </div>
-          <div className="grid gap-3 md:grid-cols-[minmax(220px,1fr)_180px_150px_auto]">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[minmax(220px,1fr)_170px_140px_auto]">
             <label className="grid gap-2 text-sm">
               <span className="font-medium">Container number</span>
               <input
                 value={containerNo}
                 onChange={(event) => setContainerNo(event.target.value.toUpperCase())}
                 placeholder="MSCU1234567"
-                className="rounded-2xl border bg-card px-4 py-3"
+                className="rounded-xl border bg-card px-3 py-2.5"
               />
             </label>
             <label className="grid gap-2 text-sm">
@@ -224,7 +224,7 @@ export default function PortInlandMonitoringPage() {
               <select
                 value={carrierCode}
                 onChange={(event) => setCarrierCode(event.target.value)}
-                className="rounded-2xl border bg-card px-4 py-3"
+                className="rounded-xl border bg-card px-3 py-2.5"
               >
                 <option value="">Auto detect</option>
                 {carrierOptions.map((carrier) => (
@@ -239,7 +239,7 @@ export default function PortInlandMonitoringPage() {
               <select
                 value={trackingSource}
                 onChange={(event) => setTrackingSource(event.target.value)}
-                className="rounded-2xl border bg-card px-4 py-3"
+                className="rounded-xl border bg-card px-3 py-2.5"
               >
                 <option value="mock">Mock</option>
                 <option value="dcsa">DCSA</option>
@@ -249,7 +249,7 @@ export default function PortInlandMonitoringPage() {
               type="button"
               onClick={searchContainer}
               disabled={isSearching}
-              className="inline-flex items-center justify-center gap-2 rounded-2xl bg-primary px-5 py-3 text-sm font-semibold text-primaryForeground disabled:opacity-60"
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primaryForeground disabled:opacity-60"
               title="Search container tracking"
             >
               <Search className="h-4 w-4" />
@@ -262,12 +262,12 @@ export default function PortInlandMonitoringPage() {
             Use ISO 6346 format: 4 letters and 7 digits.
           </p>
         ) : null}
-        {error ? <p className="mt-3 rounded-2xl bg-muted p-3 text-sm text-primary">{error}</p> : null}
+        {error ? <p className="mt-3 rounded-xl bg-muted p-3 text-sm text-primary">{error}</p> : null}
       </section>
 
       {searchResult ? (
-        <section className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_360px]">
-          <div className="rounded-3xl border bg-card/90 p-6 shadow-panel">
+        <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
+          <div className="rounded-2xl border bg-card/90 p-4 shadow-panel">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <h3 className="text-xl font-semibold">{searchResult.container_no}</h3>
@@ -278,18 +278,18 @@ export default function PortInlandMonitoringPage() {
               </div>
               <Badge variant="outline">{searchResult.carrier_detection.confidence}</Badge>
             </div>
-            <div className="mt-5 grid gap-3 md:grid-cols-3">
+            <div className="mt-4 grid gap-3 md:grid-cols-3">
               <SummaryMetric label="Latest event" value={searchResult.latest_event?.event_type ?? "None"} />
               <SummaryMetric label="Latest ETA" value={formatDate(searchResult.latest_eta)} />
               <SummaryMetric label="Source" value={searchResult.tracking_source} />
             </div>
             {searchResult.carrier_detection.requires_manual_selection ? (
-              <p className="mt-4 rounded-2xl bg-muted p-4 text-sm text-mutedForeground">
+              <p className="mt-4 rounded-xl bg-muted p-3 text-sm text-mutedForeground">
                 Carrier could not be detected from the owner prefix. Select a carrier/source and search again.
               </p>
             ) : null}
             {searchResult.linked_statuses.length > 0 ? (
-              <div className="mt-4 rounded-2xl border bg-card p-4 text-sm">
+              <div className="mt-4 rounded-xl border bg-card p-3 text-sm">
                 <p className="font-semibold">Already linked</p>
                 <div className="mt-2 grid gap-2">
                   {searchResult.linked_statuses.map((status) => (
@@ -309,17 +309,17 @@ export default function PortInlandMonitoringPage() {
             />
           </div>
 
-          <aside className="rounded-3xl border bg-card/90 p-6 shadow-panel">
+          <aside className="rounded-2xl border bg-card/90 p-4 shadow-panel">
             <div className="flex items-center gap-2">
               <Link2 className="h-4 w-4 text-primary" />
               <h3 className="text-lg font-semibold">Link to shipment</h3>
             </div>
-            <label className="mt-5 grid gap-2 text-sm">
+            <label className="mt-4 grid gap-2 text-sm">
               <span className="font-medium">Existing shipment</span>
               <select
                 value={selectedShipmentId}
                 onChange={(event) => setSelectedShipmentId(event.target.value)}
-                className="rounded-2xl border bg-card px-4 py-3"
+                className="rounded-xl border bg-card px-3 py-2.5"
               >
                 <option value="">Select shipment</option>
                 {shipments.map((shipment) => (
@@ -330,12 +330,12 @@ export default function PortInlandMonitoringPage() {
               </select>
             </label>
             {shipments.length === 0 ? (
-              <p className="mt-3 rounded-2xl bg-muted p-3 text-sm text-mutedForeground">
+              <p className="mt-3 rounded-xl bg-muted p-3 text-sm text-mutedForeground">
                 No matching shipments are available for this tenant yet.
               </p>
             ) : null}
             {!resolvedCarrier ? (
-              <p className="mt-3 rounded-2xl bg-muted p-3 text-sm text-mutedForeground">
+              <p className="mt-3 rounded-xl bg-muted p-3 text-sm text-mutedForeground">
                 Select a carrier/source before linking this container.
               </p>
             ) : null}
@@ -343,13 +343,13 @@ export default function PortInlandMonitoringPage() {
               type="button"
               onClick={linkShipment}
               disabled={!selectedShipmentId || !resolvedCarrier || isLinking}
-              className="mt-4 w-full rounded-2xl bg-primary px-5 py-3 text-sm font-semibold text-primaryForeground disabled:opacity-60"
+              className="mt-4 w-full rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primaryForeground disabled:opacity-60"
             >
               {isLinking ? "Linking" : "Link to Shipment"}
             </button>
             {linkedStatus ? <LinkedStatusPanel status={linkedStatus} /> : null}
             {linkedStatus?.already_linked ? (
-              <p className="mt-3 rounded-2xl bg-muted p-3 text-sm text-mutedForeground">
+              <p className="mt-3 rounded-xl bg-muted p-3 text-sm text-mutedForeground">
                 This container was already linked to the selected shipment. Tracking was refreshed without changing the original link time.
               </p>
             ) : null}
@@ -362,7 +362,7 @@ export default function PortInlandMonitoringPage() {
 
 function SummaryMetric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-2xl border bg-card p-4">
+    <div className="rounded-xl border bg-card p-3">
       <p className="text-xs uppercase tracking-[0.16em] text-mutedForeground">{label}</p>
       <p className="mt-2 break-words text-sm font-semibold">{value}</p>
     </div>
@@ -371,11 +371,11 @@ function SummaryMetric({ label, value }: { label: string; value: string }) {
 
 function Timeline({ events }: { events: TrackingEvent[] }) {
   return (
-    <div className="mt-6">
+    <div className="mt-5">
       <h3 className="text-lg font-semibold">Tracking timeline</h3>
-      <div className="mt-4 grid gap-3">
+      <div className="mt-3 grid gap-3">
         {events.map((event) => (
-          <div key={`${event.event_type}-${event.event_datetime}`} className="grid gap-3 rounded-2xl border bg-card p-4 md:grid-cols-[32px_minmax(0,1fr)_130px]">
+          <div key={`${event.event_type}-${event.event_datetime}`} className="grid gap-3 rounded-xl border bg-card p-3 md:grid-cols-[32px_minmax(0,1fr)_130px]">
             <div className="flex h-8 w-8 items-center justify-center rounded-full bg-muted">
               {modeIcon(event.transport_mode)}
             </div>
@@ -394,7 +394,7 @@ function Timeline({ events }: { events: TrackingEvent[] }) {
           </div>
         ))}
         {events.length === 0 ? (
-          <p className="rounded-2xl bg-muted p-4 text-sm text-mutedForeground">
+          <p className="rounded-xl bg-muted p-3 text-sm text-mutedForeground">
             No tracking events found for this container and source yet.
           </p>
         ) : null}
@@ -442,7 +442,7 @@ function errorMessageFromBody(value: unknown, fallback: string) {
 
 function LinkedStatusPanel({ status }: { status: LinkedShipmentStatus }) {
   return (
-    <div className="mt-5 rounded-2xl border bg-card p-4">
+    <div className="mt-5 rounded-xl border bg-card p-3">
       <p className="text-sm font-semibold">{status.shipment_ref}</p>
       <div className="mt-3 grid gap-3 text-sm">
         <StatusRow label="Current milestone" value={status.current_milestone} />
@@ -469,7 +469,7 @@ function VesselTrackingCard({
   error: string | null;
 }) {
   return (
-    <div className="mt-6 rounded-2xl border bg-card p-4">
+    <div className="mt-5 rounded-xl border bg-card p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-lg font-semibold">Vessel Tracking</h3>
         <Badge variant="outline">Mock AIS</Badge>
@@ -491,7 +491,7 @@ function VesselTrackingCard({
       {position ? (
         <>
           {position.is_mock ? (
-            <p className="mt-3 rounded-2xl bg-muted p-3 text-sm text-mutedForeground">
+            <p className="mt-3 rounded-xl bg-muted p-3 text-sm text-mutedForeground">
               Demo vessel position, not live AIS.
             </p>
           ) : null}

@@ -28,15 +28,15 @@ export default async function SupplierDetailPage({
   const canManage = canAccessPilotAdmin(role);
 
   return (
-    <main className="space-y-6">
-      <section className="rounded-3xl border bg-card/90 px-6 py-6 shadow-panel">
+    <main className="space-y-4">
+      <section className="rounded-2xl border bg-card/90 px-4 py-5 shadow-panel">
         <Link href="/dashboard/suppliers" className="text-sm font-semibold text-primary hover:underline">
           Back to suppliers
         </Link>
-        <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div className="mt-3 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <Badge variant="outline">{supplier.code}</Badge>
-            <h1 className="mt-3 text-3xl font-semibold tracking-tight">{supplier.name}</h1>
+            <h1 className="mt-2 text-2xl font-semibold tracking-tight">{supplier.name}</h1>
             <p className="mt-2 text-sm text-mutedForeground">
               {supplier.primary_port ?? "No primary port"} · {supplier.country_of_origin ?? "Country not set"}
             </p>
@@ -55,14 +55,14 @@ export default async function SupplierDetailPage({
           ["Avg ETA drift", displayHours(supplier.performance.avg_eta_drift_hours)],
           ["Risk signal", displayPercent(supplier.performance.risk_signal_pct)],
           ["Active shipments", String(supplier.performance.active_shipments)],
-          ["Value at risk", displayCurrency(supplier.performance.total_value_at_risk)],
+          ["Exposure value", displayCurrency(supplier.performance.total_value_at_risk)],
           ["Materials", supplier.performance.materials_supplied.join(", ") || "-"],
           ["Ports used", supplier.performance.ports_used.join(", ") || "-"],
         ].map(([label, value]) => (
           <Card key={label} className="bg-card/90 shadow-panel">
             <CardHeader>
               <CardTitle className="text-sm text-mutedForeground">{label}</CardTitle>
-              <p className="mt-2 text-2xl font-semibold">{value}</p>
+              <p className="mt-2 text-xl font-semibold">{value}</p>
             </CardHeader>
           </Card>
         ))}
@@ -83,29 +83,29 @@ export default async function SupplierDetailPage({
           <CardTitle>Linked shipments</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="overflow-hidden rounded-2xl border">
-            <table className="w-full text-left text-sm">
+          <div className="overflow-x-auto rounded-xl border">
+            <table className="min-w-[760px] w-full text-left text-sm">
               <thead className="bg-muted text-mutedForeground">
                 <tr>
-                  <th className="px-4 py-3 font-medium">Shipment</th>
-                  <th className="px-4 py-3 font-medium">Material</th>
-                  <th className="px-4 py-3 font-medium">ETA</th>
-                  <th className="px-4 py-3 font-medium">State</th>
-                  <th className="px-4 py-3 font-medium">Confidence</th>
+                  <th className="px-3 py-2.5 font-medium">Shipment</th>
+                  <th className="px-3 py-2.5 font-medium">Material</th>
+                  <th className="px-3 py-2.5 font-medium">ETA</th>
+                  <th className="px-3 py-2.5 font-medium">State</th>
+                  <th className="px-3 py-2.5 font-medium">Confidence</th>
                 </tr>
               </thead>
               <tbody>
                 {supplier.linked_shipments.map((shipment) => (
                   <tr key={shipment.id} className="border-t bg-card">
-                    <td className="px-4 py-3 font-medium">
+                    <td className="px-3 py-2.5 font-medium">
                       <Link href={`/dashboard/shipments/${shipment.shipment_id}`} className="text-primary hover:underline">
                         {shipment.shipment_id}
                       </Link>
                     </td>
-                    <td className="px-4 py-3">{shipment.material_name}</td>
-                    <td className="px-4 py-3">{formatDate(shipment.current_eta)}</td>
-                    <td className="px-4 py-3">{shipment.shipment_state.replace("_", " ")}</td>
-                    <td className="px-4 py-3">{shipment.confidence}</td>
+                    <td className="px-3 py-2.5">{shipment.material_name}</td>
+                    <td className="px-3 py-2.5">{formatDate(shipment.current_eta)}</td>
+                    <td className="px-3 py-2.5">{shipment.shipment_state.replace("_", " ")}</td>
+                    <td className="px-3 py-2.5">{shipment.confidence}</td>
                   </tr>
                 ))}
                 {supplier.linked_shipments.length === 0 ? (
@@ -133,7 +133,7 @@ function GradeBadge({ grade }: { grade: string }) {
         : grade === "C"
           ? "border-accent bg-muted text-primary"
           : "border-accent bg-muted text-primary";
-  return <span className={`rounded-full border px-4 py-2 text-sm font-semibold ${className}`}>Grade {grade}</span>;
+  return <span className={`rounded-full border px-3 py-1.5 text-sm font-semibold ${className}`}>Grade {grade}</span>;
 }
 
 function displayPercent(value: string) {

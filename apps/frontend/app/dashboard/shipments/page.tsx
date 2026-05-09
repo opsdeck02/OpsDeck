@@ -19,12 +19,12 @@ export default async function ShipmentsPage({
   });
 
   return (
-    <div className="grid gap-5">
+    <div className="grid gap-4">
       <Card className="bg-card/90 shadow-panel">
         <CardHeader>
-          <CardTitle>Shipment visibility</CardTitle>
+          <CardTitle>Inbound movement</CardTitle>
           <p className="text-sm text-mutedForeground">
-            Tenant-scoped inbound shipments with derived state, confidence, and latest source.
+            Tenant-scoped inbound shipments with movement condition, confidence, and latest source.
           </p>
         </CardHeader>
         <CardContent>
@@ -32,7 +32,7 @@ export default async function ShipmentsPage({
             <select
               name="state"
               defaultValue={searchParams?.state ?? ""}
-              className="rounded-2xl border bg-card px-4 py-3 text-sm"
+              className="rounded-xl border bg-card px-3 py-2.5 text-sm"
             >
               <option value="">All states</option>
               {states.map((state) => (
@@ -46,11 +46,11 @@ export default async function ShipmentsPage({
               name="search"
               defaultValue={searchParams?.search ?? ""}
               placeholder="Search shipment ID or vessel"
-              className="rounded-2xl border bg-card px-4 py-3 text-sm"
+              className="rounded-xl border bg-card px-3 py-2.5 text-sm"
             />
             <button
               type="submit"
-              className="rounded-2xl bg-primary px-5 py-3 text-sm font-semibold text-primaryForeground"
+              className="rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primaryForeground"
             >
               Apply
             </button>
@@ -59,25 +59,25 @@ export default async function ShipmentsPage({
       </Card>
 
       <Card className="bg-card/90 shadow-panel">
-        <CardContent className="pt-6">
-          <div className="overflow-hidden rounded-2xl border">
-            <table className="w-full text-left text-sm">
+        <CardContent>
+          <div className="overflow-x-auto rounded-xl border">
+            <table className="min-w-[920px] w-full text-left text-sm">
               <thead className="bg-muted text-mutedForeground">
                 <tr>
-                  <th className="px-4 py-3 font-medium">Shipment</th>
-                  <th className="px-4 py-3 font-medium">Plant</th>
-                  <th className="px-4 py-3 font-medium">Material</th>
-                  <th className="px-4 py-3 font-medium">Quantity</th>
-                  <th className="px-4 py-3 font-medium">Vessel</th>
-                  <th className="px-4 py-3 font-medium">ETA</th>
-                  <th className="px-4 py-3 font-medium">State</th>
-                  <th className="px-4 py-3 font-medium">Confidence</th>
+                  <th className="px-3 py-2.5 font-medium">Shipment</th>
+                  <th className="px-3 py-2.5 font-medium">Plant</th>
+                  <th className="px-3 py-2.5 font-medium">Material</th>
+                  <th className="px-3 py-2.5 font-medium">Quantity</th>
+                  <th className="px-3 py-2.5 font-medium">Vessel</th>
+                  <th className="px-3 py-2.5 font-medium">ETA</th>
+                  <th className="px-3 py-2.5 font-medium">State</th>
+                  <th className="px-3 py-2.5 font-medium">Confidence</th>
                 </tr>
               </thead>
               <tbody>
                 {shipments.map((shipment) => (
                   <tr key={shipment.id} className="border-t bg-card">
-                    <td className="px-4 py-3 font-medium">
+                    <td className="px-3 py-2.5 font-medium">
                       <Link
                         href={`/dashboard/shipments/${shipment.shipment_id}`}
                         className="text-primary hover:underline"
@@ -85,15 +85,15 @@ export default async function ShipmentsPage({
                         {shipment.shipment_id}
                       </Link>
                     </td>
-                    <td className="px-4 py-3">{shipment.plant_name}</td>
-                    <td className="px-4 py-3">{shipment.material_name}</td>
-                    <td className="px-4 py-3">{Number(shipment.quantity_mt).toLocaleString()} MT</td>
-                    <td className="px-4 py-3">{shipment.vessel_name ?? "—"}</td>
-                    <td className="px-4 py-3">{formatDate(shipment.current_eta)}</td>
-                    <td className="px-4 py-3">
+                    <td className="px-3 py-2.5">{shipment.plant_name}</td>
+                    <td className="px-3 py-2.5">{shipment.material_name}</td>
+                    <td className="px-3 py-2.5">{Number(shipment.quantity_mt).toLocaleString()} MT</td>
+                    <td className="px-3 py-2.5">{shipment.vessel_name ?? "—"}</td>
+                    <td className="px-3 py-2.5">{formatDate(shipment.current_eta)}</td>
+                    <td className="px-3 py-2.5">
                       <StateBadge state={shipment.shipment_state} />
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-3 py-2.5">
                       <Badge variant="outline">{shipment.confidence}</Badge>
                     </td>
                   </tr>

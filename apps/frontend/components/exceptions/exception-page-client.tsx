@@ -55,13 +55,13 @@ export function ExceptionPageClient({
   }
 
   return (
-    <section className="rounded-3xl border bg-card/90 p-6 shadow-panel">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+    <section className="rounded-2xl border bg-card/90 p-4 shadow-panel">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
         <form className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
           <select
             name="status"
             defaultValue={initialFilters.status ?? ""}
-            className="rounded-2xl border bg-card px-4 py-3 text-sm"
+            className="rounded-xl border bg-card px-3 py-2.5 text-sm"
           >
             {statuses.map((status) => (
               <option key={status || "all"} value={status}>
@@ -72,7 +72,7 @@ export function ExceptionPageClient({
           <select
             name="severity"
             defaultValue={initialFilters.severity ?? ""}
-            className="rounded-2xl border bg-card px-4 py-3 text-sm"
+            className="rounded-xl border bg-card px-3 py-2.5 text-sm"
           >
             {severities.map((severity) => (
               <option key={severity || "all"} value={severity}>
@@ -83,7 +83,7 @@ export function ExceptionPageClient({
           <select
             name="type"
             defaultValue={initialFilters.type ?? ""}
-            className="rounded-2xl border bg-card px-4 py-3 text-sm"
+            className="rounded-xl border bg-card px-3 py-2.5 text-sm"
           >
             {types.map((type) => (
               <option key={type || "all"} value={type}>
@@ -94,7 +94,7 @@ export function ExceptionPageClient({
           <select
             name="owner_user_id"
             defaultValue={initialFilters.owner_user_id ?? ""}
-            className="rounded-2xl border bg-card px-4 py-3 text-sm"
+            className="rounded-xl border bg-card px-3 py-2.5 text-sm"
           >
             <option value="">All owners</option>
             {users.map((user) => (
@@ -103,13 +103,13 @@ export function ExceptionPageClient({
               </option>
             ))}
           </select>
-          <label className="flex items-center gap-2 rounded-2xl border px-4 py-3 text-sm">
+          <label className="flex items-center gap-2 rounded-xl border px-3 py-2.5 text-sm">
             <input type="checkbox" name="unassigned_only" defaultChecked={initialFilters.unassigned_only === "true"} />
             <span>Unassigned only</span>
           </label>
           <button
             type="submit"
-            className="rounded-2xl bg-primary px-5 py-3 text-sm font-semibold text-primaryForeground"
+            className="rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primaryForeground"
           >
             Apply filters
           </button>
@@ -119,13 +119,13 @@ export function ExceptionPageClient({
             type="button"
             onClick={evaluateRules}
             disabled={isPending}
-            className="rounded-2xl border px-5 py-3 text-sm font-semibold disabled:opacity-60"
+            className="rounded-xl border px-4 py-2.5 text-sm font-semibold disabled:opacity-60"
           >
-            {isPending ? "Refreshing..." : "Evaluate exceptions"}
+            {isPending ? "Refreshing..." : "Refresh signals"}
           </button>
         ) : (
           <p className="text-sm text-mutedForeground">
-            Read-only sponsor access. Workflow actions stay with operators and tenant admins.
+            Read-only access. Signal refresh is limited to operators and tenant admins.
           </p>
         )}
       </div>

@@ -50,7 +50,7 @@ export default async function CriticalRiskWorkspacePage({
   }
 
   return (
-    <main className="grid min-w-0 gap-5">
+    <main className="grid min-w-0 gap-4">
       <WorkspaceFilters searchParams={searchParams} />
 
       {workspace.empty ? (
@@ -69,7 +69,7 @@ function WorkspaceContent({ workspace }: { workspace: RiskWorkspaceResponse }) {
 
   return (
     <>
-      <section className="grid gap-4 xl:grid-cols-[minmax(0,1.4fr)_minmax(320px,0.6fr)]">
+      <section className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(300px,0.55fr)]">
         <Card className="bg-card/90 shadow-panel">
           <CardHeader>
             <div className="flex flex-wrap items-center gap-2">
@@ -83,7 +83,7 @@ function WorkspaceContent({ workspace }: { workspace: RiskWorkspaceResponse }) {
                 </Badge>
               ) : null}
             </div>
-            <CardTitle className="text-2xl tracking-tight">
+            <CardTitle className="text-xl tracking-tight">
               {contextTitle(risk?.material_reference, risk?.plant_reference)}
             </CardTitle>
             <p className="text-sm leading-6 text-mutedForeground">
@@ -93,7 +93,7 @@ function WorkspaceContent({ workspace }: { workspace: RiskWorkspaceResponse }) {
             </p>
           </CardHeader>
           <CardContent>
-            <div className="grid gap-3 md:grid-cols-4">
+            <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-4">
               <SignalMetric
                 icon={<Boxes className="h-4 w-4" />}
                 label="Available cover"
@@ -134,7 +134,7 @@ function WorkspaceContent({ workspace }: { workspace: RiskWorkspaceResponse }) {
         <TrustSummary workspace={workspace} />
       </section>
 
-      <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+      <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         <WhyThisMatters workspace={workspace} />
         <ContinuitySummary
           inventory={workspace.inventory_continuity}
@@ -142,7 +142,7 @@ function WorkspaceContent({ workspace }: { workspace: RiskWorkspaceResponse }) {
         />
       </section>
 
-      <section className="grid gap-5 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
+      <section className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
         <TimelinePanel timeline={workspace.timeline} />
         <RelationshipPanel graph={workspace.context_graph} />
       </section>
@@ -161,35 +161,35 @@ function WorkspaceFilters({ searchParams }: { searchParams?: SearchParams }) {
         </p>
       </CardHeader>
       <CardContent>
-        <form className="grid gap-3 md:grid-cols-3 xl:grid-cols-[1fr_1fr_1fr_1fr_180px_auto]">
+        <form className="grid gap-3 md:grid-cols-3 xl:grid-cols-[1fr_1fr_1fr_1fr_160px_auto]">
           <input
             name="plant_reference"
             defaultValue={searchParams?.plant_reference ?? ""}
             placeholder="Plant reference"
-            className="rounded-2xl border bg-card px-4 py-3 text-sm"
+            className="rounded-xl border bg-card px-3 py-2.5 text-sm"
           />
           <input
             name="material_reference"
             defaultValue={searchParams?.material_reference ?? ""}
             placeholder="Material reference"
-            className="rounded-2xl border bg-card px-4 py-3 text-sm"
+            className="rounded-xl border bg-card px-3 py-2.5 text-sm"
           />
           <input
             name="shipment_reference"
             defaultValue={searchParams?.shipment_reference ?? ""}
             placeholder="Shipment reference"
-            className="rounded-2xl border bg-card px-4 py-3 text-sm"
+            className="rounded-xl border bg-card px-3 py-2.5 text-sm"
           />
           <input
             name="risk_type"
             defaultValue={searchParams?.risk_type ?? ""}
             placeholder="Risk category"
-            className="rounded-2xl border bg-card px-4 py-3 text-sm"
+            className="rounded-xl border bg-card px-3 py-2.5 text-sm"
           />
           <select
             name="severity"
             defaultValue={searchParams?.severity ?? ""}
-            className="rounded-2xl border bg-card px-4 py-3 text-sm"
+            className="rounded-xl border bg-card px-3 py-2.5 text-sm"
           >
             <option value="">Any severity</option>
             <option value="critical">Critical</option>
@@ -199,7 +199,7 @@ function WorkspaceFilters({ searchParams }: { searchParams?: SearchParams }) {
           </select>
           <button
             type="submit"
-            className="rounded-2xl bg-primary px-5 py-3 text-sm font-semibold text-primaryForeground"
+            className="rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primaryForeground"
           >
             Apply
           </button>
@@ -241,7 +241,7 @@ function WhyThisMatters({ workspace }: { workspace: RiskWorkspaceResponse }) {
           {reasonChain.map((reason, index) => (
             <div
               key={`${reason}-${index}`}
-              className="flex gap-3 rounded-2xl border bg-card p-4"
+              className="flex gap-3 rounded-xl border bg-card p-3"
             >
               <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-primary">
                 {index + 1}
@@ -296,7 +296,7 @@ function TrustSummary({ workspace }: { workspace: RiskWorkspaceResponse }) {
             value={formatLabel(freshness ?? "unknown")}
             helper="most stale source in view"
           />
-          <div className="rounded-2xl border bg-card p-4">
+          <div className="rounded-xl border bg-card p-3">
             <p className="text-xs uppercase tracking-[0.18em] text-mutedForeground">
               Data trust notes
             </p>
@@ -341,7 +341,7 @@ function ContinuitySummary({
       </CardHeader>
       <CardContent>
         <div className="grid gap-4">
-          <div className="rounded-2xl border bg-card p-4">
+          <div className="rounded-xl border bg-card p-3">
             <h3 className="font-semibold">Available cover</h3>
             <div className="mt-4 grid gap-3 sm:grid-cols-3">
               {inventory.slice(0, 2).map((item) => (
@@ -357,7 +357,7 @@ function ContinuitySummary({
               ) : null}
             </div>
           </div>
-          <div className="rounded-2xl border bg-card p-4">
+          <div className="rounded-xl border bg-card p-3">
             <h3 className="font-semibold">Inbound movement condition</h3>
             <div className="mt-4 space-y-3">
               {shipments.slice(0, 3).map((shipment) => (
@@ -501,7 +501,7 @@ function InventoryBlock({ item }: { item: SignalInventoryContinuity }) {
 
 function ShipmentBlock({ shipment }: { shipment: SignalShipmentContinuity }) {
   return (
-    <div className="rounded-2xl border bg-muted/40 p-4">
+    <div className="rounded-xl border bg-muted/40 p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="font-semibold">{shipment.shipment_reference}</p>
         <Badge variant="outline">{formatLabel(shipment.status)}</Badge>
@@ -524,7 +524,7 @@ function ShipmentBlock({ shipment }: { shipment: SignalShipmentContinuity }) {
 
 function TimelineEntry({ entry }: { entry: SignalTimelineEntry }) {
   return (
-    <div className="rounded-2xl border bg-card p-4">
+    <div className="rounded-xl border bg-card p-3">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="font-semibold">{entry.title}</p>
@@ -566,12 +566,12 @@ function SignalMetric({
   helper: string;
 }) {
   return (
-    <div className="rounded-2xl border bg-card p-4">
+    <div className="rounded-xl border bg-card p-3">
       <div className="flex items-center gap-2 text-mutedForeground">
         {icon}
         <p className="text-xs uppercase tracking-[0.18em]">{label}</p>
       </div>
-      <p className="mt-3 break-words text-lg font-semibold">{value}</p>
+      <p className="mt-2 break-words text-base font-semibold">{value}</p>
       <p className="mt-1 text-xs text-mutedForeground">{helper}</p>
     </div>
   );
@@ -579,7 +579,7 @@ function SignalMetric({
 
 function ContextPill({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-2xl border bg-card px-4 py-3">
+    <div className="rounded-xl border bg-card px-3 py-2.5">
       <p className="text-xs uppercase tracking-[0.18em] text-mutedForeground">
         {label}
       </p>

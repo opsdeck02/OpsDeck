@@ -75,10 +75,10 @@ export default async function MovementsPage({
   );
 
   return (
-    <div className="grid gap-5">
+    <div className="grid gap-4">
       <Card className="bg-card/90 shadow-panel">
         <CardHeader>
-          <CardTitle>Port and inland monitoring</CardTitle>
+          <CardTitle>Signal monitoring</CardTitle>
           <p className="text-sm text-mutedForeground">
             Trace what happened after port arrival, how delayed it looks, and how trustworthy each signal is.
           </p>
@@ -90,39 +90,39 @@ export default async function MovementsPage({
               name="shipment_id"
               defaultValue={searchParams?.shipment_id ?? ""}
               placeholder="Shipment ID or vessel"
-              className="rounded-2xl border bg-card px-4 py-3 text-sm"
+              className="rounded-xl border bg-card px-3 py-2.5 text-sm"
             />
             <input
               type="number"
               name="plant_id"
               defaultValue={searchParams?.plant_id ?? ""}
               placeholder="Plant ID"
-              className="rounded-2xl border bg-card px-4 py-3 text-sm"
+              className="rounded-xl border bg-card px-3 py-2.5 text-sm"
             />
             <input
               type="number"
               name="material_id"
               defaultValue={searchParams?.material_id ?? ""}
               placeholder="Material ID"
-              className="rounded-2xl border bg-card px-4 py-3 text-sm"
+              className="rounded-xl border bg-card px-3 py-2.5 text-sm"
             />
             <select
               name="confidence"
               defaultValue={searchParams?.confidence ?? ""}
-              className="rounded-2xl border bg-card px-4 py-3 text-sm"
+              className="rounded-xl border bg-card px-3 py-2.5 text-sm"
             >
               <option value="">All confidence</option>
               <option value="high">high</option>
               <option value="medium">medium</option>
               <option value="low">low</option>
             </select>
-            <label className="flex items-center gap-2 rounded-2xl border px-4 py-3 text-sm">
+            <label className="flex items-center gap-2 rounded-xl border px-3 py-2.5 text-sm">
               <input type="checkbox" name="delayed_only" value="true" defaultChecked={filters.delayed_only} />
               <span>Delayed only</span>
             </label>
             <button
               type="submit"
-              className="rounded-2xl bg-primary px-5 py-3 text-sm font-semibold text-primaryForeground"
+              className="rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primaryForeground"
             >
               Apply
             </button>
@@ -138,7 +138,7 @@ export default async function MovementsPage({
               {detail.shipment.shipment_id} is currently evaluated with {detail.overall_confidence} confidence.
             </p>
           </CardHeader>
-          <CardContent className="grid gap-5 lg:grid-cols-3">
+          <CardContent className="grid gap-4 lg:grid-cols-3">
             <SummaryBlock
               title="Shipment"
               primary={detail.shipment.shipment_state.replaceAll("_", " ")}
@@ -214,7 +214,7 @@ export default async function MovementsPage({
           <CardContent>{activeView === "port" ? portTable : inlandTable}</CardContent>
         </Card>
       ) : (
-        <div className="grid gap-5 xl:grid-cols-2">
+        <div className="grid gap-4 xl:grid-cols-2">
           <Card className="bg-card/90 shadow-panel">
             <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <CardTitle>
@@ -267,7 +267,7 @@ function SummaryBlock({
         <p className="font-semibold">{title}</p>
         <Badge variant="outline">{confidence}</Badge>
       </div>
-      <p className="mt-3 text-lg font-semibold">{primary}</p>
+      <p className="mt-2 text-base font-semibold">{primary}</p>
       <p className="mt-1 text-mutedForeground">{subtext}</p>
       <div className="mt-3 space-y-2 text-mutedForeground">
         {notes.slice(0, 3).map((note) => (
@@ -290,12 +290,12 @@ function MonitoringTable({
   empty: string;
 }) {
   return (
-    <div className="overflow-x-auto rounded-2xl border">
+    <div className="overflow-x-auto rounded-xl border">
       <table className="min-w-[960px] w-full text-left text-sm">
         <thead className="bg-muted text-mutedForeground">
           <tr>
             {headers.map((header) => (
-              <th key={header} className="whitespace-nowrap px-4 py-3 font-medium">
+              <th key={header} className="whitespace-nowrap px-3 py-2.5 font-medium">
                 {header}
               </th>
             ))}
@@ -305,7 +305,7 @@ function MonitoringTable({
           {rows.map((row, rowIndex) => (
             <tr key={rowIndex} className="border-t bg-card">
               {row.map((cell, cellIndex) => (
-                <td key={cellIndex} className="whitespace-nowrap px-4 py-3">
+                <td key={cellIndex} className="whitespace-nowrap px-3 py-2.5">
                   {cell}
                 </td>
               ))}

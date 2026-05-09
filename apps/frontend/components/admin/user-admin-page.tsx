@@ -230,8 +230,8 @@ export function UserAdminPage({
   }
 
   return (
-    <div className="grid gap-5 xl:grid-cols-[1.1fr_0.9fr]">
-      <div className="space-y-5">
+    <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+      <div className="space-y-4">
         {isSuperadmin ? (
           <Card className="bg-card/90 shadow-panel">
             <CardHeader>
@@ -243,13 +243,13 @@ export function UserAdminPage({
                   value={tenantForm.name}
                   onChange={(event) => setTenantForm((current) => ({ ...current, name: event.target.value }))}
                   placeholder="Tenant name"
-                  className="rounded-2xl border bg-card px-4 py-3 text-sm"
+                  className="rounded-xl border bg-card px-3 py-2.5 text-sm"
                 />
                 <input
                   value={tenantForm.slug}
                   onChange={(event) => setTenantForm((current) => ({ ...current, slug: event.target.value }))}
                   placeholder="tenant-slug"
-                  className="rounded-2xl border bg-card px-4 py-3 text-sm"
+                  className="rounded-xl border bg-card px-3 py-2.5 text-sm"
                 />
                 <select
                   value={tenantForm.plan_tier ?? "pilot"}
@@ -259,7 +259,7 @@ export function UserAdminPage({
                       plan_tier: event.target.value as "pilot" | "paid" | "enterprise",
                     }))
                   }
-                  className="rounded-2xl border bg-card px-4 py-3 text-sm"
+                  className="rounded-xl border bg-card px-3 py-2.5 text-sm"
                 >
                   <option value="pilot">Pilot</option>
                   <option value="paid">Paid</option>
@@ -269,36 +269,36 @@ export function UserAdminPage({
                   value={tenantForm.max_users}
                   onChange={(event) => setTenantForm((current) => ({ ...current, max_users: event.target.value }))}
                   placeholder="Max users"
-                  className="rounded-2xl border bg-card px-4 py-3 text-sm"
+                  className="rounded-xl border bg-card px-3 py-2.5 text-sm"
                 />
                 <input
                   value={tenantForm.max_plants}
                   onChange={(event) => setTenantForm((current) => ({ ...current, max_plants: event.target.value }))}
                   placeholder="Max plants"
-                  className="rounded-2xl border bg-card px-4 py-3 text-sm"
+                  className="rounded-xl border bg-card px-3 py-2.5 text-sm"
                 />
                 <input
                   value={tenantForm.admin_name}
                   onChange={(event) => setTenantForm((current) => ({ ...current, admin_name: event.target.value }))}
                   placeholder="Tenant admin full name"
-                  className="rounded-2xl border bg-card px-4 py-3 text-sm"
+                  className="rounded-xl border bg-card px-3 py-2.5 text-sm"
                 />
                 <input
                   value={tenantForm.admin_email}
                   onChange={(event) => setTenantForm((current) => ({ ...current, admin_email: event.target.value }))}
                   placeholder="Tenant admin email"
-                  className="rounded-2xl border bg-card px-4 py-3 text-sm"
+                  className="rounded-xl border bg-card px-3 py-2.5 text-sm"
                 />
                 <input
                   value={tenantForm.admin_password}
                   onChange={(event) => setTenantForm((current) => ({ ...current, admin_password: event.target.value }))}
                   placeholder="Tenant admin password"
-                  className="rounded-2xl border bg-card px-4 py-3 text-sm"
+                  className="rounded-xl border bg-card px-3 py-2.5 text-sm"
                 />
                 <button
                   type="submit"
                   disabled={isPending}
-                  className="rounded-2xl bg-primary px-4 py-3 text-sm font-semibold text-primaryForeground disabled:opacity-60"
+                  className="rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primaryForeground disabled:opacity-60"
                 >
                   Create tenant
                 </button>
@@ -322,26 +322,26 @@ export function UserAdminPage({
                 value={userForm.full_name}
                 onChange={(event) => setUserForm((current) => ({ ...current, full_name: event.target.value }))}
                 placeholder="Full name"
-                className="rounded-2xl border bg-card px-4 py-3 text-sm"
+                className="rounded-xl border bg-card px-3 py-2.5 text-sm"
               />
               <input
                 value={userForm.email}
                 onChange={(event) => setUserForm((current) => ({ ...current, email: event.target.value }))}
                 placeholder="Email"
-                className="rounded-2xl border bg-card px-4 py-3 text-sm"
+                className="rounded-xl border bg-card px-3 py-2.5 text-sm"
               />
               <input
                 value={userForm.password}
                 onChange={(event) => setUserForm((current) => ({ ...current, password: event.target.value }))}
                 placeholder="Password"
-                className="rounded-2xl border bg-card px-4 py-3 text-sm"
+                className="rounded-xl border bg-card px-3 py-2.5 text-sm"
               />
               <select
                 value={userForm.role}
                 onChange={(event) =>
                   setUserForm((current) => ({ ...current, role: event.target.value as RoleName }))
                 }
-                className="rounded-2xl border bg-card px-4 py-3 text-sm"
+                className="rounded-xl border bg-card px-3 py-2.5 text-sm"
               >
                 {tenantRoles.map((role) => (
                   <option key={role.value} value={role.value}>
@@ -352,7 +352,7 @@ export function UserAdminPage({
               <button
                 type="submit"
                 disabled={isPending || (isSuperadmin && !selectedTenantId)}
-                className="rounded-2xl bg-primary px-4 py-3 text-sm font-semibold text-primaryForeground disabled:opacity-60"
+                className="rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primaryForeground disabled:opacity-60"
               >
                 Create user
               </button>
@@ -366,7 +366,7 @@ export function UserAdminPage({
           </CardHeader>
           <CardContent className="space-y-3">
             {users.map((user) => (
-              <div key={user.id} className="rounded-2xl border bg-card p-4 text-sm">
+              <div key={user.id} className="rounded-xl border bg-card p-3 text-sm">
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <p className="font-semibold">{user.full_name}</p>
@@ -391,7 +391,7 @@ export function UserAdminPage({
           </CardContent>
         </Card>
 
-        {message ? <p className="rounded-2xl bg-muted px-4 py-3 text-sm">{message}</p> : null}
+        {message ? <p className="rounded-xl bg-muted px-3 py-2.5 text-sm">{message}</p> : null}
       </div>
 
       <Card className="bg-card/90 shadow-panel">
@@ -401,7 +401,7 @@ export function UserAdminPage({
         <CardContent className="space-y-3">
           {isSuperadmin ? (
             tenants.map((tenant) => (
-              <div key={tenant.id} className="rounded-2xl border bg-card p-4 text-sm">
+              <div key={tenant.id} className="rounded-xl border bg-card p-3 text-sm">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="font-semibold">{tenant.name}</p>
@@ -428,7 +428,7 @@ export function UserAdminPage({
                         [tenant.id]: event.target.value as "pilot" | "paid" | "enterprise",
                       }))
                     }
-                    className="rounded-2xl border bg-card px-3 py-2 text-xs"
+                    className="rounded-xl border bg-card px-3 py-2 text-xs"
                   >
                     <option value="pilot">Pilot</option>
                     <option value="paid">Paid</option>
@@ -438,7 +438,7 @@ export function UserAdminPage({
                     type="button"
                     onClick={() => saveTenantPlan(tenant.id)}
                     disabled={isPending}
-                    className="rounded-2xl border px-4 py-2 text-xs font-semibold disabled:opacity-60"
+                    className="rounded-xl border px-3 py-2 text-xs font-semibold disabled:opacity-60"
                   >
                     Save settings
                   </button>
@@ -453,12 +453,12 @@ export function UserAdminPage({
                   }
                   inputMode="numeric"
                   placeholder="Max plants"
-                  className="mt-2 w-full rounded-2xl border bg-card px-3 py-2 text-xs"
+                  className="mt-2 w-full rounded-xl border bg-card px-3 py-2 text-xs"
                 />
                 <div className="mt-3 flex flex-wrap gap-3">
                   <a
                     href={`/dashboard/users?tenant_id=${tenant.id}`}
-                    className="rounded-2xl border px-4 py-2 text-xs font-semibold"
+                    className="rounded-xl border px-3 py-2 text-xs font-semibold"
                   >
                     View users
                   </a>
@@ -466,7 +466,7 @@ export function UserAdminPage({
                     type="button"
                     onClick={() => setTenantActivation(tenant.id, !tenant.is_active)}
                     disabled={isPending}
-                    className="rounded-2xl border px-4 py-2 text-xs font-semibold disabled:opacity-60"
+                    className="rounded-xl border px-3 py-2 text-xs font-semibold disabled:opacity-60"
                   >
                     {tenant.is_active ? "Deactivate tenant" : "Activate tenant"}
                   </button>
@@ -474,7 +474,7 @@ export function UserAdminPage({
                     type="button"
                     onClick={() => deleteTenant(tenant.id)}
                     disabled={isPending}
-                    className="rounded-2xl border border-accent px-4 py-2 text-xs font-semibold text-primary disabled:opacity-60"
+                    className="rounded-xl border border-accent px-3 py-2 text-xs font-semibold text-primary disabled:opacity-60"
                   >
                     Delete tenant
                   </button>
@@ -482,7 +482,7 @@ export function UserAdminPage({
               </div>
             ))
           ) : (
-            <div className="rounded-2xl border bg-card p-4 text-sm">
+            <div className="rounded-xl border bg-card p-3 text-sm">
               <p className="font-semibold">{currentUser.memberships[0]?.tenant_name}</p>
               <p className="text-mutedForeground">{currentUser.memberships[0]?.tenant_slug}</p>
               <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -506,32 +506,32 @@ export function UserAdminPage({
                   inputMode="numeric"
                   placeholder="Number of plants"
                   required
-                  className="w-full rounded-2xl border bg-card px-4 py-3 text-sm"
+                  className="w-full rounded-xl border bg-card px-3 py-2.5 text-sm"
                 />
                 <textarea
                   value={plantNames}
                   onChange={(event) => setPlantNames(event.target.value)}
                   placeholder={"Optional plant names, one per line or comma separated\nPlant Alpha\nPlant Beta"}
-                  className="min-h-28 w-full rounded-2xl border bg-card px-4 py-3 text-sm"
+                  className="min-h-24 w-full rounded-xl border bg-card px-3 py-2.5 text-sm"
                 />
                 <button
                   type="submit"
                   disabled={isPending}
-                  className="rounded-2xl bg-primary px-4 py-3 text-sm font-semibold text-primaryForeground disabled:opacity-60"
+                  className="rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primaryForeground disabled:opacity-60"
                 >
                   Save plant count
                 </button>
               </form>
-              <div className="mt-6 space-y-3 border-t pt-4">
+              <div className="mt-4 space-y-3 border-t pt-4">
                 <p className="font-semibold">Automation setup</p>
-                <div className="rounded-2xl border border-dashed px-4 py-4">
+                <div className="rounded-xl border border-dashed px-3 py-3">
                   <p className="font-medium">Manual upload or URL-based ingestion now lives in onboarding.</p>
                   <p className="mt-2 text-mutedForeground">
                     Open the onboarding section to upload files, review forgiving column matches, and save Google Sheets or Excel Online URLs.
                   </p>
                   <a
                     href="/dashboard/onboarding"
-                    className="mt-3 inline-flex rounded-2xl border px-4 py-2 text-xs font-semibold"
+                    className="mt-3 inline-flex rounded-xl border px-3 py-2 text-xs font-semibold"
                   >
                     Open onboarding
                   </a>
