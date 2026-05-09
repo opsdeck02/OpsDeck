@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 from collections.abc import Generator
+from datetime import UTC, datetime
 
 import pytest
 from fastapi.testclient import TestClient
@@ -16,6 +17,7 @@ from app.main import app
 from app.models import (
     IngestionJob,
     Material,
+    OperationalEvent,
     Plant,
     PlantMaterialThreshold,
     Role,
@@ -26,6 +28,7 @@ from app.models import (
     UploadedFile,
     User,
 )
+from app.models.enums import OperationalEventFreshnessStatus, OperationalEventType
 from app.modules.auth.constants import LOGISTICS_USER
 from app.modules.auth.security import hash_password
 
@@ -153,10 +156,24 @@ def test_valid_shipment_upload(
 
     with SessionLocal() as db:
         assert db.scalar(select(func.count()).select_from(Shipment)) == 1
+        event = db.scalar(select(OperationalEvent))
+        assert event is not None
+        assert event.tenant_id == 1
+        assert event.event_type == OperationalEventType.SHIPMENT_MILESTONE_UPDATED
+        assert event.event_category == "shipment"
+        assert event.shipment_reference == "SHP-001"
+        assert event.source_type == "manual_upload"
+        assert event.source_id is not None
+        assert event.confidence_score is not None
+        assert event.confidence_score > 0
+        assert event.metadata_json is not None
+        assert event.metadata_json["confidence"]["score"] == float(event.confidence_score)
+        assert "source_reliability" in event.metadata_json["confidence"]["factors"]
 
 
 def test_valid_stock_upload(client_and_session: tuple[TestClient, sessionmaker[Session]]) -> None:
     client, SessionLocal = client_and_session
+    snapshot_time = datetime.now(UTC).isoformat()
     response = upload_csv(
         client,
         login(client),
@@ -164,7 +181,7 @@ def test_valid_stock_upload(client_and_session: tuple[TestClient, sessionmaker[S
         "\n".join(
             [
                 "plant_code,material_code,on_hand_mt,quality_held_mt,available_to_consume_mt,daily_consumption_mt,snapshot_time",
-                "JAM,COKING_COAL,10000,1000,9000,500,2026-04-15T08:00:00Z",
+                f"JAM,COKING_COAL,10000,1000,9000,500,{snapshot_time}",
             ]
         ),
     )
@@ -173,6 +190,66 @@ def test_valid_stock_upload(client_and_session: tuple[TestClient, sessionmaker[S
     assert response.json()["summary_counts"]["created"] == 1
     with SessionLocal() as db:
         assert db.scalar(select(func.count()).select_from(StockSnapshot)) == 1
+        event = db.scalar(select(OperationalEvent))
+        assert event is not None
+        assert event.tenant_id == 1
+        assert event.event_type == OperationalEventType.INVENTORY_STOCK_UPDATED
+        assert event.event_category == "inventory"
+        assert event.plant_reference == "JAM"
+        assert event.material_reference == "COKING_COAL"
+        assert str(event.quantity_value) == "9000.000"
+        assert event.source_id is not None
+        assert event.confidence_score is not None
+        assert event.metadata_json is not None
+        assert event.metadata_json["confidence"]["factors"]["completeness"] == 100
+        assert event.metadata_json["confidence"]["reasons"]
+        assert event.freshness_status == OperationalEventFreshnessStatus.FRESH
+        assert event.metadata_json["freshness"]["status"] == "fresh"
+        assert event.metadata_json["confidence"]
+
+
+def test_shipment_eta_update_creates_operational_event(
+    client_and_session: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, SessionLocal = client_and_session
+    headers = login(client)
+
+    first_response = upload_csv(client, headers, "shipment", shipment_csv("SHP-ETA-EVENT"))
+    csv_header = (
+        "shipment_id,plant_code,material_code,supplier_name,quantity_mt,"
+        "planned_eta,current_eta,current_state,latest_update_at"
+    )
+    csv_row = (
+        "SHP-ETA-EVENT,JAM,COKING_COAL,Supplier A,74000,"
+        "2026-04-20T08:00:00Z,2026-04-23T08:00:00Z,"
+        "in_transit,2026-04-16T09:00:00Z"
+    )
+    update_response = upload_csv(
+        client,
+        headers,
+        "shipment",
+        "\n".join([csv_header, csv_row]),
+    )
+
+    assert first_response.status_code == 200
+    assert update_response.status_code == 200, update_response.json()
+    assert update_response.json()["summary_counts"]["updated"] == 1
+    with SessionLocal() as db:
+        event = db.scalar(
+            select(OperationalEvent)
+            .where(OperationalEvent.event_type == OperationalEventType.SHIPMENT_ETA_CHANGED)
+            .order_by(OperationalEvent.id.desc())
+        )
+        assert event is not None
+        assert event.shipment_reference == "SHP-ETA-EVENT"
+        assert event.previous_value is not None
+        assert event.previous_value["current_eta"] == "2026-04-21T08:00:00+00:00"
+        assert event.new_value is not None
+        assert event.new_value["current_eta"] == "2026-04-23T08:00:00+00:00"
+        assert event.confidence_score is not None
+        assert event.metadata_json is not None
+        assert "confidence" in event.metadata_json
+        assert "freshness" in event.metadata_json
 
 
 def test_stock_xlsx_detects_headers_on_row_three(
@@ -448,6 +525,7 @@ def test_delete_uploaded_data_clears_tenant_ingestion_artifacts(
     assert body["thresholds"] == 1
     assert body["ingestion_jobs"] == 3
     assert body["uploaded_files"] == 3
+    assert body["operational_events"] == 2
 
     with SessionLocal() as db:
         assert db.scalar(select(func.count()).select_from(Shipment)) == 0
@@ -455,6 +533,7 @@ def test_delete_uploaded_data_clears_tenant_ingestion_artifacts(
         assert db.scalar(select(func.count()).select_from(PlantMaterialThreshold)) == 0
         assert db.scalar(select(func.count()).select_from(IngestionJob)) == 0
         assert db.scalar(select(func.count()).select_from(UploadedFile)) == 0
+        assert db.scalar(select(func.count()).select_from(OperationalEvent)) == 0
 
 
 def test_mapping_preview_and_manual_override_support_nonstandard_headers(

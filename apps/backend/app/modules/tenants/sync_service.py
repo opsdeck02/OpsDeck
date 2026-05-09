@@ -86,6 +86,7 @@ def sync_loaded_data_source(
             content=remote_file.content,
             content_type=remote_file.content_type,
             source_of_truth=source.source_type,
+            event_source_id=source.id,
         )
         after_snapshot = snapshot_risk_state(db, context)
         signals = compute_change_signals(before_snapshot, after_snapshot)

@@ -23,6 +23,7 @@ from app.models import (
     ExceptionComment,
     IngestionJob,
     Material,
+    OperationalEvent,
     Plant,
     PlantMaterialThreshold,
     Shipment,
@@ -31,7 +32,7 @@ from app.models import (
     Tenant,
     UploadedFile,
 )
-from app.models.enums import ShipmentState
+from app.models.enums import OperationalEventType, ShipmentState
 from app.modules.exceptions.service import create_audit_log
 from app.modules.ingestion.schemas import (
     HeaderMappingSuggestion,
@@ -39,6 +40,10 @@ from app.modules.ingestion.schemas import (
     MappingPreviewOut,
     RowValidationError,
     UploadResult,
+)
+from app.modules.operational_events.service import (
+    emit_inventory_stock_updated,
+    emit_shipment_update_event,
 )
 from app.modules.suppliers.service import find_supplier_by_name
 from app.schemas.context import RequestContext
@@ -187,6 +192,7 @@ def process_upload_content(
     content_type: str | None = None,
     mapping_overrides: dict[str, str] | None = None,
     source_of_truth: str | None = None,
+    event_source_id: int | None = None,
 ) -> UploadResult:
     file_type = file_type.lower().strip()
     if file_type not in SUPPORTED_FILE_TYPES:
@@ -245,7 +251,13 @@ def process_upload_content(
         if not rows:
             raise ValueError("No data rows found in uploaded file")
 
-        result = normalize_rows(db, context, file_type, rows)
+        result = normalize_rows(
+            db,
+            context,
+            file_type,
+            rows,
+            event_source_id=event_source_id or job.id,
+        )
         result = result.model_copy(
             update={"upload_id": uploaded_file.id, "ingestion_job_id": job.id}
         )
@@ -365,6 +377,14 @@ def delete_uploaded_data(db: Session, tenant_id: int) -> dict[str, int]:
             db.scalar(select(func.count(ExceptionCase.id)).where(ExceptionCase.tenant_id == tenant_id))
             or 0
         ),
+        "operational_events": int(
+            db.scalar(
+                select(func.count(OperationalEvent.id)).where(
+                    OperationalEvent.tenant_id == tenant_id
+                )
+            )
+            or 0
+        ),
     }
 
     for uploaded_file in uploaded_files:
@@ -376,6 +396,7 @@ def delete_uploaded_data(db: Session, tenant_id: int) -> dict[str, int]:
 
     db.execute(delete(ExceptionComment).where(ExceptionComment.tenant_id == tenant_id))
     db.execute(delete(ExceptionCase).where(ExceptionCase.tenant_id == tenant_id))
+    db.execute(delete(OperationalEvent).where(OperationalEvent.tenant_id == tenant_id))
     db.execute(delete(ShipmentUpdate).where(ShipmentUpdate.tenant_id == tenant_id))
     db.execute(delete(Shipment).where(Shipment.tenant_id == tenant_id))
     db.execute(delete(StockSnapshot).where(StockSnapshot.tenant_id == tenant_id))
@@ -640,6 +661,7 @@ def normalize_rows(
     context: RequestContext,
     file_type: str,
     rows: list[ParsedRow],
+    event_source_id: int | None = None,
 ) -> UploadResult:
     validation_errors: list[RowValidationError] = []
     summary = IngestionSummary()
@@ -652,9 +674,14 @@ def normalize_rows(
 
         try:
             if file_type == "shipment":
-                outcome = upsert_shipment(db, context, row.data)
+                outcome = upsert_shipment(db, context, row.data, event_source_id=event_source_id)
             elif file_type == "stock":
-                outcome = upsert_stock_snapshot(db, context, row.data)
+                outcome = upsert_stock_snapshot(
+                    db,
+                    context,
+                    row.data,
+                    event_source_id=event_source_id,
+                )
             else:
                 outcome = upsert_threshold(db, context, row.data)
         except ValueError as exc:
@@ -824,6 +851,38 @@ def normalize_datetime(value: datetime) -> datetime:
     return value.astimezone(UTC)
 
 
+def json_value(value: Any) -> Any:
+    if isinstance(value, datetime):
+        return normalize_datetime(value).isoformat()
+    if isinstance(value, Decimal):
+        return str(value)
+    if isinstance(value, ShipmentState):
+        return value.value
+    return value
+
+
+def shipment_event_value(attrs: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "current_eta": json_value(attrs.get("current_eta")),
+        "current_state": json_value(attrs.get("current_state")),
+        "planned_eta": json_value(attrs.get("planned_eta")),
+        "latest_update_at": json_value(attrs.get("latest_update_at")),
+        "quantity_mt": json_value(attrs.get("quantity_mt")),
+        "supplier_name": attrs.get("supplier_name"),
+        "source_of_truth": attrs.get("source_of_truth"),
+    }
+
+
+def stock_event_value(attrs: dict[str, Any], snapshot_time: datetime) -> dict[str, Any]:
+    return {
+        "snapshot_time": json_value(snapshot_time),
+        "on_hand_mt": json_value(attrs.get("on_hand_mt")),
+        "quality_held_mt": json_value(attrs.get("quality_held_mt")),
+        "available_to_consume_mt": json_value(attrs.get("available_to_consume_mt")),
+        "daily_consumption_mt": json_value(attrs.get("daily_consumption_mt")),
+    }
+
+
 def normalize_text_token(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", "", value.lower())
 
@@ -869,7 +928,12 @@ def should_adopt_uploaded_plant_name(plant: Plant, requested_index: int, uploade
     return plant.name.strip().lower() == f"plant {requested_index}".lower()
 
 
-def upsert_shipment(db: Session, context: RequestContext, data: dict[str, str]) -> str:
+def upsert_shipment(
+    db: Session,
+    context: RequestContext,
+    data: dict[str, str],
+    event_source_id: int | None = None,
+) -> str:
     plant = resolve_plant(db, context.tenant_id, data["plant_code"])
     material = resolve_material(db, context.tenant_id, data["material_code"])
     state = parse_state(data["current_state"])
@@ -908,8 +972,32 @@ def upsert_shipment(db: Session, context: RequestContext, data: dict[str, str]) 
         "latest_update_at": latest_update_at,
     }
 
+    new_value = shipment_event_value(attrs)
+    source_reference = data.get("source_of_truth")
     if shipment is None:
-        db.add(Shipment(tenant_id=context.tenant_id, shipment_id=data["shipment_id"], **attrs))
+        shipment = Shipment(tenant_id=context.tenant_id, shipment_id=data["shipment_id"], **attrs)
+        db.add(shipment)
+        db.flush()
+        emit_shipment_update_event(
+            db,
+            tenant_id=context.tenant_id,
+            event_type=OperationalEventType.SHIPMENT_MILESTONE_UPDATED,
+            occurred_at=latest_update_at,
+            source_reference=source_reference,
+            shipment_id=shipment.id,
+            shipment_reference=shipment.shipment_id,
+            plant_id=plant.id,
+            plant_reference=plant.code,
+            material_id=material.id,
+            material_reference=material.code,
+            supplier_id=shipment.supplier_id,
+            supplier_reference=shipment.supplier_name,
+            quantity_value=shipment.quantity_mt,
+            previous_value=None,
+            new_value=new_value,
+            source_id=event_source_id,
+            metadata={"ingestion_file_type": "shipment", "change_type": "created"},
+        )
         return "created"
 
     changed_eta_or_state = (
@@ -919,6 +1007,7 @@ def upsert_shipment(db: Session, context: RequestContext, data: dict[str, str]) 
     if not changed:
         return "unchanged"
 
+    previous_value = shipment_event_value({key: getattr(shipment, key) for key in attrs})
     for key, value in attrs.items():
         setattr(shipment, key, value)
     if changed_eta_or_state:
@@ -935,10 +1024,40 @@ def upsert_shipment(db: Session, context: RequestContext, data: dict[str, str]) 
                 notes="Created by onboarding upload",
             )
         )
+        event_type = (
+            OperationalEventType.SHIPMENT_ETA_CHANGED
+            if not values_equal(previous_value["current_eta"], new_value["current_eta"])
+            else OperationalEventType.SHIPMENT_MILESTONE_UPDATED
+        )
+        emit_shipment_update_event(
+            db,
+            tenant_id=context.tenant_id,
+            event_type=event_type,
+            occurred_at=latest_update_at,
+            source_reference=source_reference,
+            shipment_id=shipment.id,
+            shipment_reference=shipment.shipment_id,
+            plant_id=plant.id,
+            plant_reference=plant.code,
+            material_id=material.id,
+            material_reference=material.code,
+            supplier_id=shipment.supplier_id,
+            supplier_reference=shipment.supplier_name,
+            quantity_value=shipment.quantity_mt,
+            previous_value=previous_value,
+            new_value=new_value,
+            source_id=event_source_id,
+            metadata={"ingestion_file_type": "shipment", "change_type": "updated"},
+        )
     return "updated"
 
 
-def upsert_stock_snapshot(db: Session, context: RequestContext, data: dict[str, str]) -> str:
+def upsert_stock_snapshot(
+    db: Session,
+    context: RequestContext,
+    data: dict[str, str],
+    event_source_id: int | None = None,
+) -> str:
     plant = resolve_plant(db, context.tenant_id, data["plant_code"])
     material = resolve_material(db, context.tenant_id, data["material_code"])
     daily_consumption = parse_decimal(
@@ -965,22 +1084,55 @@ def upsert_stock_snapshot(db: Session, context: RequestContext, data: dict[str, 
         )
     )
     if snapshot is None:
-        db.add(
-            StockSnapshot(
-                tenant_id=context.tenant_id,
-                plant_id=plant.id,
-                material_id=material.id,
-                snapshot_time=snapshot_time,
-                **attrs,
-            )
+        snapshot = StockSnapshot(
+            tenant_id=context.tenant_id,
+            plant_id=plant.id,
+            material_id=material.id,
+            snapshot_time=snapshot_time,
+            **attrs,
+        )
+        db.add(snapshot)
+        emit_inventory_stock_updated(
+            db,
+            tenant_id=context.tenant_id,
+            occurred_at=snapshot_time,
+            source_reference=data.get("source_of_truth"),
+            plant_id=plant.id,
+            plant_reference=plant.code,
+            material_id=material.id,
+            material_reference=material.code,
+            quantity_value=attrs["available_to_consume_mt"],
+            previous_value=None,
+            new_value=stock_event_value(attrs, snapshot_time),
+            source_id=event_source_id,
+            metadata={"ingestion_file_type": "stock", "change_type": "created"},
         )
         return "created"
 
     changed = any(not values_equal(getattr(snapshot, key), value) for key, value in attrs.items())
     if not changed:
         return "unchanged"
+    previous_value = stock_event_value(
+        {key: getattr(snapshot, key) for key in attrs},
+        snapshot.snapshot_time,
+    )
     for key, value in attrs.items():
         setattr(snapshot, key, value)
+    emit_inventory_stock_updated(
+        db,
+        tenant_id=context.tenant_id,
+        occurred_at=snapshot_time,
+        source_reference=data.get("source_of_truth"),
+        plant_id=plant.id,
+        plant_reference=plant.code,
+        material_id=material.id,
+        material_reference=material.code,
+        quantity_value=attrs["available_to_consume_mt"],
+        previous_value=previous_value,
+        new_value=stock_event_value(attrs, snapshot_time),
+        source_id=event_source_id,
+        metadata={"ingestion_file_type": "stock", "change_type": "updated"},
+    )
     return "updated"
 
 

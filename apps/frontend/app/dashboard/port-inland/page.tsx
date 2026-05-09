@@ -131,9 +131,11 @@ export default function PortInlandMonitoringPage() {
   }, [vesselName]);
 
   async function searchContainer() {
+    setSearchResult(null);
     setLinkedStatus(null);
     setVesselPosition(null);
     setVesselError(null);
+    setSelectedShipmentId("");
     setError(null);
     if (!isContainerValid) {
       setError("Container number must be 4 letters followed by 7 digits, for example MSCU1234567.");

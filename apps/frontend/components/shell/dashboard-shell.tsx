@@ -91,6 +91,18 @@ const navItems: Array<{ href: string; label: string; roles: RoleName[] }> = [
     ],
   },
   {
+    href: "/dashboard/risk-workspace",
+    label: "Risk Workspace",
+    roles: [
+      "tenant_admin",
+      "buyer_user",
+      "logistics_user",
+      "planner_user",
+      "management_user",
+      "sponsor_user",
+    ],
+  },
+  {
     href: "/dashboard/users",
     label: "Users",
     roles: ["tenant_admin"],
@@ -123,19 +135,25 @@ export function DashboardShell({
           <div className="flex items-center gap-4">
             <OpsDeckLogo compact />
             <div>
-            <p className="text-xs uppercase tracking-[0.22em] text-mutedForeground">
-              {isSuperadmin ? "Global administration" : activeMembership?.tenant_name}
-            </p>
-            <h1 className="mt-1 text-2xl font-semibold tracking-tight">
-              {isSuperadmin ? "OpsDeck Superadmin Console" : "OpsDeck Control Tower"}
-            </h1>
+              <p className="text-xs uppercase tracking-[0.22em] text-mutedForeground">
+                {isSuperadmin
+                  ? "Global administration"
+                  : activeMembership?.tenant_name}
+              </p>
+              <h1 className="mt-1 text-2xl font-semibold tracking-tight">
+                {isSuperadmin
+                  ? "OpsDeck Superadmin Console"
+                  : "OpsDeck Control Tower"}
+              </h1>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <Badge variant="outline">
               {isSuperadmin ? "superadmin" : formatRoleLabel(role)}
             </Badge>
-            <span className="text-sm text-mutedForeground">{user.full_name}</span>
+            <span className="text-sm text-mutedForeground">
+              {user.full_name}
+            </span>
             <LogoutButton />
           </div>
         </header>

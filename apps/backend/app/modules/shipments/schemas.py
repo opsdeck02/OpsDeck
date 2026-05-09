@@ -129,3 +129,19 @@ class ShipmentDetailResponse(BaseModel):
     inland_summary: InlandMonitoringItem | None
     movement_gaps: list[str]
     movement_notes: list[str]
+
+
+class ShipmentContinuityResult(BaseModel):
+    shipment_reference: str
+    status: str
+    eta: datetime | None
+    previous_eta: datetime | None
+    eta_slip_days: Decimal | None
+    current_milestone: str | None
+    missing_milestones: list[str]
+    overdue_milestones: list[str]
+    tracking_freshness_status: str
+    linked_purchase_order_reference: str | None
+    linked_material_reference: str | None
+    linked_plant_reference: str | None
+    continuity_reasons: list[str]

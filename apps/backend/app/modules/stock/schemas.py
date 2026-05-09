@@ -83,3 +83,20 @@ class StockCoverDetailResponse(BaseModel):
 
 class StockRiskActionRequest(BaseModel):
     action_status: str
+
+
+class InventoryContinuityResult(BaseModel):
+    plant_reference: str
+    material_reference: str
+    on_hand_quantity: Decimal
+    reserved_quantity: Decimal
+    blocked_quantity: Decimal
+    quality_hold_quantity: Decimal
+    usable_quantity: Decimal
+    inbound_committed_quantity: Decimal
+    inbound_uncertain_quantity: Decimal
+    daily_consumption_rate: Decimal | None
+    days_of_cover: Decimal | None
+    projected_exhaustion_date: datetime | None
+    unit: str
+    calculation_reasons: list[str]

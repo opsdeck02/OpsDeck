@@ -5,6 +5,7 @@ from app.models.membership import TenantMembership
 from app.models.microsoft_connection import MicrosoftConnection
 from app.models.microsoft_data_source import MicrosoftDataSource
 from app.models.microsoft_oauth_state import MicrosoftOAuthState
+from app.models.operational_event import OperationalEvent
 from app.models.operations import (
     AuditLog,
     ExceptionCase,
@@ -36,6 +37,7 @@ __all__ = [
     "MicrosoftConnection",
     "MicrosoftDataSource",
     "MicrosoftOAuthState",
+    "OperationalEvent",
     "Plant",
     "PlantMaterialThreshold",
     "PortEvent",
