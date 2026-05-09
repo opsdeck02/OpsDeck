@@ -17,6 +17,7 @@ from app.models.operations import (
 )
 from app.models.plant import Plant
 from app.models.role import Role
+from app.models.risk_snapshot import ContinuityRiskSnapshot
 from app.models.shipment import Shipment, ShipmentUpdate
 from app.models.supplier import Supplier
 from app.models.tenant import Tenant
@@ -27,6 +28,7 @@ from app.models.user import User
 __all__ = [
     "AuditLog",
     "Container",
+    "ContinuityRiskSnapshot",
     "ExternalDataSource",
     "ExceptionCase",
     "ExceptionComment",

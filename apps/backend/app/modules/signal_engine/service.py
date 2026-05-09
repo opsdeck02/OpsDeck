@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import Material, Plant, Shipment, StockSnapshot
+from app.models import ContinuityRiskSnapshot, Material, Plant, Shipment, StockSnapshot
 from app.models.enums import OperationalEventCategory
 from app.modules.exposure.mapping import (
     ExposureTrustSummary,
@@ -23,6 +23,12 @@ from app.modules.operational_events.timeline import (
 from app.modules.relationships.graph import (
     OperationalRelationshipGraph,
     build_operational_relationship_graph,
+)
+from app.modules.risk_snapshots.comparison import classify_snapshot_escalation
+from app.modules.risk_snapshots.schemas import RiskEscalationComparison
+from app.modules.risk_snapshots.service import (
+    create_snapshot_from_risk_candidate,
+    risk_fingerprint,
 )
 from app.modules.rules.engine import (
     FRESHNESS_ORDER,
@@ -58,6 +64,12 @@ class RiskWorkspaceResponse(BaseModel):
     empty: bool
 
 
+class EscalationEvaluationResponse(BaseModel):
+    risks: list[RiskCandidate]
+    snapshot_time: datetime
+    snapshots_recorded: int
+
+
 def list_signal_risks(
     db: Session,
     context: RequestContext,
@@ -70,7 +82,7 @@ def list_signal_risks(
     now: datetime | None = None,
 ) -> list[RiskCandidate]:
     candidates = evaluate_rule_based_risks(db, context, now=now)
-    return [
+    filtered = [
         candidate
         for candidate in candidates
         if candidate_matches_filters(
@@ -82,6 +94,7 @@ def list_signal_risks(
             severity=severity,
         )
     ]
+    return enrich_candidates_with_latest_escalation(db, context, filtered)
 
 
 def get_risk_workspace(
@@ -158,6 +171,82 @@ def get_risk_workspace(
         shipment_continuity=shipment_continuity,
         trust_summary=exposure.trust_summary,
         empty=False,
+    )
+
+
+def evaluate_and_record_risk_escalation(
+    db: Session,
+    context: RequestContext,
+    *,
+    risk_type: str | None = None,
+    plant_reference: str | None = None,
+    material_reference: str | None = None,
+    shipment_reference: str | None = None,
+    severity: str | None = None,
+    snapshot_time: datetime | None = None,
+) -> EscalationEvaluationResponse:
+    captured_at = snapshot_time or datetime.now(UTC)
+    candidates = [
+        candidate
+        for candidate in evaluate_rule_based_risks(db, context, now=captured_at)
+        if candidate_matches_filters(
+            candidate,
+            risk_type=risk_type,
+            plant_reference=plant_reference,
+            material_reference=material_reference,
+            shipment_reference=shipment_reference,
+            severity=severity,
+        )
+    ]
+    enriched: list[RiskCandidate] = []
+    for candidate in candidates:
+        resolved_plant_reference = plant_reference or candidate.plant_reference
+        resolved_material_reference = material_reference or candidate.material_reference
+        resolved_shipment_reference = shipment_reference or candidate.shipment_reference
+        exposure = build_exposure_mapping(
+            db,
+            context,
+            plant_reference=resolved_plant_reference,
+            material_reference=resolved_material_reference,
+            shipment_reference=resolved_shipment_reference,
+            risk_candidate=candidate,
+            now=captured_at,
+        )
+        inventory = first_or_none(
+            list_inventory_continuity(
+                db,
+                context,
+                plant_reference=resolved_plant_reference,
+                material_reference=resolved_material_reference,
+                now=captured_at,
+            )
+        )
+        shipment = first_or_none(
+            list_shipment_continuity(
+                db,
+                context,
+                plant_reference=resolved_plant_reference,
+                material_reference=resolved_material_reference,
+                shipment_reference=resolved_shipment_reference,
+                now=captured_at,
+            )
+        )
+        snapshot = create_snapshot_from_risk_candidate(
+            db,
+            context,
+            candidate,
+            snapshot_time=captured_at,
+            exposure=exposure,
+            inventory_continuity=inventory,
+            shipment_continuity=shipment,
+        )
+        comparison = classify_snapshot_escalation(db, snapshot, update_snapshot=True)
+        enriched.append(apply_escalation(candidate, comparison))
+    db.commit()
+    return EscalationEvaluationResponse(
+        risks=enriched,
+        snapshot_time=captured_at,
+        snapshots_recorded=len(enriched),
     )
 
 
@@ -366,6 +455,75 @@ def list_shipment_continuity(
             continue
         items.append(continuity)
     return sorted(items, key=lambda item: item.shipment_reference)
+
+
+def enrich_candidates_with_latest_escalation(
+    db: Session,
+    context: RequestContext,
+    candidates: list[RiskCandidate],
+) -> list[RiskCandidate]:
+    return [
+        apply_snapshot_escalation(
+            candidate,
+            escalation_for_snapshot(
+                db,
+                latest_snapshot_for_candidate(db, context, candidate),
+            ),
+        )
+        for candidate in candidates
+    ]
+
+
+def latest_snapshot_for_candidate(
+    db: Session,
+    context: RequestContext,
+    candidate: RiskCandidate,
+) -> ContinuityRiskSnapshot | None:
+    fingerprint = risk_fingerprint(
+        tenant_id=context.tenant_id,
+        risk_type=candidate.risk_type,
+        plant_reference=candidate.plant_reference,
+        material_reference=candidate.material_reference,
+        shipment_reference=candidate.shipment_reference,
+    )
+    return db.scalar(
+        select(ContinuityRiskSnapshot)
+        .where(
+            ContinuityRiskSnapshot.tenant_id == context.tenant_id,
+            ContinuityRiskSnapshot.risk_fingerprint == fingerprint,
+        )
+        .order_by(ContinuityRiskSnapshot.snapshot_time.desc())
+        .limit(1)
+    )
+
+
+def apply_snapshot_escalation(
+    candidate: RiskCandidate,
+    comparison: RiskEscalationComparison | None,
+) -> RiskCandidate:
+    if comparison is None:
+        return candidate
+    return apply_escalation(candidate, comparison)
+
+
+def escalation_for_snapshot(
+    db: Session,
+    snapshot: ContinuityRiskSnapshot | None,
+) -> RiskEscalationComparison | None:
+    if snapshot is None or snapshot.escalation_state is None:
+        return None
+    return classify_snapshot_escalation(db, snapshot, update_snapshot=False)
+
+
+def apply_escalation(
+    candidate: RiskCandidate,
+    comparison: RiskEscalationComparison,
+) -> RiskCandidate:
+    return candidate.model_copy(update=comparison.model_dump())
+
+
+def first_or_none(items: list):
+    return items[0] if items else None
 
 
 def exposure_scopes(

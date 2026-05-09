@@ -14,7 +14,9 @@ from app.modules.relationships.graph import OperationalRelationshipGraph
 from app.modules.rules.engine import RiskCandidate
 from app.modules.shipments.schemas import ShipmentContinuityResult
 from app.modules.signal_engine.service import (
+    EscalationEvaluationResponse,
     RiskWorkspaceResponse,
+    evaluate_and_record_risk_escalation,
     get_risk_workspace,
     get_signal_context_graph,
     list_inventory_continuity,
@@ -27,6 +29,29 @@ from app.modules.stock.schemas import InventoryContinuityResult
 from app.schemas.context import RequestContext
 
 router = APIRouter(prefix="/signal-engine", tags=["signal-engine"])
+
+
+@router.post("/evaluate-escalation", response_model=EscalationEvaluationResponse)
+def signal_evaluate_escalation(
+    context: Annotated[RequestContext, Depends(get_request_context)],
+    db: Annotated[Session, Depends(get_db)],
+    risk_type: Annotated[str | None, Query()] = None,
+    plant_reference: Annotated[str | None, Query()] = None,
+    material_reference: Annotated[str | None, Query()] = None,
+    shipment_reference: Annotated[str | None, Query()] = None,
+    severity: Annotated[str | None, Query()] = None,
+    snapshot_time: Annotated[datetime | None, Query()] = None,
+) -> EscalationEvaluationResponse:
+    return evaluate_and_record_risk_escalation(
+        db,
+        context,
+        risk_type=risk_type,
+        plant_reference=plant_reference,
+        material_reference=material_reference,
+        shipment_reference=shipment_reference,
+        severity=severity,
+        snapshot_time=snapshot_time,
+    )
 
 
 @router.get("/risk-workspace", response_model=RiskWorkspaceResponse)

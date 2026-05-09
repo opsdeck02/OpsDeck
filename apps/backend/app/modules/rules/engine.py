@@ -68,6 +68,19 @@ class RiskCandidate(BaseModel):
     source_event_ids: list[int] = []
     recommended_owner_role: str | None = None
     explainability: RiskExplainability | None = None
+    escalation_state: str | None = None
+    escalation_score: Decimal | None = None
+    escalation_reason: str | None = None
+    prior_days_of_cover: Decimal | None = None
+    current_days_of_cover: Decimal | None = None
+    days_of_cover_delta: Decimal | None = None
+    prior_shipment_delay_hours: Decimal | None = None
+    current_shipment_delay_hours: Decimal | None = None
+    shipment_delay_delta_hours: Decimal | None = None
+    prior_severity: str | None = None
+    current_severity: str | None = None
+    prior_exposure_level: str | None = None
+    current_exposure_level: str | None = None
 
 
 def evaluate_rule_based_risks(
