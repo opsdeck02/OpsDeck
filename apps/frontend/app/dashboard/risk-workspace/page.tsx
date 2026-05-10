@@ -8,14 +8,17 @@ import {
   ShieldCheck,
   Truck,
 } from "lucide-react";
+import Link from "next/link";
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   getRiskWorkspace,
+  getSignalRisks,
   type RiskWorkspaceResponse,
   type SignalInventoryContinuity,
   type SignalRelationshipGraph,
+  type SignalRiskCandidate,
   type SignalShipmentContinuity,
   type SignalTimelineEntry,
 } from "@/lib/api";
@@ -35,15 +38,18 @@ export default async function CriticalRiskWorkspacePage({
 }: {
   searchParams?: SearchParams;
 }) {
-  const workspace = await getRiskWorkspace({
-    risk_type: searchParams?.risk_type,
-    plant_reference: searchParams?.plant_reference,
-    material_reference: searchParams?.material_reference,
-    shipment_reference: searchParams?.shipment_reference,
-    severity: searchParams?.severity,
-    timeline_limit: 50,
-    timeline_offset: 0,
-  });
+  const [workspace, risks] = await Promise.all([
+    getRiskWorkspace({
+      risk_type: searchParams?.risk_type,
+      plant_reference: searchParams?.plant_reference,
+      material_reference: searchParams?.material_reference,
+      shipment_reference: searchParams?.shipment_reference,
+      severity: searchParams?.severity,
+      timeline_limit: 50,
+      timeline_offset: 0,
+    }),
+    getSignalRisks(),
+  ]);
 
   if (!workspace) {
     return <UnavailableState />;
@@ -52,6 +58,12 @@ export default async function CriticalRiskWorkspacePage({
   return (
     <main className="grid min-w-0 gap-3">
       <WorkspaceFilters searchParams={searchParams} />
+      {risks.length > 0 ? (
+        <ExposureSelector
+          risks={risks}
+          selected={workspace.selected_risk}
+        />
+      ) : null}
 
       {workspace.empty ? (
         <EmptyWorkspace />
@@ -59,6 +71,59 @@ export default async function CriticalRiskWorkspacePage({
         <WorkspaceContent workspace={workspace} />
       )}
     </main>
+  );
+}
+
+function ExposureSelector({
+  risks,
+  selected,
+}: {
+  risks: SignalRiskCandidate[];
+  selected: SignalRiskCandidate | null;
+}) {
+  const ordered = [...risks].sort(riskSortKey);
+  return (
+    <Card className="bg-card/90 shadow-panel">
+      <CardHeader className="pb-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <CardTitle>Active continuity exposures</CardTitle>
+          <span className="text-xs font-semibold text-mutedForeground">
+            {ordered.length} active
+          </span>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <div className="grid min-w-0 gap-2 md:grid-cols-2 xl:grid-cols-4">
+          {ordered.slice(0, 8).map((risk) => (
+            <Link
+              key={riskKey(risk)}
+              href={riskWorkspaceHref(risk)}
+              className={`min-w-0 rounded-xl px-3 py-2.5 text-left ring-1 transition hover:bg-slate-50 ${
+                isSelectedExposure(risk, selected)
+                  ? "bg-blue-50 ring-blue-300"
+                  : "bg-white ring-slate-900/5"
+              }`}
+            >
+              <div className="flex min-w-0 items-center justify-between gap-2">
+                <SeverityBadge value={risk.severity} />
+                <span className="truncate text-xs font-semibold text-mutedForeground">
+                  {exposureTiming(risk)}
+                </span>
+              </div>
+              <p className="mt-2 truncate text-sm font-semibold">
+                {risk.material_reference ?? "Unknown material"}
+              </p>
+              <p className="mt-0.5 truncate text-xs text-mutedForeground">
+                {risk.plant_reference ?? "Unknown plant"}
+              </p>
+              <p className="mt-2 truncate text-xs font-medium text-slate-700">
+                {formatLabel(risk.risk_type)}
+              </p>
+            </Link>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -568,15 +633,19 @@ function SignalMetric({
       ? "bg-red-50 text-red-950 ring-red-200"
       : tone === "warning"
         ? "bg-amber-50 text-amber-950 ring-amber-200"
-        : "bg-white/84 text-foreground ring-slate-900/5";
+        : "bg-white/95 text-slate-950 ring-white/25";
+  const labelClass =
+    tone === "default" ? "text-slate-600" : "text-mutedForeground";
+  const helperClass =
+    tone === "default" ? "text-slate-500" : "text-mutedForeground";
   return (
     <div className={`rounded-xl p-2.5 ring-1 ${toneClass}`}>
-      <div className="flex items-center gap-2 text-mutedForeground">
+      <div className={`flex items-center gap-2 ${labelClass}`}>
         {icon}
         <p className="text-xs font-semibold">{label}</p>
       </div>
       <p className="mt-1.5 break-words text-lg font-semibold">{value}</p>
-      <p className="mt-1 text-xs text-mutedForeground">{helper}</p>
+      <p className={`mt-1 text-xs ${helperClass}`}>{helper}</p>
     </div>
   );
 }
@@ -608,6 +677,70 @@ function SeverityBadge({ value }: { value: string }) {
       {value}
     </span>
   );
+}
+
+const severityRank: Record<string, number> = {
+  critical: 0,
+  high: 1,
+  medium: 2,
+  low: 3,
+};
+
+function riskSortKey(
+  left: SignalRiskCandidate,
+  right: SignalRiskCandidate,
+) {
+  const severity =
+    (severityRank[left.severity] ?? 99) - (severityRank[right.severity] ?? 99);
+  if (severity !== 0) return severity;
+  const leftDate = left.projected_exhaustion_date
+    ? new Date(left.projected_exhaustion_date).getTime()
+    : Number.POSITIVE_INFINITY;
+  const rightDate = right.projected_exhaustion_date
+    ? new Date(right.projected_exhaustion_date).getTime()
+    : Number.POSITIVE_INFINITY;
+  if (leftDate !== rightDate) return leftDate - rightDate;
+  return riskKey(left).localeCompare(riskKey(right));
+}
+
+function riskKey(risk: SignalRiskCandidate) {
+  return [
+    risk.severity,
+    risk.risk_type,
+    risk.plant_reference ?? "",
+    risk.material_reference ?? "",
+    risk.shipment_reference ?? "",
+  ].join("|");
+}
+
+function riskWorkspaceHref(risk: SignalRiskCandidate) {
+  const params = new URLSearchParams();
+  params.set("risk_type", risk.risk_type);
+  params.set("severity", risk.severity);
+  if (risk.plant_reference) params.set("plant_reference", risk.plant_reference);
+  if (risk.material_reference)
+    params.set("material_reference", risk.material_reference);
+  if (risk.shipment_reference)
+    params.set("shipment_reference", risk.shipment_reference);
+  return `/dashboard/risk-workspace?${params.toString()}`;
+}
+
+function isSelectedExposure(
+  risk: SignalRiskCandidate,
+  selected: SignalRiskCandidate | null,
+) {
+  if (!selected) return false;
+  return riskKey(risk) === riskKey(selected);
+}
+
+function exposureTiming(risk: SignalRiskCandidate) {
+  if (risk.days_of_cover !== null && risk.days_of_cover !== undefined) {
+    return `${formatNumber(risk.days_of_cover)} days cover`;
+  }
+  if (risk.projected_exhaustion_date) {
+    return formatDate(risk.projected_exhaustion_date);
+  }
+  return "timing unknown";
 }
 
 function workspaceTone(severity?: string | null) {

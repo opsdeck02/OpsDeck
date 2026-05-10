@@ -229,6 +229,30 @@ export async function getRiskWorkspace(params?: {
   );
 }
 
+export async function getSignalRisks(params?: {
+  risk_type?: string;
+  plant_reference?: string;
+  material_reference?: string;
+  shipment_reference?: string;
+  severity?: string;
+}): Promise<SignalRiskCandidate[]> {
+  const query = new URLSearchParams();
+  if (params?.risk_type) query.set("risk_type", params.risk_type);
+  if (params?.plant_reference)
+    query.set("plant_reference", params.plant_reference);
+  if (params?.material_reference)
+    query.set("material_reference", params.material_reference);
+  if (params?.shipment_reference)
+    query.set("shipment_reference", params.shipment_reference);
+  if (params?.severity) query.set("severity", params.severity);
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  return (
+    (await getAuthenticatedJson<SignalRiskCandidate[]>(
+      `/api/v1/signal-engine/risks${suffix}`,
+    )) ?? []
+  );
+}
+
 export async function getDashboardSnapshot(): Promise<DashboardSnapshot | null> {
   return getAuthenticatedJson<DashboardSnapshot>("/api/v1/dashboard/snapshot");
 }
