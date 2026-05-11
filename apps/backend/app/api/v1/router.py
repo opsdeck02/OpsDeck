@@ -7,6 +7,7 @@ from app.modules.health.router import router as health_router
 from app.modules.ingestion.router import router as ingestion_router
 from app.modules.line_stops.router import router as line_stops_router
 from app.modules.microsoft.router import router as microsoft_router
+from app.modules.reports.router import router as reports_router
 from app.modules.rules.router import router as rules_router
 from app.modules.shipments.router import router as shipments_router
 from app.modules.signal_engine.router import router as signal_engine_router
@@ -30,5 +31,6 @@ api_router.include_router(stock_router)
 api_router.include_router(suppliers_router)
 api_router.include_router(rules_router)
 api_router.include_router(signal_engine_router)
+api_router.include_router(reports_router)
 api_router.include_router(exceptions_router)
 api_router.include_router(dashboard_router)

@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 
+import { DailyBriefButton } from "@/components/reports/daily-brief-button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -221,7 +222,15 @@ function WorkspaceFilters({ searchParams }: { searchParams?: SearchParams }) {
   return (
     <Card className="bg-card/90 shadow-panel">
       <CardHeader>
-        <CardTitle>Continuity risk workspace</CardTitle>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <CardTitle>Continuity risk workspace</CardTitle>
+            <p className="mt-1 text-sm text-mutedForeground">
+              Focus one exposure, then brief the morning operating review.
+            </p>
+          </div>
+          <DailyBriefButton />
+        </div>
       </CardHeader>
       <CardContent>
         <form className="grid gap-3 md:grid-cols-3 xl:grid-cols-[1fr_1fr_1fr_1fr_160px_auto]">

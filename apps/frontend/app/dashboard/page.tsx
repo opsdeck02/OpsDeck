@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { AlertTriangle, ArrowRight, Boxes, Clock3, ShieldAlert, TimerReset } from "lucide-react";
 
+import { DailyBriefButton } from "@/components/reports/daily-brief-button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getCurrentUser, getExecutiveDashboard, getStockCoverSummary } from "@/lib/api";
@@ -35,11 +36,14 @@ export default async function DashboardPage() {
         <section className="overflow-hidden rounded-3xl bg-slate-950 text-white shadow-nerve">
           <div className="grid gap-3 p-3 lg:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)]">
             <div className="min-w-0 rounded-2xl bg-white/[0.06] p-3.5 ring-1 ring-white/10">
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge className={leadRisk?.status === "critical" ? "bg-red-500 text-white" : criticalRisks > 0 ? "bg-red-500 text-white" : "bg-blue-500 text-white"}>
-                  Continuity exposure overview
-                </Badge>
-                <span className="text-xs text-white/60">{activeTenant}</span>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge className={leadRisk?.status === "critical" ? "bg-red-500 text-white" : criticalRisks > 0 ? "bg-red-500 text-white" : "bg-blue-500 text-white"}>
+                    Continuity exposure overview
+                  </Badge>
+                  <span className="text-xs text-white/60">{activeTenant}</span>
+                </div>
+                <DailyBriefButton compact />
               </div>
               <h1 className="mt-3 max-w-3xl text-3xl font-semibold leading-tight tracking-tight lg:text-[2.4rem]">
                 {leadRisk
