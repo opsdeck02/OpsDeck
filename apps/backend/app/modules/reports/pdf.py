@@ -21,6 +21,8 @@ WHITE: Color = (1, 1, 1)
 RED: Color = (0.78, 0.12, 0.15)
 AMBER: Color = (0.86, 0.49, 0.08)
 GREEN: Color = (0.05, 0.46, 0.27)
+BLUE: Color = (0.06, 0.30, 0.51)
+PALE_STEEL: Color = (0.88, 0.93, 0.97)
 
 
 @dataclass
@@ -43,10 +45,22 @@ class PdfDocument:
 
     def footer(self) -> None:
         self.line(MARGIN_X, 34, PAGE_WIDTH - MARGIN_X, 34, BORDER, width=0.7)
-        self.text("OpsDeck", MARGIN_X, 22, size=8, color=MUTED, bold=True)
+        self.rect(MARGIN_X, 18, 10, 10, fill=BLUE)
+        self.polygon(
+            [
+                (MARGIN_X + 6.2, 27.0),
+                (MARGIN_X + 2.5, 22.3),
+                (MARGIN_X + 5.1, 22.3),
+                (MARGIN_X + 4.5, 19.0),
+                (MARGIN_X + 8.2, 24.0),
+                (MARGIN_X + 5.6, 24.0),
+            ],
+            fill=WHITE,
+        )
+        self.text("OpsDeck", MARGIN_X + 16, 22, size=8, color=MUTED, bold=True)
         self.text(
             "Generated from operational data available at report time",
-            98,
+            112,
             22,
             size=8,
             color=MUTED,
@@ -76,6 +90,27 @@ class PdfDocument:
             self.commands.append(f"{line_width:.2f} w")
         op = "B" if fill and stroke else "f" if fill else "S"
         self.commands.append(f"{x:.2f} {y:.2f} {width:.2f} {height:.2f} re {op}")
+
+    def polygon(
+        self,
+        points: list[tuple[float, float]],
+        *,
+        fill: Color,
+        stroke: Color | None = None,
+        line_width: float = 0.8,
+    ) -> None:
+        if not points:
+            return
+        self.set_fill(fill)
+        if stroke:
+            self.set_stroke(stroke)
+            self.commands.append(f"{line_width:.2f} w")
+        first_x, first_y = points[0]
+        parts = [f"{first_x:.2f} {first_y:.2f} m"]
+        parts.extend(f"{x:.2f} {y:.2f} l" for x, y in points[1:])
+        parts.append("h")
+        parts.append("B" if stroke else "f")
+        self.commands.append(" ".join(parts))
 
     def line(
         self,

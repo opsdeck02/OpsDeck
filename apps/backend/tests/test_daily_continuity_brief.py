@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Generator
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -37,6 +38,8 @@ from app.modules.auth.constants import LOGISTICS_USER
 from app.modules.auth.security import hash_password
 from app.modules.operational_events.schemas import OperationalEventCreate
 from app.modules.operational_events.service import create_operational_event
+from app.modules.reports.service import build_risk_clusters
+from app.modules.rules.engine import RiskCandidate
 
 NOW = datetime(2026, 5, 11, 9, 0, tzinfo=UTC)
 
@@ -92,6 +95,44 @@ def test_daily_continuity_brief_respects_tenant_isolation(client: TestClient) ->
     assert response.status_code == 200
     assert b"COKING_COAL" in response.content
     assert b"SECRET_TENANT_B_MATERIAL" not in response.content
+
+
+def test_daily_continuity_brief_groups_duplicate_risk_clusters() -> None:
+    data = SimpleNamespace(
+        actions=[],
+        risks=[
+            RiskCandidate(
+                risk_type="days_of_cover_breach",
+                severity="critical",
+                plant_reference="JAM",
+                material_reference="COKING_COAL",
+                days_of_cover=Decimal("1.2"),
+                continuity_status="degraded",
+                freshness_status="fresh",
+                rule_reasons=["Cover below threshold"],
+                source_event_ids=[1],
+            ),
+            RiskCandidate(
+                risk_type="projected_stockout",
+                severity="high",
+                plant_reference="JAM",
+                material_reference="COKING_COAL",
+                days_of_cover=Decimal("1.0"),
+                continuity_status="watch",
+                freshness_status="stale",
+                rule_reasons=["Projected exhaustion inside window"],
+                source_event_ids=[2, 3],
+            ),
+        ],
+    )
+
+    clusters = build_risk_clusters(data)
+
+    assert len(clusters) == 1
+    assert clusters[0].severity == "critical"
+    assert clusters[0].exposure_basis == "available_cover"
+    assert clusters[0].signal_count == 3
+    assert clusters[0].freshness_status == "stale"
 
 
 def seed_report_data(db: Session) -> None:
@@ -241,4 +282,3 @@ def auth_headers(client: TestClient) -> dict[str, str]:
         "Authorization": f"Bearer {response.json()['access_token']}",
         "X-Tenant-Slug": "tenant-a",
     }
-

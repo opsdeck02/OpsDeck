@@ -21,6 +21,7 @@ from app.models.enums import ExceptionStatus, OperationalEventFreshnessStatus
 from app.modules.exceptions.service import list_exceptions
 from app.modules.reports.pdf import (
     AMBER,
+    BLUE,
     BORDER,
     GREEN,
     LIGHT,
@@ -67,6 +68,21 @@ class ReportData:
     changes: list[str]
 
 
+@dataclass
+class RiskCluster:
+    severity: str
+    plant_reference: str
+    material_reference: str
+    exposure_basis: str
+    days_of_cover: Decimal | str | None
+    inbound_condition: str
+    freshness_status: str
+    owner: str
+    status: str
+    signal_count: int
+    reasons: list[str]
+
+
 def build_daily_continuity_brief_pdf(db: Session, context: RequestContext) -> bytes:
     generated_at = datetime.now(UTC)
     data = collect_report_data(db, context, generated_at)
@@ -102,7 +118,7 @@ def collect_report_data(
     )
     trust_counts, low_confidence = signal_trust_counts(db, context)
     sources = [
-        source.source_name
+        source_label(source)
         for source in db.scalars(
             select(ExternalDataSource)
             .where(ExternalDataSource.tenant_id == context.tenant_id)
@@ -205,71 +221,64 @@ def change_history(
 
 def render_daily_brief(data: ReportData) -> bytes:
     pdf = PdfDocument("OpsDeck Daily Continuity Brief")
-    y = draw_cover(pdf, data)
-    y = draw_executive_summary(pdf, data, y)
-    y = draw_highest_priority_risk(pdf, data, y)
-    y = draw_risk_table(pdf, data, y)
+    draw_cover(pdf, data)
+    draw_executive_summary(pdf, data)
+    draw_highest_priority_risk(pdf, data)
+    draw_continuity_position(pdf, data)
+    pdf.new_page()
+    y = draw_page_header(pdf, data, "Critical & Watch Exposure")
+    y = draw_risk_clusters(pdf, data, y)
+    draw_action_tracker(pdf, data, y)
+    pdf.new_page()
+    y = draw_page_header(pdf, data, "Change & Trust Review")
     y = draw_changes(pdf, data, y)
     y = draw_data_trust(pdf, data, y)
-    draw_action_tracker(pdf, data, y)
+    draw_source_notes(pdf, data, y)
     return pdf.build()
 
 
-def draw_cover(pdf: PdfDocument, data: ReportData) -> float:
-    pdf.rect(0, 760, PAGE_WIDTH, 82, fill=NAVY)
-    pdf.text("OpsDeck", MARGIN_X, 808, size=18, color=WHITE, bold=True)
+def draw_cover(pdf: PdfDocument, data: ReportData) -> None:
+    pdf.rect(0, 704, PAGE_WIDTH, 138, fill=NAVY)
+    pdf.rect(0, 704, 10, 138, fill=BLUE)
+    draw_opsdeck_brand(pdf, MARGIN_X, 790, dark=True)
     pdf.text(
-        "Continuity intelligence for industrial operations",
+        "Daily Continuity Brief",
         MARGIN_X,
-        790,
-        size=9,
-        color=(0.75, 0.84, 0.94),
-    )
-    pdf.text(
-        "CONFIDENTIAL / INTERNAL USE",
-        PAGE_WIDTH - 194,
-        808,
-        size=8,
-        color=(0.75, 0.84, 0.94),
+        750,
+        size=29,
+        color=WHITE,
         bold=True,
     )
-    pdf.text("Daily Continuity Brief", MARGIN_X, 720, size=27, color=NAVY, bold=True)
-    pdf.text(data.tenant_name, MARGIN_X, 696, size=12, color=STEEL, bold=True)
     pdf.text(
-        f"Generated {format_datetime(data.generated_at)}",
+        "Operational continuity position based on available synced/uploaded data.",
         MARGIN_X,
-        678,
+        728,
         size=10,
-        color=MUTED,
+        color=(0.75, 0.84, 0.94),
     )
-    selected = data.workspace.selected_risk
-    if selected:
-        pdf.rect(MARGIN_X, 612, PAGE_WIDTH - (MARGIN_X * 2), 44, fill=LIGHT, stroke=BORDER)
-        pdf.text("Highest priority exposure", MARGIN_X + 16, 636, size=9, color=MUTED, bold=True)
-        pdf.text(
-            f"{selected.material_reference or 'Material'} at {selected.plant_reference or 'Plant'}",
-            MARGIN_X + 16,
-            618,
-            size=14,
-            color=NAVY,
-            bold=True,
-        )
-        draw_severity(pdf, selected.severity, PAGE_WIDTH - 132, 625)
-    else:
-        pdf.rect(MARGIN_X, 612, PAGE_WIDTH - (MARGIN_X * 2), 44, fill=LIGHT, stroke=BORDER)
-        pdf.text(
-            "No critical continuity exposure detected",
-            MARGIN_X + 16,
-            627,
-            size=14,
-            color=NAVY,
-            bold=True,
-        )
-    return 582
+    pdf.rect(PAGE_WIDTH - 210, 782, 166, 24, fill=(0.08, 0.16, 0.28), stroke=(0.18, 0.30, 0.45))
+    pdf.text(
+        "CONFIDENTIAL / INTERNAL USE",
+        PAGE_WIDTH - 198,
+        791,
+        size=7.5,
+        color=(0.78, 0.86, 0.94),
+        bold=True,
+    )
+    pdf.text("Tenant / scope", MARGIN_X, 676, size=8, color=MUTED, bold=True)
+    pdf.text(data.tenant_name, MARGIN_X, 656, size=15, color=NAVY, bold=True)
+    pdf.text("Generated", PAGE_WIDTH - 196, 676, size=8, color=MUTED, bold=True)
+    pdf.text(
+        format_datetime(data.generated_at),
+        PAGE_WIDTH - 196,
+        656,
+        size=11,
+        color=NAVY,
+        bold=True,
+    )
 
 
-def draw_executive_summary(pdf: PdfDocument, data: ReportData, y: float) -> float:
-    y = section_title(pdf, "Executive Summary", y)
+def draw_executive_summary(pdf: PdfDocument, data: ReportData) -> None:
     critical = sum(1 for risk in data.risks if risk.severity == "critical")
     watch = sum(1 for risk in data.risks if risk.severity in {"high", "medium"})
     stale_low = (
@@ -306,20 +315,24 @@ def draw_executive_summary(pdf: PdfDocument, data: ReportData, y: float) -> floa
             RED if selected and selected.severity == "critical" else STEEL,
         ),
     ]
+    pdf.text("Executive Summary", MARGIN_X, 612, size=15, color=NAVY, bold=True)
+    pdf.line(MARGIN_X, 603, PAGE_WIDTH - MARGIN_X, 603, BORDER)
     x = MARGIN_X
+    y = 522
     card_width = 158
     for index, (label, value, helper, color) in enumerate(cards):
         if index == 3:
             x = MARGIN_X
-            y -= 82
-        draw_kpi_card(pdf, x, y - 62, card_width, label, value, helper, color)
+            y -= 84
+        draw_kpi_card(pdf, x, y, card_width, label, value, helper, color)
         x += card_width + 14
-    return y - 158
 
 
-def draw_highest_priority_risk(pdf: PdfDocument, data: ReportData, y: float) -> float:
-    y = pdf.ensure_space(y, 145)
-    y = section_title(pdf, "Highest Priority Risk", y)
+def draw_highest_priority_risk(pdf: PdfDocument, data: ReportData) -> None:
+    y = 338
+    pdf.text("Highest Priority Risk", MARGIN_X, y, size=15, color=NAVY, bold=True)
+    pdf.line(MARGIN_X, y - 9, PAGE_WIDTH - MARGIN_X, y - 9, BORDER)
+    y -= 24
     risk = data.workspace.selected_risk
     if risk is None:
         empty_state(
@@ -330,7 +343,7 @@ def draw_highest_priority_risk(pdf: PdfDocument, data: ReportData, y: float) -> 
                 "and open action status."
             ),
         )
-        return y - 50
+        return
     exposure = data.workspace.exposure
     summary = (
         risk.explainability.summary
@@ -341,49 +354,51 @@ def draw_highest_priority_risk(pdf: PdfDocument, data: ReportData, y: float) -> 
     )
     pdf.rect(
         MARGIN_X,
-        y - 112,
+        y - 162,
         PAGE_WIDTH - (MARGIN_X * 2),
-        112,
-        fill=(0.99, 0.98, 0.97),
-        stroke=(0.93, 0.70, 0.70),
+        162,
+        fill=(0.995, 0.985, 0.98),
+        stroke=(0.92, 0.72, 0.72),
     )
-    draw_severity(pdf, risk.severity, MARGIN_X + 16, y - 24)
+    pdf.rect(MARGIN_X, y - 162, 5, 162, fill=severity_color(risk.severity))
+    draw_severity(pdf, risk.severity, MARGIN_X + 18, y - 28, width=82, height=20)
     pdf.text(
         f"{risk.material_reference or 'Material'} at {risk.plant_reference or 'Plant'}",
         MARGIN_X + 16,
-        y - 48,
-        size=15,
+        y - 58,
+        size=18,
         color=NAVY,
         bold=True,
     )
-    pdf.text(
-        f"Days of cover: {format_decimal(risk.days_of_cover)}",
+    metric_y = y - 102
+    draw_risk_metric(
+        pdf,
         MARGIN_X + 16,
-        y - 70,
-        size=10,
-        color=NAVY,
-        bold=True,
+        metric_y,
+        "Days of cover",
+        format_decimal(risk.days_of_cover),
     )
-    pdf.text(
-        f"Projected exhaustion: {format_date(risk.projected_exhaustion_date)}",
-        MARGIN_X + 156,
-        y - 70,
-        size=10,
-        color=NAVY,
+    draw_risk_metric(
+        pdf,
+        MARGIN_X + 142,
+        metric_y,
+        "Projected exhaustion",
+        format_date(risk.projected_exhaustion_date),
     )
-    pdf.text(
-        f"Inbound status: {risk.continuity_status or 'unknown'}",
-        MARGIN_X + 348,
-        y - 70,
-        size=10,
-        color=NAVY,
+    draw_risk_metric(
+        pdf,
+        MARGIN_X + 300,
+        metric_y,
+        "Inbound condition",
+        risk.continuity_status or "unknown",
     )
+    draw_risk_metric(pdf, MARGIN_X + 414, metric_y, "Data trust", trust_label(risk))
     pdf.wrapped_text(
         f"Why it matters: {summary or 'Continuity risk detected by configured thresholds.'}",
         MARGIN_X + 16,
-        y - 90,
-        width_chars=92,
-        size=9,
+        y - 128,
+        width_chars=88,
+        size=9.2,
         color=MUTED,
         max_lines=2,
     )
@@ -391,46 +406,46 @@ def draw_highest_priority_risk(pdf: PdfDocument, data: ReportData, y: float) -> 
     pdf.wrapped_text(
         f"Recorded next action: {action}",
         MARGIN_X + 16,
-        y - 112,
-        width_chars=92,
-        size=9,
+        y - 152,
+        width_chars=88,
+        size=9.2,
         color=MUTED,
         max_lines=1,
     )
-    return y - 136
 
 
-def draw_risk_table(pdf: PdfDocument, data: ReportData, y: float) -> float:
-    y = pdf.ensure_space(y, 180)
-    y = section_title(pdf, "Critical & Watch Risks", y)
-    rows = [
-        [
-            risk.severity,
-            risk.plant_reference or "-",
-            risk.material_reference or "-",
-            format_decimal(risk.days_of_cover),
-            risk.continuity_status or "-",
-            risk.freshness_status or "-",
-            owner_for_risk(data.actions, risk),
-            "open signal",
-        ]
-        for risk in data.risks
-        if risk.severity in {"critical", "high", "medium"}
-    ][:10]
-    if not rows:
+def draw_continuity_position(pdf: PdfDocument, data: ReportData) -> None:
+    y = 124
+    pdf.text("Today's Continuity Position", MARGIN_X, y, size=14, color=NAVY, bold=True)
+    pdf.line(MARGIN_X, y - 8, PAGE_WIDTH - MARGIN_X, y - 8, BORDER)
+    for line in continuity_position_lines(data)[:3]:
+        pdf.rect(MARGIN_X, y - 38, 4, 22, fill=STEEL)
+        pdf.wrapped_text(
+            line,
+            MARGIN_X + 14,
+            y - 30,
+            width_chars=92,
+            size=9.5,
+            color=NAVY,
+            max_lines=1,
+        )
+        y -= 28
+
+
+def draw_risk_clusters(pdf: PdfDocument, data: ReportData, y: float) -> float:
+    clusters = build_risk_clusters(data)
+    if not clusters:
         empty_state(
             pdf,
             y,
             "No critical or watch-level continuity risks are active in the current tenant view.",
         )
-        return y - 50
-    return draw_table(
-        pdf,
-        y,
-        ["Severity", "Plant", "Material", "Cover", "Inbound", "Freshness", "Owner", "Status"],
-        rows,
-        [54, 52, 82, 50, 74, 62, 72, 62],
-    )
+        return y - 52
+    for cluster in clusters[:7]:
+        y = pdf.ensure_space(y, 86)
+        draw_cluster_card(pdf, cluster, y)
+        y -= 96
+    return y
 
 
 def draw_changes(pdf: PdfDocument, data: ReportData, y: float) -> float:
@@ -504,17 +519,238 @@ def draw_action_tracker(pdf: PdfDocument, data: ReportData, y: float) -> None:
         draw_disclaimer(pdf, y - 62)
         return
     rows = [
-        [item.risk, item.owner, item.status, item.next_action, format_date(item.due_at)]
+        [
+            action_priority(item),
+            item.risk,
+            item.owner,
+            item.status,
+            item.next_action,
+            format_date(item.due_at),
+        ]
         for item in data.actions[:8]
     ]
     y = draw_table(
         pdf,
         y,
-        ["Risk", "Owner", "Status", "Next action", "Due"],
+        ["Priority", "Risk / material", "Owner", "Status", "Next action", "Due / age"],
         rows,
-        [92, 78, 58, 220, 60],
+        [54, 88, 64, 54, 190, 58],
     )
     draw_disclaimer(pdf, y - 12)
+
+
+def draw_source_notes(pdf: PdfDocument, data: ReportData, y: float) -> None:
+    y = pdf.ensure_space(y, 95)
+    y = section_title(pdf, "Source & Assumption Notes", y)
+    notes = [
+        "Risk severity and continuity exposure are based on configured thresholds.",
+        "Data trust reflects freshness, confidence, and source completeness at report time.",
+        "No AI-generated recommendations or forecasts are included in this brief.",
+    ]
+    for note in notes:
+        pdf.text("•", MARGIN_X + 2, y - 14, size=10, color=STEEL, bold=True)
+        pdf.wrapped_text(note, MARGIN_X + 16, y - 14, width_chars=88, size=9, color=MUTED)
+        y -= 20
+    draw_disclaimer(pdf, y - 6)
+
+
+def draw_page_header(pdf: PdfDocument, data: ReportData, title: str) -> float:
+    draw_opsdeck_brand(pdf, MARGIN_X, 794, dark=False)
+    pdf.text(title, MARGIN_X, 742, size=21, color=NAVY, bold=True)
+    pdf.text(data.tenant_name, MARGIN_X, 722, size=9, color=MUTED)
+    pdf.text(format_datetime(data.generated_at), PAGE_WIDTH - 190, 794, size=8.5, color=MUTED)
+    pdf.line(MARGIN_X, 706, PAGE_WIDTH - MARGIN_X, 706, BORDER)
+    return 676
+
+
+def draw_opsdeck_brand(pdf: PdfDocument, x: float, y: float, *, dark: bool) -> None:
+    icon_fill = BLUE if not dark else (0.12, 0.35, 0.56)
+    text_color = WHITE if dark else NAVY
+    deck_color = (0.75, 0.86, 0.96) if dark else STEEL
+    pdf.rect(x, y - 16, 28, 28, fill=icon_fill, stroke=(0.35, 0.55, 0.72))
+    pdf.polygon(
+        [
+            (x + 17.5, y + 9),
+            (x + 8, y - 3),
+            (x + 15, y - 3),
+            (x + 13, y - 14),
+            (x + 23, y + 1),
+            (x + 15.8, y + 1),
+        ],
+        fill=WHITE,
+    )
+    pdf.text("Ops", x + 38, y - 1, size=15, color=text_color, bold=True)
+    pdf.text("Deck", x + 66, y - 1, size=15, color=deck_color, bold=True)
+
+
+def draw_risk_metric(pdf: PdfDocument, x: float, y: float, label: str, value: str) -> None:
+    pdf.rect(x, y - 34, 104, 38, fill=WHITE, stroke=(0.88, 0.78, 0.78), line_width=0.5)
+    pdf.text(label, x + 7, y - 8, size=7.2, color=MUTED, bold=True)
+    pdf.wrapped_text(value, x + 7, y - 24, width_chars=16, size=10, color=NAVY, bold=True)
+
+
+def draw_cluster_card(pdf: PdfDocument, cluster: RiskCluster, y: float) -> None:
+    color = severity_color(cluster.severity)
+    pdf.rect(MARGIN_X, y - 78, PAGE_WIDTH - (MARGIN_X * 2), 78, fill=WHITE, stroke=BORDER)
+    pdf.rect(MARGIN_X, y - 78, 5, 78, fill=color)
+    draw_severity(pdf, cluster.severity, MARGIN_X + 14, y - 24)
+    pdf.text(
+        f"{cluster.material_reference} at {cluster.plant_reference}",
+        MARGIN_X + 94,
+        y - 18,
+        size=13,
+        color=NAVY,
+        bold=True,
+    )
+    pdf.text(
+        f"{cluster.exposure_basis.replace('_', ' ')} • {cluster.signal_count} contributing signals",
+        MARGIN_X + 94,
+        y - 34,
+        size=8.5,
+        color=MUTED,
+    )
+    draw_cluster_field(pdf, MARGIN_X + 14, y - 54, "Cover", format_decimal(cluster.days_of_cover))
+    draw_cluster_field(pdf, MARGIN_X + 94, y - 54, "Inbound", cluster.inbound_condition)
+    draw_cluster_field(pdf, MARGIN_X + 190, y - 54, "Freshness", cluster.freshness_status)
+    draw_cluster_field(pdf, MARGIN_X + 286, y - 54, "Owner", cluster.owner)
+    draw_cluster_field(pdf, MARGIN_X + 392, y - 54, "Status", cluster.status)
+
+
+def draw_cluster_field(pdf: PdfDocument, x: float, y: float, label: str, value: str) -> None:
+    pdf.text(label, x, y, size=7.2, color=MUTED, bold=True)
+    pdf.wrapped_text(value, x, y - 13, width_chars=17, size=8.5, color=NAVY, max_lines=1)
+
+
+def continuity_position_lines(data: ReportData) -> list[str]:
+    selected = data.workspace.selected_risk
+    delayed = sum(
+        1
+        for risk in data.risks
+        if risk.risk_type in {"inbound_delay_against_cover", "shipment_degraded"}
+    )
+    trust_degradation = (
+        data.trust_counts.get("stale", 0)
+        + data.trust_counts.get("critical", 0)
+        + data.low_confidence_signals
+    )
+    if selected:
+        lines = [
+            (
+                f"Critical exposure exists in {selected.material_reference or 'material'} "
+                f"at {selected.plant_reference or 'plant'} with "
+                f"{format_decimal(selected.days_of_cover)} days of cover."
+            )
+        ]
+    else:
+        lines = ["No critical risks detected from available data."]
+    lines.append(f"Delayed inbound movements are affecting {delayed} continuity signals.")
+    if trust_degradation:
+        lines.append(f"{trust_degradation} stale or low-confidence signals require caution.")
+    else:
+        lines.append("No stale or low-confidence signals are currently detected.")
+    return lines
+
+
+def build_risk_clusters(data: ReportData) -> list[RiskCluster]:
+    grouped: dict[tuple[str, str, str], list[RiskCandidate]] = {}
+    for risk in data.risks:
+        if risk.severity not in {"critical", "high", "medium"}:
+            continue
+        key = (
+            risk.plant_reference or "-",
+            risk.material_reference or "-",
+            exposure_basis_for(risk),
+        )
+        grouped.setdefault(key, []).append(risk)
+    clusters = [
+        cluster_from_risks(plant, material, basis, risks, data.actions)
+        for (plant, material, basis), risks in grouped.items()
+    ]
+    return sorted(clusters, key=lambda item: (severity_rank(item.severity), item.plant_reference))
+
+
+def cluster_from_risks(
+    plant: str,
+    material: str,
+    basis: str,
+    risks: list[RiskCandidate],
+    actions: list[ReportAction],
+) -> RiskCluster:
+    worst = sorted(risks, key=lambda item: severity_rank(item.severity))[0]
+    return RiskCluster(
+        severity=worst.severity,
+        plant_reference=plant,
+        material_reference=material,
+        exposure_basis=basis,
+        days_of_cover=min_decimal([risk.days_of_cover for risk in risks]),
+        inbound_condition=worst_value([risk.continuity_status for risk in risks], "unknown"),
+        freshness_status=worst_freshness([risk.freshness_status for risk in risks]),
+        owner=owner_for_risk(actions, worst),
+        status="open signal",
+        signal_count=sum(max(1, len(risk.source_event_ids)) for risk in risks),
+        reasons=dedupe(reason for risk in risks for reason in risk.rule_reasons)[:3],
+    )
+
+
+def exposure_basis_for(risk: RiskCandidate) -> str:
+    if risk.risk_type in {"days_of_cover_breach", "projected_stockout"}:
+        return "available_cover"
+    if risk.risk_type in {"inbound_delay_against_cover", "shipment_degraded"}:
+        return "inbound_continuity"
+    if risk.risk_type in {"stale_signal_risk", "low_confidence_signal_risk"}:
+        return "signal_trust"
+    return risk.risk_type
+
+
+def severity_rank(value: str) -> int:
+    return {"critical": 0, "high": 1, "medium": 2, "low": 3}.get(value, 9)
+
+
+def severity_color(value: str) -> tuple[float, float, float]:
+    if value == "critical":
+        return RED
+    if value in {"high", "medium"}:
+        return AMBER
+    return STEEL
+
+
+def worst_freshness(values: list[str | None]) -> str:
+    order = {"critical": 0, "stale": 1, "delayed": 2, "unknown": 3, "fresh": 4}
+    clean = [value or "unknown" for value in values]
+    return sorted(clean, key=lambda item: order.get(item, 3))[0] if clean else "unknown"
+
+
+def min_decimal(values: list[Decimal | str | None]) -> Decimal | str | None:
+    parsed = [Decimal(str(value)) for value in values if value is not None]
+    return min(parsed) if parsed else None
+
+
+def worst_value(values: list[str | None], fallback: str) -> str:
+    for preferred in ("degraded", "watch", "unknown", "on_track"):
+        if preferred in values:
+            return preferred
+    return next((value for value in values if value), fallback)
+
+
+def trust_label(risk: RiskCandidate) -> str:
+    confidence = format_decimal(risk.confidence_score)
+    freshness = risk.freshness_status or "unknown"
+    return f"{confidence} / {freshness}"
+
+
+def action_priority(item: ReportAction) -> str:
+    if item.due_at and normalized_datetime(item.due_at) < datetime.now(UTC):
+        return "overdue"
+    if item.status == "in progress":
+        return "active"
+    return "open"
+
+
+def source_label(source: ExternalDataSource) -> str:
+    status = source.last_sync_status or "not synced"
+    if source.last_synced_at:
+        return f"{source.source_name} ({status}, last sync {format_date(source.last_synced_at)})"
+    return f"{source.source_name} ({status})"
 
 
 def draw_disclaimer(pdf: PdfDocument, y: float) -> None:
@@ -544,14 +780,14 @@ def draw_kpi_card(
     helper: str,
     accent: tuple[float, float, float],
 ) -> None:
-    pdf.rect(x, y, width, 60, fill=WHITE, stroke=BORDER)
-    pdf.rect(x, y + 57, width, 3, fill=accent)
-    pdf.text(label, x + 10, y + 42, size=8, color=MUTED, bold=True)
-    pdf.text(value, x + 10, y + 19, size=18, color=NAVY, bold=True)
+    pdf.rect(x, y, width, 66, fill=WHITE, stroke=BORDER)
+    pdf.rect(x, y, 4, 66, fill=accent)
+    pdf.text(label, x + 13, y + 47, size=8, color=MUTED, bold=True)
+    pdf.text(value, x + 13, y + 24, size=19, color=NAVY, bold=True)
     pdf.wrapped_text(
         helper,
-        x + 10,
-        y + 8,
+        x + 13,
+        y + 11,
         width_chars=24,
         size=7.5,
         color=MUTED,
@@ -565,10 +801,17 @@ def section_title(pdf: PdfDocument, title: str, y: float) -> float:
     return y - 24
 
 
-def draw_severity(pdf: PdfDocument, severity: str, x: float, y: float) -> None:
-    color = RED if severity == "critical" else AMBER if severity in {"high", "medium"} else STEEL
-    pdf.rect(x, y, 66, 16, fill=color)
-    pdf.text(severity.upper(), x + 8, y + 5, size=7.5, color=WHITE, bold=True)
+def draw_severity(
+    pdf: PdfDocument,
+    severity: str,
+    x: float,
+    y: float,
+    *,
+    width: float = 66,
+    height: float = 16,
+) -> None:
+    pdf.rect(x, y, width, height, fill=severity_color(severity))
+    pdf.text(severity.upper(), x + 8, y + (height / 2) - 3, size=7.5, color=WHITE, bold=True)
 
 
 def draw_table(
