@@ -98,7 +98,7 @@ export default async function ShipmentsPage({
                 {shipments.length === 0 ? (
                   <tr>
                     <td className="px-4 py-8 text-center text-mutedForeground" colSpan={8}>
-                      No inbound continuity records matched the current filters.
+                      Monitored inbound dependencies remain stable for the current filters.
                     </td>
                   </tr>
                 ) : null}

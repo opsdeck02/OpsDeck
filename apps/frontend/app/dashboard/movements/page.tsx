@@ -48,7 +48,7 @@ export default async function MovementsPage({
         freshnessBadge(row.freshness.freshness_label),
         trustBadge(row.confidence),
       ])}
-      empty="No continuity signal degradation matched the current filters."
+      empty="Port and discharge signals are not showing continuity degradation for this view."
     />
   );
   const inlandTable = (
@@ -64,7 +64,7 @@ export default async function MovementsPage({
         freshnessBadge(row.freshness.freshness_label),
         trustBadge(row.confidence),
       ])}
-      empty="No inbound continuity degradation matched the current filters."
+      empty="Inland movement signals are not compressing continuity cover for this view."
     />
   );
 
@@ -146,7 +146,7 @@ export default async function MovementsPage({
                   ))}
                   {detail.missing_signals.length === 0 ? (
                     <div className="rounded-xl border border-dashed px-4 py-3">
-                      No obvious continuity visibility gaps are currently flagged.
+                      Visibility chain is intact for the selected inbound dependency.
                     </div>
                   ) : null}
                 </div>

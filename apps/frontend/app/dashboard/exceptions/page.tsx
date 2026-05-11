@@ -115,7 +115,7 @@ export default async function ExceptionsPage({
                 {items.length === 0 ? (
                   <tr>
                     <td className="px-4 py-8 text-center text-mutedForeground" colSpan={8}>
-                      No signals matched the current filters.
+                      No continuity degradation signals matched the current filters.
                     </td>
                   </tr>
                 ) : null}

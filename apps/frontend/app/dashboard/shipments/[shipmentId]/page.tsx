@@ -89,7 +89,7 @@ export default async function ShipmentDetailPage({
                 ))}
                 {detail.movement_gaps.length === 0 ? (
                   <li className="rounded-xl border border-dashed px-4 py-3">
-                    No obvious continuity visibility gaps are currently flagged.
+                    Visibility chain is intact for this inbound dependency.
                   </li>
                 ) : null}
               </ul>
@@ -113,7 +113,7 @@ export default async function ShipmentDetailPage({
                 <Line label="Signal reliability" value={detail.port_summary.confidence} />
               </>
             ) : (
-              <p className="text-mutedForeground">No port summary is available yet.</p>
+              <p className="text-mutedForeground">No port degradation signal is available yet.</p>
             )}
           </CardContent>
         </Card>
@@ -132,7 +132,7 @@ export default async function ShipmentDetailPage({
                 <Line label="Signal reliability" value={detail.inland_summary.confidence} />
               </>
             ) : (
-              <p className="text-mutedForeground">No inland summary is available yet.</p>
+              <p className="text-mutedForeground">No inland movement signal is available yet.</p>
             )}
           </CardContent>
         </Card>
@@ -167,7 +167,7 @@ export default async function ShipmentDetailPage({
             </div>
           ))}
           {detail.updates.length === 0 ? (
-            <p className="text-sm text-mutedForeground">No inbound signal history is available.</p>
+            <p className="text-sm text-mutedForeground">No continuity signal history is available for this inbound dependency.</p>
           ) : null}
         </CardContent>
       </Card>

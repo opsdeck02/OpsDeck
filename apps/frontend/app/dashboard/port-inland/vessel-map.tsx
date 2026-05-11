@@ -56,7 +56,7 @@ export default function VesselMap({
               <span>Heading: {headingDegrees.toFixed(0)} deg</span>
               <span>Last update: {formatDate(timestamp)}</span>
               <span>Source: {isMock ? "Mock AIS" : source}</span>
-              {isMock ? <span>Demo vessel position, not live AIS.</span> : null}
+              {isMock ? <span>Scenario vessel position, not live AIS.</span> : null}
             </div>
           </Popup>
         </Marker>

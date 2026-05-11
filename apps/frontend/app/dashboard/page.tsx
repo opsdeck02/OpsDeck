@@ -49,7 +49,7 @@ export default async function DashboardPage() {
               <p className="mt-2 max-w-2xl text-sm leading-5 text-white/68">
                 {leadRisk
                   ? `${rootCauseFor(leadRisk)}. Available cover is ${displayDays(leadRisk.days_of_cover)} with next inbound ${formatDate(leadRisk.next_inbound_eta)}.`
-                  : "Loaded operating contexts are not showing continuity exposure."}
+                  : "Operational continuity remains stable across monitored inbound dependencies."}
               </p>
               <Link
                 href="/dashboard/risk-workspace"
@@ -113,7 +113,7 @@ export default async function DashboardPage() {
               <div>
                 <h2 className="text-lg font-semibold">Plant continuity risk active</h2>
                 <p className="mt-1 text-sm text-red-900">
-                  {criticalRisks} critical materials may stop operations within threshold.
+                  {criticalRisks} critical material dependencies are inside the operating buffer.
                 </p>
               </div>
             </div>
@@ -233,7 +233,7 @@ export default async function DashboardPage() {
                   <div className="rounded-2xl bg-slate-50 px-4 py-8 text-center text-sm text-mutedForeground ring-1 ring-slate-900/5">
                     {stockSummary && stockSummary.total_combinations > 0
                       ? `${stockSummary.total_combinations} operating contexts loaded. No continuity exposure is currently flagged.`
-                      : "No continuity exposure is currently flagged."}
+                      : "Operational continuity remains calm across loaded contexts."}
                   </div>
                 ) : null}
               </div>
@@ -241,7 +241,7 @@ export default async function DashboardPage() {
                 <div className="mt-3 rounded-2xl bg-slate-50 p-3 text-sm ring-1 ring-slate-900/5">
                   <p className="font-semibold">Continuity signals loaded</p>
                   <p className="mt-1 text-mutedForeground">
-                    Loaded operating contexts are stable.
+                    Operating buffers are holding across monitored plant/material dependencies.
                   </p>
                   <div className="mt-3 grid gap-2 md:grid-cols-2">
                     {stockSummary?.rows.slice(0, 4).map((row) => (
@@ -491,18 +491,18 @@ function rootCauseFor(row: {
   const lineStopDate = days !== null ? new Date(Date.now() + days * 24 * 60 * 60 * 1000) : null;
 
   if (available <= 0) {
-    return "No usable stock";
+    return "Usable cover exhausted";
   }
   if (blocked > available) {
-    return "Blocked inventory";
+    return "Quality hold reducing cover";
   }
   if (nextEta && lineStopDate && nextEta > lineStopDate) {
-    return "Inbound too late";
+    return "Inbound arrives after buffer";
   }
   if (threshold !== null && days !== null && days <= threshold) {
-    return "Below critical cover";
+    return "Operating buffer breached";
   }
-  return "Monitor cover";
+  return "Buffer watch";
 }
 
 function displayTonnes(value: string | null) {

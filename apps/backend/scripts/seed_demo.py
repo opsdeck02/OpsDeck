@@ -14,6 +14,7 @@ from app.models import (
     InlandMovement,
     LineStopIncident,
     Material,
+    OperationalEvent,
     Plant,
     PlantMaterialThreshold,
     PortEvent,
@@ -25,7 +26,21 @@ from app.models import (
     TenantMembership,
     User,
 )
-from app.models.enums import ExceptionSeverity, ExceptionStatus, ExceptionType, ShipmentState
+from app.models.enums import (
+    ExceptionSeverity,
+    ExceptionStatus,
+    ExceptionType,
+    OperationalEventCategory,
+    OperationalEventSourceType,
+    OperationalEventType,
+    ShipmentState,
+)
+from app.modules.operational_events.schemas import OperationalEventCreate
+from app.modules.operational_events.service import (
+    create_operational_event,
+    emit_inventory_stock_updated,
+    emit_shipment_update_event,
+)
 from app.modules.auth.constants import (
     BUYER_USER,
     LOGISTICS_USER,
@@ -38,10 +53,10 @@ from app.modules.auth.constants import (
 from app.modules.auth.security import hash_password
 
 ROLE_DESCRIPTIONS = {
-    TENANT_ADMIN: "Tenant administrator with full control tower access",
-    BUYER_USER: "Buyer responsible for supplier and inbound coordination",
-    LOGISTICS_USER: "Logistics operator responsible for inbound movement execution",
-    PLANNER_USER: "Planner responsible for material availability and ETA planning",
+    TENANT_ADMIN: "Tenant administrator with continuity intelligence access",
+    BUYER_USER: "Buyer responsible for supplier continuity and inbound stability",
+    LOGISTICS_USER: "Logistics operator responsible for inbound continuity signals",
+    PLANNER_USER: "Planner responsible for available cover and ETA assumptions",
     MANAGEMENT_USER: "Management stakeholder with executive visibility",
     SPONSOR_USER: "Executive sponsor with read-only operational visibility",
 }
@@ -176,6 +191,7 @@ def get_or_create_supplier(
     *,
     name: str,
     code: str,
+    legacy_codes: list[str] | None = None,
     primary_port: str,
     secondary_ports: list[str],
     material_categories: list[str],
@@ -183,12 +199,14 @@ def get_or_create_supplier(
     contact_name: str,
     contact_email: str,
 ) -> Supplier:
-    supplier = db.scalar(select(Supplier).where(Supplier.tenant_id == tenant_id, Supplier.code == code))
+    known_codes = [code, *(legacy_codes or [])]
+    supplier = db.scalar(select(Supplier).where(Supplier.tenant_id == tenant_id, Supplier.code.in_(known_codes)))
     if supplier is None:
         supplier = Supplier(tenant_id=tenant_id, name=name, code=code)
         db.add(supplier)
         db.flush()
     supplier.name = name
+    supplier.code = code
     supplier.primary_port = primary_port
     supplier.secondary_ports = secondary_ports
     supplier.material_categories = material_categories
@@ -237,6 +255,7 @@ def upsert_shipment(
     tenant_id: int,
     *,
     shipment_id: str,
+    legacy_shipment_ids: list[str] | None = None,
     material_id: int,
     plant_id: int,
     supplier: Supplier,
@@ -252,8 +271,9 @@ def upsert_shipment(
     current_state: ShipmentState,
     latest_update_at: datetime,
 ) -> Shipment:
+    known_shipment_ids = [shipment_id, *(legacy_shipment_ids or [])]
     shipment = db.scalar(
-        select(Shipment).where(Shipment.tenant_id == tenant_id, Shipment.shipment_id == shipment_id)
+        select(Shipment).where(Shipment.tenant_id == tenant_id, Shipment.shipment_id.in_(known_shipment_ids))
     )
     if shipment is None:
         shipment = Shipment(
@@ -279,6 +299,7 @@ def upsert_shipment(
         db.add(shipment)
         db.flush()
     else:
+        shipment.shipment_id = shipment_id
         shipment.material_id = material_id
         shipment.plant_id = plant_id
         shipment.supplier_id = supplier.id
@@ -359,7 +380,7 @@ def seed_exception(
             tenant_id=tenant_id,
             exception_case_id=case.id,
             author_user_id=owner_user_id,
-            comment="Demo note: owner has reviewed the signal and updated the recovery path.",
+            comment="Continuity note: owner reviewed the degradation signal and updated the operating buffer plan.",
         )
     )
 
@@ -369,7 +390,7 @@ def seed() -> None:
     try:
         tenant = db.scalar(select(Tenant).where(Tenant.slug == "demo-steel"))
         if tenant is None:
-            tenant = Tenant(name="Demo Steel Plant", slug="demo-steel")
+            tenant = Tenant(name="Eastern Steel Operations", slug="demo-steel")
             db.add(tenant)
             db.flush()
 
@@ -424,6 +445,13 @@ def seed() -> None:
             "Iron ore fines",
             "ore",
         )
+        pellets = get_or_create_material(
+            db,
+            tenant.id,
+            "PELLETS",
+            "Blast furnace pellets",
+            "ore",
+        )
         limestone = get_or_create_material(
             db,
             tenant.id,
@@ -441,6 +469,7 @@ def seed() -> None:
 
         ensure_threshold(db, tenant.id, jamshedpur.id, coking_coal.id, Decimal("7"), Decimal("10"))
         ensure_threshold(db, tenant.id, jamshedpur.id, iron_ore.id, Decimal("5"), Decimal("8"))
+        ensure_threshold(db, tenant.id, kalinga.id, pellets.id, Decimal("5"), Decimal("8"))
         ensure_threshold(db, tenant.id, kalinga.id, limestone.id, Decimal("4"), Decimal("7"))
         ensure_threshold(db, tenant.id, kalinga.id, dolomite.id, Decimal("6"), Decimal("9"))
 
@@ -455,22 +484,23 @@ def seed() -> None:
         bhp = get_or_create_supplier(
             db,
             tenant.id,
-            name="BHP Mitsubishi Alliance",
-            code="BHPMA",
+            name="Queensland Coal Logistics",
+            code="QCL",
+            legacy_codes=["BHPMA"],
             primary_port="Hay Point",
-            secondary_ports=["Gladstone", "Abbot Point"],
+            secondary_ports=["Gladstone", "Paradip"],
             material_categories=["coal"],
             country="Australia",
             contact_name="Ava McKenzie",
-            contact_email="ava.mckenzie@bhpma.example",
+            contact_email="ava.mckenzie@qcl.example",
         )
         odisha = get_or_create_supplier(
             db,
             tenant.id,
-            name="Odisha Mining Corp",
+            name="Odisha Minerals Rail Link",
             code="OMC",
             primary_port="Barbil Rail Siding",
-            secondary_ports=["Joda", "Banspani"],
+            secondary_ports=["Joda", "Banspani", "Jamshedpur Yard"],
             material_categories=["ore"],
             country="India",
             contact_name="Rahul Patnaik",
@@ -479,26 +509,28 @@ def seed() -> None:
         rsmml = get_or_create_supplier(
             db,
             tenant.id,
-            name="RSMML",
-            code="RSMML",
-            primary_port="Jaisalmer Yard",
-            secondary_ports=["Limestone Yard", "Kandla"],
+            name="Eastern Flux Minerals",
+            code="EFM",
+            legacy_codes=["RSMML"],
+            primary_port="Dhamra Flux Terminal",
+            secondary_ports=["Haldia Mineral Yard", "Kalinganagar Yard"],
             material_categories=["flux"],
             country="India",
             contact_name="Meera Singh",
-            contact_email="meera.singh@rsmml.example",
+            contact_email="meera.singh@efm.example",
         )
         vale = get_or_create_supplier(
             db,
             tenant.id,
-            name="Vale International",
-            code="VALE",
-            primary_port="Ponta da Madeira",
-            secondary_ports=["Tubarao", "Visakhapatnam"],
+            name="Vizag Pellet & Ore Services",
+            code="VPOS",
+            legacy_codes=["VALE"],
+            primary_port="Visakhapatnam",
+            secondary_ports=["Paradip", "Dhamra"],
             material_categories=["ore"],
-            country="Brazil",
-            contact_name="Lucas Ferreira",
-            contact_email="lucas.ferreira@vale.example",
+            country="India",
+            contact_name="Ananya Rao",
+            contact_email="ananya.rao@vpos.example",
         )
 
         upsert_stock_snapshot(
@@ -527,6 +559,17 @@ def seed() -> None:
             db,
             tenant.id,
             kalinga.id,
+            pellets.id,
+            on_hand_mt=Decimal("52000"),
+            quality_held_mt=Decimal("1000"),
+            available_to_consume_mt=Decimal("51000"),
+            daily_consumption_mt=Decimal("6200"),
+            snapshot_time=now - timedelta(hours=2),
+        )
+        upsert_stock_snapshot(
+            db,
+            tenant.id,
+            kalinga.id,
             limestone.id,
             on_hand_mt=Decimal("3300"),
             quality_held_mt=Decimal("800"),
@@ -549,12 +592,13 @@ def seed() -> None:
         coal_shipment = upsert_shipment(
             db,
             tenant.id,
-            shipment_id="SHP-COAL-001",
+            shipment_id="INB-PDP-COAL-117",
+            legacy_shipment_ids=["SHP-COAL-001"],
             material_id=coking_coal.id,
             plant_id=jamshedpur.id,
             supplier=bhp,
             quantity_mt=Decimal("74000"),
-            vessel_name="MV Eastern Furnace",
+            vessel_name="MV Kalinga Furnace",
             imo_number="9876543",
             mmsi="419000123",
             origin_port="Hay Point",
@@ -568,7 +612,8 @@ def seed() -> None:
         ore_shipment = upsert_shipment(
             db,
             tenant.id,
-            shipment_id="SHP-ORE-002",
+            shipment_id="RAKE-BRB-ORE-042",
+            legacy_shipment_ids=["SHP-ORE-002"],
             material_id=iron_ore.id,
             plant_id=jamshedpur.id,
             supplier=odisha,
@@ -587,7 +632,8 @@ def seed() -> None:
         lime_shipment = upsert_shipment(
             db,
             tenant.id,
-            shipment_id="SHP-LIME-003",
+            shipment_id="RAKE-DHM-LIME-014",
+            legacy_shipment_ids=["SHP-LIME-003"],
             material_id=limestone.id,
             plant_id=kalinga.id,
             supplier=rsmml,
@@ -595,7 +641,7 @@ def seed() -> None:
             vessel_name=None,
             imo_number=None,
             mmsi=None,
-            origin_port="Jaisalmer Yard",
+            origin_port="Dhamra Flux Terminal",
             destination_port="Kalinganagar Yard",
             planned_eta=now + timedelta(hours=10),
             current_eta=now + timedelta(hours=38),
@@ -606,7 +652,8 @@ def seed() -> None:
         dolomite_shipment = upsert_shipment(
             db,
             tenant.id,
-            shipment_id="SHP-DOLO-004",
+            shipment_id="INB-HLD-DOLO-026",
+            legacy_shipment_ids=["SHP-DOLO-004"],
             material_id=dolomite.id,
             plant_id=kalinga.id,
             supplier=rsmml,
@@ -614,7 +661,7 @@ def seed() -> None:
             vessel_name=None,
             imo_number=None,
             mmsi=None,
-            origin_port="Kandla",
+            origin_port="Haldia Mineral Yard",
             destination_port="Kalinganagar Yard",
             planned_eta=now + timedelta(days=6),
             current_eta=now + timedelta(days=6, hours=4),
@@ -625,15 +672,16 @@ def seed() -> None:
         vale_shipment = upsert_shipment(
             db,
             tenant.id,
-            shipment_id="SHP-ORE-005",
-            material_id=iron_ore.id,
+            shipment_id="INB-VZG-PELLET-022",
+            legacy_shipment_ids=["SHP-ORE-005"],
+            material_id=pellets.id,
             plant_id=kalinga.id,
             supplier=vale,
             quantity_mt=Decimal("90000"),
-            vessel_name="MV Atlantic Charge",
+            vessel_name="MV Vizag Charge",
             imo_number="9345678",
             mmsi="710000456",
-            origin_port="Ponta da Madeira",
+            origin_port="Visakhapatnam",
             destination_port="Visakhapatnam",
             planned_eta=now + timedelta(days=9),
             current_eta=now + timedelta(days=9, hours=8),
@@ -684,8 +732,8 @@ def seed() -> None:
             tenant.id,
             lime_shipment,
             mode="truck",
-            carrier_name="Eastern Roadlines",
-            origin_location="Jaisalmer Yard",
+            carrier_name="Eastern Industrial Roadlines",
+            origin_location="Dhamra Flux Terminal",
             destination_location="Kalinganagar Yard",
             planned_departure_at=now - timedelta(days=4),
             planned_arrival_at=now - timedelta(days=1),
@@ -702,7 +750,7 @@ def seed() -> None:
         seed_exception(
             db,
             tenant.id,
-            title="Coal vessel waiting at Paradip berth window",
+            title="Paradip coal discharge delay compressing BF continuity cover",
             type_=ExceptionType.DEMURRAGE_RISK,
             severity=ExceptionSeverity.CRITICAL,
             status=ExceptionStatus.IN_PROGRESS,
@@ -712,13 +760,13 @@ def seed() -> None:
             owner_user_id=logistics_user.id if logistics_user else None,
             triggered_at=now - timedelta(days=2),
             due_at=now + timedelta(hours=6),
-            next_action="Escalate berth confirmation and secure discharge gang before night shift.",
+            next_action="Confirm berth window and discharge gang before blast furnace buffer drops below shift cover.",
             action_status="in_progress",
         )
         seed_exception(
             db,
             tenant.id,
-            title="Limestone inbound delay risks Kalinganagar flux cover",
+            title="Limestone rake unload delay reducing Kalinganagar flux cover",
             type_=ExceptionType.ETA_RISK,
             severity=ExceptionSeverity.HIGH,
             status=ExceptionStatus.OPEN,
@@ -728,13 +776,13 @@ def seed() -> None:
             owner_user_id=planner_user.id if planner_user else None,
             triggered_at=now - timedelta(hours=18),
             due_at=now + timedelta(hours=12),
-            next_action="Rebalance flux drawdown and confirm alternate trucking slot with RSMML.",
+            next_action="Confirm rake unloading slot and protect flux drawdown buffer for Kalinganagar operations.",
             action_status="pending",
         )
         seed_exception(
             db,
             tenant.id,
-            title="Coking coal stock below critical cover",
+            title="Coking coal blend cover below critical operating buffer",
             type_=ExceptionType.STOCKOUT_RISK,
             severity=ExceptionSeverity.CRITICAL,
             status=ExceptionStatus.OPEN,
@@ -744,7 +792,7 @@ def seed() -> None:
             owner_user_id=buyer_user.id if buyer_user else None,
             triggered_at=now - timedelta(hours=10),
             due_at=now + timedelta(hours=4),
-            next_action="Approve emergency blend substitution until vessel discharge begins.",
+            next_action="Hold blend assumptions until Paradip discharge begins and usable cover recovers.",
             action_status="pending",
         )
 
@@ -757,7 +805,7 @@ def seed() -> None:
                     material_id=coking_coal.id,
                     stopped_at=now - timedelta(days=9),
                     duration_hours=Decimal("2.50"),
-                    notes="Blast furnace feed slowed during coal blend shortage.",
+                    notes="Blast furnace feed slowed when coking coal blend cover fell below shift buffer.",
                 ),
                 LineStopIncident(
                     tenant_id=tenant.id,
@@ -765,7 +813,7 @@ def seed() -> None:
                     material_id=limestone.id,
                     stopped_at=now - timedelta(days=3),
                     duration_hours=Decimal("1.25"),
-                    notes="Flux staging interruption during truck delay.",
+                    notes="Flux staging interruption after Dhamra limestone movement missed unload slot.",
                 ),
             ]
         )
@@ -773,18 +821,22 @@ def seed() -> None:
         source = db.scalar(
             select(ExternalDataSource).where(
                 ExternalDataSource.tenant_id == tenant.id,
-                ExternalDataSource.source_name == "Demo ERP inbound feed",
+                ExternalDataSource.source_name.in_(
+                    ["Demo ERP inbound feed", "Continuity inbound source feed"]
+                ),
             )
         )
         if source is None:
             source = ExternalDataSource(
                 tenant_id=tenant.id,
                 source_type="excel_online",
-                source_url="https://example.invalid/demo-inbound.xlsx",
-                source_name="Demo ERP inbound feed",
+                source_url="https://example.invalid/continuity-inbound-feed.xlsx",
+                source_name="Continuity inbound source feed",
                 dataset_type="shipment",
             )
             db.add(source)
+        source.source_url = "https://example.invalid/continuity-inbound-feed.xlsx"
+        source.source_name = "Continuity inbound source feed"
         source.sync_frequency_minutes = 60
         source.is_active = True
         source.last_sync_status = "success"
@@ -792,9 +844,126 @@ def seed() -> None:
         source.new_critical_risks_count = 2
         source.resolved_risks_count = 1
         source.newly_breached_actions_count = 1
+        db.flush()
+
+        db.execute(delete(OperationalEvent).where(OperationalEvent.tenant_id == tenant.id))
+        emit_shipment_update_event(
+            db,
+            tenant_id=tenant.id,
+            event_type=OperationalEventType.SHIPMENT_ETA_CHANGED,
+            occurred_at=now - timedelta(days=2, hours=6),
+            source_reference="ais",
+            source_id=source.id,
+            shipment_id=coal_shipment.id,
+            shipment_reference=coal_shipment.shipment_id,
+            plant_id=jamshedpur.id,
+            plant_reference=jamshedpur.code,
+            material_id=coking_coal.id,
+            material_reference=coking_coal.code,
+            supplier_id=bhp.id,
+            supplier_reference=bhp.code,
+            quantity_value=coal_shipment.quantity_mt,
+            previous_value={"eta": (now + timedelta(days=3)).isoformat()},
+            new_value={
+                "eta": coal_shipment.current_eta.isoformat(),
+                "reason": "Paradip berth congestion pushed discharge beyond blast furnace cover buffer.",
+            },
+            metadata={
+                "continuity_note": "Vessel discharge delayed at Paradip; operating buffer began compressing.",
+            },
+        )
+        emit_shipment_update_event(
+            db,
+            tenant_id=tenant.id,
+            event_type=OperationalEventType.SHIPMENT_MILESTONE_UPDATED,
+            occurred_at=now - timedelta(days=1, hours=10),
+            source_reference="tms",
+            source_id=source.id,
+            shipment_id=coal_shipment.id,
+            shipment_reference=coal_shipment.shipment_id,
+            plant_id=jamshedpur.id,
+            plant_reference=jamshedpur.code,
+            material_id=coking_coal.id,
+            material_reference=coking_coal.code,
+            supplier_id=bhp.id,
+            supplier_reference=bhp.code,
+            quantity_value=coal_shipment.quantity_mt,
+            previous_value={"milestone": "anchorage_waiting"},
+            new_value={"milestone": "berth_window_missed"},
+            metadata={
+                "continuity_note": "Discharge window missed; inland rake planning stayed uncertain.",
+            },
+        )
+        emit_inventory_stock_updated(
+            db,
+            tenant_id=tenant.id,
+            occurred_at=now - timedelta(hours=10),
+            source_reference="erp",
+            source_id=source.id,
+            plant_id=jamshedpur.id,
+            plant_reference=jamshedpur.code,
+            material_id=coking_coal.id,
+            material_reference=coking_coal.code,
+            quantity_value=Decimal("6000"),
+            previous_value={"available_to_consume_mt": "14800"},
+            new_value={
+                "available_to_consume_mt": "6000",
+                "quality_held_mt": "2500",
+                "daily_consumption_mt": "4200",
+            },
+            metadata={
+                "continuity_note": "Coking coal cover compressed below blast furnace operating buffer.",
+            },
+        )
+        create_operational_event(
+            db,
+            OperationalEventCreate(
+                tenant_id=tenant.id,
+                event_type=OperationalEventType.PLANNING_CONSUMPTION_UPDATED,
+                event_category=OperationalEventCategory.PLANNING,
+                source_type=OperationalEventSourceType.ERP,
+                source_id=source.id,
+                source_reference="erp",
+                occurred_at=now - timedelta(hours=8),
+                plant_id=jamshedpur.id,
+                plant_reference=jamshedpur.code,
+                material_id=coking_coal.id,
+                material_reference=coking_coal.code,
+                previous_value={"daily_consumption_mt": "3600"},
+                new_value={"daily_consumption_mt": "4200"},
+                metadata={
+                    "continuity_note": "Higher hot metal plan increased coking coal drawdown rate.",
+                },
+            ),
+        )
+        emit_shipment_update_event(
+            db,
+            tenant_id=tenant.id,
+            event_type=OperationalEventType.SHIPMENT_DELAY_DETECTED,
+            occurred_at=now - timedelta(hours=18),
+            source_reference="tms",
+            source_id=source.id,
+            shipment_id=lime_shipment.id,
+            shipment_reference=lime_shipment.shipment_id,
+            plant_id=kalinga.id,
+            plant_reference=kalinga.code,
+            material_id=limestone.id,
+            material_reference=limestone.code,
+            supplier_id=rsmml.id,
+            supplier_reference=rsmml.code,
+            quantity_value=lime_shipment.quantity_mt,
+            previous_value={"arrival_slot": (now - timedelta(days=1)).isoformat()},
+            new_value={
+                "arrival_slot": lime_shipment.current_eta.isoformat(),
+                "reason": "Dhamra-origin limestone movement missed unloading slot at Kalinganagar.",
+            },
+            metadata={
+                "continuity_note": "Limestone rake unload delay reduced flux cover for Kalinganagar.",
+            },
+        )
 
         db.commit()
-        print("Seeded full OpsDeck MVP demo tenant with stock, suppliers, shipments, movement, exceptions, line stops, and sync freshness.")
+        print("Seeded OpsDeck continuity scenario tenant with stock, suppliers, inbound signals, movement degradation, line stops, and sync freshness.")
         print("Demo password for tenant users: Password123!")
         print("Superadmin login: superadmin@opsdeck.local / SuperAdmin123! (no tenant membership)")
     finally:

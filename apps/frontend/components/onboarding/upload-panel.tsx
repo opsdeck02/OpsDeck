@@ -672,7 +672,7 @@ export function UploadPanel({
                   </div>
                 ))}
                 {dataSources.length === 0 ? (
-                  <p className="text-sm text-mutedForeground">No continuity signal sources saved yet.</p>
+                  <p className="text-sm text-mutedForeground">No operational signal sources are watching continuity yet.</p>
                 ) : null}
               </div>
             </div>
@@ -749,7 +749,7 @@ export function UploadPanel({
           ))}
           {history.length === 0 ? (
             <div className="rounded-xl bg-slate-50 p-3 text-sm text-mutedForeground ring-1 ring-slate-900/5">
-              No continuity signal chain detected yet.
+              No source ingestion has contributed to the continuity signal chain yet.
             </div>
           ) : null}
         </div>

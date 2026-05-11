@@ -154,7 +154,7 @@ function WorkspaceContent({ workspace }: { workspace: RiskWorkspaceResponse }) {
             <p className="max-w-3xl text-sm leading-5 text-white/68">
               {exposure?.operational_reason ??
                 explainability?.summary ??
-                "Operational risk context is available for review."}
+                "Continuity exposure context is available for review."}
             </p>
           </CardHeader>
           <CardContent>
@@ -317,7 +317,7 @@ function WhyThisMatters({ workspace }: { workspace: RiskWorkspaceResponse }) {
           ))}
           {reasonChain.length === 0 ? (
             <p className="rounded-xl bg-slate-50 px-3 py-3 text-sm text-mutedForeground ring-1 ring-slate-900/5">
-              No risk formation details were returned for this workspace.
+              No causal signal chain was returned for this selected exposure.
             </p>
           ) : null}
         </div>
@@ -409,7 +409,7 @@ function ContinuitySummary({
               ))}
               {inventory.length === 0 ? (
                 <p className="text-sm text-mutedForeground">
-                  No available cover context returned for this view.
+                  No plant/material cover context returned for this exposure.
                 </p>
               ) : null}
             </div>
@@ -425,7 +425,7 @@ function ContinuitySummary({
               ))}
               {shipments.length === 0 ? (
                 <p className="text-sm text-mutedForeground">
-                  No inbound continuity condition returned for this view.
+                  No inbound dependency condition returned for this view.
                 </p>
               ) : null}
             </div>
@@ -459,7 +459,7 @@ function TimelinePanel({
           ))}
           {timeline.items.length === 0 ? (
             <p className="rounded-xl bg-slate-50 px-3 py-3 text-sm text-mutedForeground ring-1 ring-slate-900/5">
-              No continuity signal chain detected.
+              No historical continuity signal chain detected.
             </p>
           ) : null}
         </div>
@@ -514,7 +514,7 @@ function RelationshipPanel({
           ))}
           {priorityNodes.length === 0 ? (
             <p className="rounded-xl bg-slate-50 px-3 py-3 text-sm text-mutedForeground ring-1 ring-slate-900/5">
-              No connected operational records returned.
+              No connected operational dependency records returned.
             </p>
           ) : null}
           <div className="space-y-1.5">

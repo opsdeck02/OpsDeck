@@ -492,7 +492,7 @@ function VesselTrackingCard({
         <>
           {position.is_mock ? (
             <p className="mt-3 rounded-xl bg-muted p-3 text-sm text-mutedForeground">
-              Demo vessel position, not live AIS.
+              Scenario vessel position, not live AIS.
             </p>
           ) : null}
           <div className="mt-4 grid gap-3 md:grid-cols-2">

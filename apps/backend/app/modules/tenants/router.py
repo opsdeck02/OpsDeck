@@ -95,7 +95,7 @@ def list_tenants(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Superadmin does not have access to tenant operational data",
         )
-    return [{"name": "Demo Steel Plant", "slug": context.tenant_slug or "default"}]
+    return [{"name": "Eastern Steel Operations", "slug": context.tenant_slug or "default"}]
 
 
 @router.post("/plants", response_model=TenantPlantBootstrapResponse)
