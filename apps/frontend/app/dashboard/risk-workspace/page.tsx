@@ -49,7 +49,7 @@ export default async function CriticalRiskWorkspacePage({
       timeline_limit: 50,
       timeline_offset: 0,
     }),
-    getSignalRisks(),
+    getSignalRisks({ plant_reference: searchParams?.plant_reference }),
   ]);
 
   if (!workspace) {
@@ -60,10 +60,7 @@ export default async function CriticalRiskWorkspacePage({
     <main className="grid min-w-0 gap-3">
       <WorkspaceFilters searchParams={searchParams} />
       {risks.length > 0 ? (
-        <ExposureSelector
-          risks={risks}
-          selected={workspace.selected_risk}
-        />
+        <ExposureSelector risks={risks} selected={workspace.selected_risk} />
       ) : null}
 
       {workspace.empty ? (
@@ -152,7 +149,7 @@ function WorkspaceContent({ workspace }: { workspace: RiskWorkspaceResponse }) {
             <CardTitle className="mt-2 text-2xl tracking-tight">
               {contextTitle(risk?.material_reference, risk?.plant_reference)}
             </CardTitle>
-            <p className="max-w-3xl text-sm leading-5 text-white/68">
+            <p className="text-white/68 max-w-3xl text-sm leading-5">
               {exposure?.operational_reason ??
                 explainability?.summary ??
                 "Continuity exposure context is available for review."}
@@ -187,7 +184,9 @@ function WorkspaceContent({ workspace }: { workspace: RiskWorkspaceResponse }) {
                 helper={formatLabel(
                   risk?.continuity_status ?? "dependency context",
                 )}
-                tone={risk?.continuity_status === "degraded" ? "warning" : "default"}
+                tone={
+                  risk?.continuity_status === "degraded" ? "warning" : "default"
+                }
               />
               <SignalMetric
                 icon={<AlertTriangle className="h-4 w-4" />}
@@ -226,7 +225,9 @@ function WorkspaceFilters({ searchParams }: { searchParams?: SearchParams }) {
           <div>
             <CardTitle>Continuity risk workspace</CardTitle>
             <p className="mt-1 text-sm text-mutedForeground">
-              Focus one exposure, then brief the morning operating review.
+              {searchParams?.plant_reference
+                ? `Viewing continuity for ${searchParams.plant_reference}.`
+                : "Viewing continuity for All plants."}
             </p>
           </div>
           <DailyBriefButton />
@@ -316,7 +317,9 @@ function WhyThisMatters({ workspace }: { workspace: RiskWorkspaceResponse }) {
               key={`${reason}-${index}`}
               className="relative flex gap-3 pb-4"
             >
-              <span className={`z-10 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${causalDotClass(index, reasonChain.length)}`}>
+              <span
+                className={`z-10 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${causalDotClass(index, reasonChain.length)}`}
+              >
                 {index + 1}
               </span>
               <div className="min-w-0 rounded-xl bg-slate-50 px-3 py-2.5 ring-1 ring-slate-900/5">
@@ -368,7 +371,9 @@ function TrustSummary({ workspace }: { workspace: RiskWorkspaceResponse }) {
             helper="latest source"
           />
           <div className="rounded-xl bg-slate-50 p-3 ring-1 ring-slate-900/5">
-            <p className="text-xs font-semibold text-mutedForeground">Trust degradation</p>
+            <p className="text-xs font-semibold text-mutedForeground">
+              Trust degradation
+            </p>
             {warnings.length > 0 ? (
               <ul className="mt-3 space-y-2 text-sm">
                 {warnings.map((warning) => (
@@ -378,7 +383,9 @@ function TrustSummary({ workspace }: { workspace: RiskWorkspaceResponse }) {
                 ))}
               </ul>
             ) : (
-              <p className="mt-2 text-sm text-mutedForeground">No trust warnings.</p>
+              <p className="mt-2 text-sm text-mutedForeground">
+                No trust warnings.
+              </p>
             )}
           </div>
         </div>
@@ -407,7 +414,9 @@ function ContinuitySummary({
           <div className="rounded-xl bg-slate-50 p-3 ring-1 ring-slate-900/5">
             <div className="flex items-center justify-between gap-3">
               <h3 className="font-semibold">Available cover</h3>
-              <span className="text-xs font-semibold text-mutedForeground">{inventory.length} material contexts</span>
+              <span className="text-xs font-semibold text-mutedForeground">
+                {inventory.length} material contexts
+              </span>
             </div>
             <div className="mt-3 grid gap-2 sm:grid-cols-3">
               {inventory.slice(0, 2).map((item) => (
@@ -483,10 +492,18 @@ function RelationshipPanel({
   graph: SignalRelationshipGraph | null;
 }) {
   const nodeById = new Map((graph?.nodes ?? []).map((node) => [node.id, node]));
-  const priorityNodes = ["shipment", "plant", "material", "supplier", "risk_candidate"]
+  const priorityNodes = [
+    "shipment",
+    "plant",
+    "material",
+    "supplier",
+    "risk_candidate",
+  ]
     .map((type) => ({
       type,
-      nodes: (graph?.nodes ?? []).filter((node) => node.type === type).slice(0, 4),
+      nodes: (graph?.nodes ?? [])
+        .filter((node) => node.type === type)
+        .slice(0, 4),
     }))
     .filter((group) => group.nodes.length > 0);
   const priorityEdges = (graph?.edges ?? [])
@@ -494,7 +511,13 @@ function RelationshipPanel({
       const fromType = nodeById.get(edge.from_node_id)?.type;
       const toType = nodeById.get(edge.to_node_id)?.type;
       return [fromType, toType].some((type) =>
-        ["shipment", "plant", "material", "supplier", "risk_candidate"].includes(type ?? ""),
+        [
+          "shipment",
+          "plant",
+          "material",
+          "supplier",
+          "risk_candidate",
+        ].includes(type ?? ""),
       );
     })
     .slice(0, 5);
@@ -510,11 +533,19 @@ function RelationshipPanel({
       <CardContent>
         <div className="grid gap-2.5">
           {priorityNodes.map((group) => (
-            <div key={group.type} className="rounded-xl bg-slate-50 p-3 ring-1 ring-slate-900/5">
-              <p className="text-xs font-semibold text-mutedForeground">{formatLabel(group.type)}</p>
+            <div
+              key={group.type}
+              className="rounded-xl bg-slate-50 p-3 ring-1 ring-slate-900/5"
+            >
+              <p className="text-xs font-semibold text-mutedForeground">
+                {formatLabel(group.type)}
+              </p>
               <div className="mt-2 flex flex-wrap gap-2">
                 {group.nodes.map((node) => (
-                  <span key={node.id} className="rounded-full bg-white px-2.5 py-1 text-xs font-medium text-slate-700 ring-1 ring-slate-900/5">
+                  <span
+                    key={node.id}
+                    className="rounded-full bg-white px-2.5 py-1 text-xs font-medium text-slate-700 ring-1 ring-slate-900/5"
+                  >
                     {node.label}
                   </span>
                 ))}
@@ -571,7 +602,9 @@ function InventoryBlock({ item }: { item: SignalInventoryContinuity }) {
 
 function ShipmentBlock({ shipment }: { shipment: SignalShipmentContinuity }) {
   return (
-    <div className={`rounded-xl p-3 ring-1 ${shipment.status === "degraded" ? "bg-red-50 ring-red-200" : shipment.status === "watch" ? "bg-amber-50 ring-amber-200" : "bg-white ring-slate-900/5"}`}>
+    <div
+      className={`rounded-xl p-3 ring-1 ${shipment.status === "degraded" ? "bg-red-50 ring-red-200" : shipment.status === "watch" ? "bg-amber-50 ring-amber-200" : "bg-white ring-slate-900/5"}`}
+    >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="font-semibold">{shipment.shipment_reference}</p>
         <Badge variant="outline">{formatLabel(shipment.status)}</Badge>
@@ -662,9 +695,7 @@ function SignalMetric({
 function ContextPill({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-xl bg-white px-3 py-2 ring-1 ring-slate-900/5">
-      <p className="text-xs font-semibold text-mutedForeground">
-        {label}
-      </p>
+      <p className="text-xs font-semibold text-mutedForeground">{label}</p>
       <p className="mt-1 break-words text-sm font-semibold">{value}</p>
     </div>
   );
@@ -695,10 +726,7 @@ const severityRank: Record<string, number> = {
   low: 3,
 };
 
-function riskSortKey(
-  left: SignalRiskCandidate,
-  right: SignalRiskCandidate,
-) {
+function riskSortKey(left: SignalRiskCandidate, right: SignalRiskCandidate) {
   const severity =
     (severityRank[left.severity] ?? 99) - (severityRank[right.severity] ?? 99);
   if (severity !== 0) return severity;

@@ -1,17 +1,33 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { AlertTriangle, ArrowRight, Boxes, Clock3, ShieldAlert, TimerReset } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowRight,
+  Boxes,
+  Clock3,
+  ShieldAlert,
+  TimerReset,
+} from "lucide-react";
 
 import { DailyBriefButton } from "@/components/reports/daily-brief-button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { getCurrentUser, getExecutiveDashboard, getStockCoverSummary } from "@/lib/api";
+import {
+  getCurrentUser,
+  getExecutiveDashboard,
+  getStockCoverSummary,
+} from "@/lib/api";
+import { selectedPlantContext } from "@/lib/plant-context";
 
 export const dynamic = "force-dynamic";
 
 const icons = [Boxes, ShieldAlert, AlertTriangle, TimerReset];
 
-export default async function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams?: { plant_reference?: string };
+}) {
   const [executive, user, stockSummary] = await Promise.all([
     getExecutiveDashboard(),
     getCurrentUser(),
@@ -20,15 +36,44 @@ export default async function DashboardPage() {
   if (user?.is_superadmin) {
     redirect("/dashboard/superadmin");
   }
+  const plantOptions = uniquePlantOptionsFromStock(stockSummary?.rows ?? []);
+  const selectedPlant = selectedPlantContext(
+    plantOptions,
+    searchParams?.plant_reference,
+  );
+  const selectedPlantId = selectedPlant?.plantId;
+  const plantContextLabel = selectedPlant?.label ?? "All plants";
   const activeTenant = executive?.tenant ?? "demo-steel";
-  const kpis = executive?.kpis;
-  const topRisks = executive?.top_risks ?? [];
+  const filteredStockRows =
+    selectedPlantId === undefined
+      ? (stockSummary?.rows ?? [])
+      : (stockSummary?.rows ?? []).filter(
+          (row) => row.plant_id === selectedPlantId,
+        );
+  const filteredExecutiveRisks =
+    selectedPlantId === undefined
+      ? (executive?.top_risks ?? [])
+      : (executive?.top_risks ?? []).filter(
+          (row) => row.plant_id === selectedPlantId,
+        );
+  const kpis = selectedPlant
+    ? {
+        critical_risks: filteredStockRows.filter(
+          (row) => row.calculation.status === "critical",
+        ).length,
+        warning_risks: filteredStockRows.filter(
+          (row) => row.calculation.status === "warning",
+        ).length,
+      }
+    : executive?.kpis;
+  const topRisks = filteredExecutiveRisks;
   const criticalRisks = kpis?.critical_risks ?? 0;
   const shortestDaysToLineStop = shortestDays(topRisks);
   const leadRisk = topRisks[0] ?? null;
-  const dataFreshnessLabel = executive?.automated_data_freshness?.data_freshness_status
-    ?? executive?.stock_freshness.freshness_label
-    ?? "unknown";
+  const dataFreshnessLabel =
+    executive?.automated_data_freshness?.data_freshness_status ??
+    executive?.stock_freshness.freshness_label ??
+    "unknown";
 
   return (
     <main className="min-w-0">
@@ -38,10 +83,20 @@ export default async function DashboardPage() {
             <div className="min-w-0 rounded-2xl bg-white/[0.06] p-3.5 ring-1 ring-white/10">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="flex flex-wrap items-center gap-2">
-                  <Badge className={leadRisk?.status === "critical" ? "bg-red-500 text-white" : criticalRisks > 0 ? "bg-red-500 text-white" : "bg-blue-500 text-white"}>
+                  <Badge
+                    className={
+                      leadRisk?.status === "critical"
+                        ? "bg-red-500 text-white"
+                        : criticalRisks > 0
+                          ? "bg-red-500 text-white"
+                          : "bg-blue-500 text-white"
+                    }
+                  >
                     Continuity exposure overview
                   </Badge>
-                  <span className="text-xs text-white/60">{activeTenant}</span>
+                  <span className="text-xs text-white/60">
+                    {activeTenant} · {plantContextLabel}
+                  </span>
                 </div>
                 <DailyBriefButton compact />
               </div>
@@ -50,13 +105,18 @@ export default async function DashboardPage() {
                   ? `${leadRisk.material_name} exposure at ${leadRisk.plant_name}`
                   : "No critical exposure detected"}
               </h1>
-              <p className="mt-2 max-w-2xl text-sm leading-5 text-white/68">
+              <p className="text-white/68 mt-2 max-w-2xl text-sm leading-5">
                 {leadRisk
                   ? `${rootCauseFor(leadRisk)}. Available cover is ${displayDays(leadRisk.days_of_cover)} with next inbound ${formatDate(leadRisk.next_inbound_eta)}.`
-                  : "Operational continuity remains stable across monitored inbound dependencies."}
+                  : selectedPlant
+                    ? `Operational continuity remains stable for ${plantContextLabel}.`
+                    : "Operational continuity remains stable across monitored inbound dependencies."}
               </p>
               <Link
-                href="/dashboard/risk-workspace"
+                href={dashboardHref(
+                  "/dashboard/risk-workspace",
+                  searchParams?.plant_reference,
+                )}
                 className="mt-4 inline-flex items-center gap-2 rounded-xl bg-white px-3.5 py-2 text-sm font-semibold text-slate-950"
               >
                 Open risk workspace
@@ -81,7 +141,13 @@ export default async function DashboardPage() {
                 label="Why"
                 value={leadRisk ? rootCauseFor(leadRisk) : "Stable cover"}
                 helper="continuity driver"
-                tone={leadRisk?.status === "warning" ? "warning" : criticalRisks > 0 ? "critical" : "passive"}
+                tone={
+                  leadRisk?.status === "warning"
+                    ? "warning"
+                    : criticalRisks > 0
+                      ? "critical"
+                      : "passive"
+                }
               />
               <PressureMetric
                 label="Trust"
@@ -103,7 +169,17 @@ export default async function DashboardPage() {
               <CardTitle>Continuity overview unavailable</CardTitle>
             </CardHeader>
             <CardContent className="text-sm text-mutedForeground">
-              The continuity overview could not be loaded. Confirm you are signed in to the correct tenant and try again.
+              The continuity overview could not be loaded. Confirm you are
+              signed in to the correct tenant and try again.
+            </CardContent>
+          </Card>
+        ) : null}
+
+        {searchParams?.plant_reference && !selectedPlant ? (
+          <Card className="bg-card/90 shadow-panel">
+            <CardContent className="py-3 text-sm text-mutedForeground">
+              This view is tenant-wide until plant-level source data is
+              available for {searchParams.plant_reference}.
             </CardContent>
           </Card>
         ) : null}
@@ -115,9 +191,13 @@ export default async function DashboardPage() {
                 <AlertTriangle className="h-5 w-5" />
               </div>
               <div>
-                <h2 className="text-lg font-semibold">Plant continuity risk active</h2>
+                <h2 className="text-lg font-semibold">
+                  Plant continuity risk active
+                </h2>
                 <p className="mt-1 text-sm text-red-900">
-                  {criticalRisks} critical material dependencies are inside the operating buffer.
+                  {criticalRisks} critical material dependencies are inside the
+                  operating buffer
+                  {selectedPlant ? ` for ${plantContextLabel}` : ""}.
                 </p>
               </div>
             </div>
@@ -126,8 +206,16 @@ export default async function DashboardPage() {
 
         <section className="grid min-w-0 gap-2.5 md:grid-cols-2 xl:grid-cols-4">
           {[
-            { label: "Critical exposure", value: String(kpis?.critical_risks ?? 0), trend: "immediate continuity threat" },
-            { label: "Degrading cover", value: String(kpis?.warning_risks ?? 0), trend: "continuity pressure building" },
+            {
+              label: "Critical exposure",
+              value: String(kpis?.critical_risks ?? 0),
+              trend: "immediate continuity threat",
+            },
+            {
+              label: "Degrading cover",
+              value: String(kpis?.warning_risks ?? 0),
+              trend: "continuity pressure building",
+            },
             {
               label: "Shortest days to line stop",
               value: displayDays(shortestDaysToLineStop),
@@ -143,7 +231,10 @@ export default async function DashboardPage() {
           ].map((metric, index) => {
             const Icon = icons[index % icons.length];
             return (
-              <Card key={metric.label} className="relative min-w-0 overflow-hidden">
+              <Card
+                key={metric.label}
+                className="relative min-w-0 overflow-hidden"
+              >
                 <CardHeader className="min-w-0 space-y-2">
                   <div className="absolute right-4 top-4 rounded-xl bg-slate-100 p-2 text-mutedForeground">
                     <Icon className="h-4 w-4" />
@@ -152,11 +243,15 @@ export default async function DashboardPage() {
                     <CardTitle className="text-sm font-medium leading-snug text-mutedForeground">
                       {metric.label}
                     </CardTitle>
-                    <p className="mt-2 break-words text-2xl font-semibold leading-tight tracking-tight">{metric.value}</p>
+                    <p className="mt-2 break-words text-2xl font-semibold leading-tight tracking-tight">
+                      {metric.value}
+                    </p>
                   </div>
                 </CardHeader>
                 <CardContent className="px-4 pb-4">
-                  <p className="break-words text-sm leading-snug text-mutedForeground">{metric.trend}</p>
+                  <p className="break-words text-sm leading-snug text-mutedForeground">
+                    {metric.trend}
+                  </p>
                 </CardContent>
               </Card>
             );
@@ -169,13 +264,20 @@ export default async function DashboardPage() {
               <div className="flex items-center justify-between gap-3">
                 <CardTitle>Current exposure signals</CardTitle>
                 <Link
-                  href="/dashboard/risk-workspace"
+                  href={dashboardHref(
+                    "/dashboard/risk-workspace",
+                    searchParams?.plant_reference,
+                  )}
                   className="rounded-xl border px-3 py-2 text-xs font-semibold"
                 >
                   Review workspace
                 </Link>
               </div>
-              <p className="text-sm text-mutedForeground">Highest-pressure operating contexts.</p>
+              <p className="text-sm text-mutedForeground">
+                {selectedPlant
+                  ? `Viewing continuity for ${plantContextLabel}.`
+                  : "Highest-pressure operating contexts across All plants."}
+              </p>
             </CardHeader>
             <CardContent>
               <div className="space-y-2">
@@ -192,11 +294,15 @@ export default async function DashboardPage() {
                         >
                           {row.material_name}
                         </Link>
-                        <p className="mt-1 break-words text-sm text-mutedForeground">{row.plant_name}</p>
+                        <p className="mt-1 break-words text-sm text-mutedForeground">
+                          {row.plant_name}
+                        </p>
                       </div>
                       <div className="flex flex-wrap items-center gap-2">
                         <StatusBadge status={row.status} />
-                        <span className="rounded-full bg-white/70 px-2.5 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-900/10">{rootCauseFor(row)}</span>
+                        <span className="rounded-full bg-white/70 px-2.5 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-900/10">
+                          {rootCauseFor(row)}
+                        </span>
                       </div>
                     </div>
                     <div className="mt-3 grid min-w-0 gap-2 sm:grid-cols-2 xl:grid-cols-[1.15fr_0.9fr_0.9fr_1.2fr]">
@@ -212,7 +318,11 @@ export default async function DashboardPage() {
                         value={displayTonnes(row.usable_stock_mt)}
                         helper="available cover"
                       />
-                      <RiskMetric label="Blocked" value={displayTonnes(row.blocked_stock_mt)} tone="warning" />
+                      <RiskMetric
+                        label="Blocked"
+                        value={displayTonnes(row.blocked_stock_mt)}
+                        tone="warning"
+                      />
                       <RiskMetric
                         label="Incoming"
                         value={displayTonnes(row.raw_inbound_pipeline_mt)}
@@ -222,12 +332,19 @@ export default async function DashboardPage() {
                     <div className="mt-3 grid min-w-0 gap-3 border-t border-slate-900/10 pt-3 md:grid-cols-[minmax(0,1fr)_minmax(0,0.85fr)]">
                       <DecisionField label="Signal" value={rootCauseFor(row)} />
                       <div className="min-w-0">
-                        <p className="text-xs font-semibold text-mutedForeground">Exposure value</p>
+                        <p className="text-xs font-semibold text-mutedForeground">
+                          Exposure value
+                        </p>
                         <p className="mt-1 font-semibold text-foreground">
                           {displayCurrency(row.estimated_value_at_risk)}
                         </p>
                         <p className="mt-1 break-words text-xs text-mutedForeground">
-                          {displayTonnes(row.estimated_production_exposure_mt)} exposed · {formatAssumptionLine(row.value_per_mt_used, row.criticality_multiplier_used)}
+                          {displayTonnes(row.estimated_production_exposure_mt)}{" "}
+                          exposed ·{" "}
+                          {formatAssumptionLine(
+                            row.value_per_mt_used,
+                            row.criticality_multiplier_used,
+                          )}
                         </p>
                       </div>
                     </div>
@@ -235,31 +352,38 @@ export default async function DashboardPage() {
                 ))}
                 {topRisks.length === 0 ? (
                   <div className="rounded-2xl bg-slate-50 px-4 py-8 text-center text-sm text-mutedForeground ring-1 ring-slate-900/5">
-                    {stockSummary && stockSummary.total_combinations > 0
-                      ? `${stockSummary.total_combinations} operating contexts loaded. No continuity exposure is currently flagged.`
+                    {filteredStockRows.length > 0
+                      ? `${filteredStockRows.length} operating contexts loaded. No continuity exposure is currently flagged.`
                       : "Operational continuity remains calm across loaded contexts."}
                   </div>
                 ) : null}
               </div>
-              {(executive?.top_risks ?? []).length === 0 && (stockSummary?.rows.length ?? 0) > 0 ? (
+              {topRisks.length === 0 && filteredStockRows.length > 0 ? (
                 <div className="mt-3 rounded-2xl bg-slate-50 p-3 text-sm ring-1 ring-slate-900/5">
                   <p className="font-semibold">Continuity signals loaded</p>
                   <p className="mt-1 text-mutedForeground">
-                    Operating buffers are holding across monitored plant/material dependencies.
+                    Operating buffers are holding{" "}
+                    {selectedPlant
+                      ? `for ${plantContextLabel}`
+                      : "across monitored plant/material dependencies"}
+                    .
                   </p>
                   <div className="mt-3 grid gap-2 md:grid-cols-2">
-                    {stockSummary?.rows.slice(0, 4).map((row) => (
+                    {filteredStockRows.slice(0, 4).map((row) => (
                       <Link
                         key={`${row.plant_id}-${row.material_id}`}
                         href={`/dashboard/stock-cover/${row.plant_id}/${row.material_id}`}
                         className="rounded-xl bg-white px-3 py-2.5 ring-1 ring-slate-900/5 hover:ring-primary/40"
                       >
                         <div className="flex items-center justify-between gap-3">
-                          <span className="font-medium">{row.material_name}</span>
+                          <span className="font-medium">
+                            {row.material_name}
+                          </span>
                           <StatusBadge status={row.calculation.status} />
                         </div>
                         <p className="mt-1 text-mutedForeground">
-                          {row.plant_name} · {displayDays(row.calculation.days_of_cover)} cover
+                          {row.plant_name} ·{" "}
+                          {displayDays(row.calculation.days_of_cover)} cover
                         </p>
                       </Link>
                     ))}
@@ -270,13 +394,28 @@ export default async function DashboardPage() {
           </Card>
 
           <div className="grid gap-4">
-            <AutomatedFreshnessCard summary={executive?.automated_data_freshness ?? null} freshness={dataFreshnessLabel} />
+            <AutomatedFreshnessCard
+              summary={executive?.automated_data_freshness ?? null}
+              freshness={dataFreshnessLabel}
+            />
             <FreshnessCard
               title="Signal trust status"
               items={[
-                ["Inventory signal", executive?.stock_freshness.freshness_label ?? "unknown", executive?.stock_freshness.last_updated_at ?? null],
-                ["Continuity signal", executive?.exception_freshness.freshness_label ?? "unknown", executive?.exception_freshness.last_updated_at ?? null],
-                ["Inbound signal", executive?.movement_freshness.freshness_label ?? "unknown", executive?.movement_freshness.last_updated_at ?? null],
+                [
+                  "Inventory signal",
+                  executive?.stock_freshness.freshness_label ?? "unknown",
+                  executive?.stock_freshness.last_updated_at ?? null,
+                ],
+                [
+                  "Continuity signal",
+                  executive?.exception_freshness.freshness_label ?? "unknown",
+                  executive?.exception_freshness.last_updated_at ?? null,
+                ],
+                [
+                  "Inbound signal",
+                  executive?.movement_freshness.freshness_label ?? "unknown",
+                  executive?.movement_freshness.last_updated_at ?? null,
+                ],
               ]}
             />
           </div>
@@ -284,6 +423,29 @@ export default async function DashboardPage() {
       </div>
     </main>
   );
+}
+
+function uniquePlantOptionsFromStock(
+  rows: Array<{ plant_id: number; plant_code: string; plant_name: string }>,
+) {
+  const options = new Map<
+    string,
+    { reference: string; label: string; plantId: number }
+  >();
+  for (const row of rows) {
+    if (!row.plant_code) continue;
+    options.set(row.plant_code, {
+      reference: row.plant_code,
+      label: row.plant_name || row.plant_code,
+      plantId: row.plant_id,
+    });
+  }
+  return [...options.values()];
+}
+
+function dashboardHref(href: string, plantReference?: string) {
+  if (!plantReference) return href;
+  return `${href}?${new URLSearchParams({ plant_reference: plantReference }).toString()}`;
 }
 
 function RiskMetric({
@@ -308,10 +470,16 @@ function RiskMetric({
   return (
     <div className={`min-w-0 rounded-xl px-3 py-2 ring-1 ${toneClass}`}>
       <p className="text-xs font-semibold text-mutedForeground">{label}</p>
-      <p className={`mt-1 break-words font-semibold ${prominent ? "text-xl" : ""}`}>
+      <p
+        className={`mt-1 break-words font-semibold ${prominent ? "text-xl" : ""}`}
+      >
         {value}
       </p>
-      {helper ? <p className="mt-1 break-words text-xs text-mutedForeground">{helper}</p> : null}
+      {helper ? (
+        <p className="mt-1 break-words text-xs text-mutedForeground">
+          {helper}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -340,8 +508,12 @@ function PressureMetric({
   return (
     <div className={`min-w-0 rounded-2xl p-3.5 ring-1 ${toneClass}`}>
       <p className="text-xs font-semibold text-white/55">{label}</p>
-      <p className={`mt-2 truncate font-semibold leading-none ${priority ? "text-4xl text-white" : "text-2xl"}`}>{value}</p>
-      <p className="mt-1.5 truncate text-xs text-white/58">{helper}</p>
+      <p
+        className={`mt-2 truncate font-semibold leading-none ${priority ? "text-4xl text-white" : "text-2xl"}`}
+      >
+        {value}
+      </p>
+      <p className="text-white/58 mt-1.5 truncate text-xs">{helper}</p>
     </div>
   );
 }
@@ -360,14 +532,14 @@ function AutomatedFreshnessCard({
   freshness,
 }: {
   summary: {
-      last_sync_summary: {
-        last_synced_at: string | null;
-        last_sync_status: string | null;
-        new_critical_risks_count: number;
-        resolved_risks_count: number;
-        newly_breached_actions_count: number;
-        source_type?: string | null;
-      };
+    last_sync_summary: {
+      last_synced_at: string | null;
+      last_sync_status: string | null;
+      new_critical_risks_count: number;
+      resolved_risks_count: number;
+      newly_breached_actions_count: number;
+      source_type?: string | null;
+    };
     data_freshness_status: string;
     data_freshness_age_minutes: number | null;
   } | null;
@@ -380,13 +552,52 @@ function AutomatedFreshnessCard({
       </CardHeader>
       <CardContent className="space-y-3 text-sm">
         {!summary ? (
-          <TrustLine label="Freshness" value={freshness} tone={freshnessTone(freshness)} />
+          <TrustLine
+            label="Freshness"
+            value={freshness}
+            tone={freshnessTone(freshness)}
+          />
         ) : (
           <>
-            <TrustLine label="Freshness" value={summary.data_freshness_status} tone={freshnessTone(summary.data_freshness_status)} />
-            <TrustLine label="Sync age" value={summary.data_freshness_age_minutes !== null ? `${summary.data_freshness_age_minutes} min` : "not synced"} tone={summary.data_freshness_age_minutes !== null && summary.data_freshness_age_minutes > 240 ? "warning" : "info"} />
-            <TrustLine label="Sync failures" value={summary.last_sync_summary.last_sync_status ?? "not started"} tone={summary.last_sync_summary.last_sync_status === "failed" ? "critical" : "passive"} />
-            <TrustLine label="New exposure" value={String(summary.last_sync_summary.new_critical_risks_count)} tone={summary.last_sync_summary.new_critical_risks_count > 0 ? "critical" : "passive"} />
+            <TrustLine
+              label="Freshness"
+              value={summary.data_freshness_status}
+              tone={freshnessTone(summary.data_freshness_status)}
+            />
+            <TrustLine
+              label="Sync age"
+              value={
+                summary.data_freshness_age_minutes !== null
+                  ? `${summary.data_freshness_age_minutes} min`
+                  : "not synced"
+              }
+              tone={
+                summary.data_freshness_age_minutes !== null &&
+                summary.data_freshness_age_minutes > 240
+                  ? "warning"
+                  : "info"
+              }
+            />
+            <TrustLine
+              label="Sync failures"
+              value={
+                summary.last_sync_summary.last_sync_status ?? "not started"
+              }
+              tone={
+                summary.last_sync_summary.last_sync_status === "failed"
+                  ? "critical"
+                  : "passive"
+              }
+            />
+            <TrustLine
+              label="New exposure"
+              value={String(summary.last_sync_summary.new_critical_risks_count)}
+              tone={
+                summary.last_sync_summary.new_critical_risks_count > 0
+                  ? "critical"
+                  : "passive"
+              }
+            />
           </>
         )}
       </CardContent>
@@ -394,7 +605,13 @@ function AutomatedFreshnessCard({
   );
 }
 
-function FreshnessCard({ title, items }: { title: string; items: Array<[string, string, string | null]> }) {
+function FreshnessCard({
+  title,
+  items,
+}: {
+  title: string;
+  items: Array<[string, string, string | null]>;
+}) {
   return (
     <Card>
       <CardHeader>
@@ -402,7 +619,10 @@ function FreshnessCard({ title, items }: { title: string; items: Array<[string, 
       </CardHeader>
       <CardContent className="space-y-3 text-sm">
         {items.map(([label, freshness, updatedAt]) => (
-          <div key={label} className={`rounded-xl px-3 py-2 ring-1 ${trustToneClass(freshnessTone(freshness))}`}>
+          <div
+            key={label}
+            className={`rounded-xl px-3 py-2 ring-1 ${trustToneClass(freshnessTone(freshness))}`}
+          >
             <div className="flex items-center justify-between gap-3">
               <span className="font-medium">{label}</span>
               <Badge variant="outline">{freshness}</Badge>
@@ -425,7 +645,9 @@ function TrustLine({
   tone: "critical" | "warning" | "info" | "passive";
 }) {
   return (
-    <div className={`flex items-center justify-between gap-3 rounded-xl px-3 py-2 ring-1 ${trustToneClass(tone)}`}>
+    <div
+      className={`flex items-center justify-between gap-3 rounded-xl px-3 py-2 ring-1 ${trustToneClass(tone)}`}
+    >
       <span className="text-sm font-medium">{label}</span>
       <span className="text-sm font-semibold">{value}</span>
     </div>
@@ -449,7 +671,13 @@ function StatusBadge({ status }: { status: string }) {
           ? "od-status-passive"
           : "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200";
   const label = status === "safe" ? "healthy" : status.replace("_", " ");
-  return <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${className}`}>{label}</span>;
+  return (
+    <span
+      className={`rounded-full px-2.5 py-1 text-xs font-semibold ${className}`}
+    >
+      {label}
+    </span>
+  );
 }
 
 function signalRowClass(status: string) {
@@ -458,10 +686,14 @@ function signalRowClass(status: string) {
   return "bg-slate-50 ring-slate-200/70";
 }
 
-function freshnessTone(value: string): "critical" | "warning" | "info" | "passive" {
+function freshnessTone(
+  value: string,
+): "critical" | "warning" | "info" | "passive" {
   const normalized = value.toLowerCase();
-  if (normalized.includes("critical") || normalized.includes("stale")) return "critical";
-  if (normalized.includes("aging") || normalized.includes("delayed")) return "warning";
+  if (normalized.includes("critical") || normalized.includes("stale"))
+    return "critical";
+  if (normalized.includes("aging") || normalized.includes("delayed"))
+    return "warning";
   if (normalized.includes("fresh")) return "info";
   return "passive";
 }
@@ -492,7 +724,8 @@ function rootCauseFor(row: {
   const days = parseNumeric(row.days_of_cover);
   const threshold = parseNumeric(row.threshold_days);
   const nextEta = row.next_inbound_eta ? new Date(row.next_inbound_eta) : null;
-  const lineStopDate = days !== null ? new Date(Date.now() + days * 24 * 60 * 60 * 1000) : null;
+  const lineStopDate =
+    days !== null ? new Date(Date.now() + days * 24 * 60 * 60 * 1000) : null;
 
   if (available <= 0) {
     return "Usable cover exhausted";
@@ -533,7 +766,10 @@ function displayCurrency(value: string | null) {
   }).format(numeric);
 }
 
-function formatAssumptionLine(valuePerMt: string | null, multiplier: string | null) {
+function formatAssumptionLine(
+  valuePerMt: string | null,
+  multiplier: string | null,
+) {
   if (!valuePerMt || !multiplier) {
     return "Assumptions unavailable";
   }

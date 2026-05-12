@@ -2,7 +2,13 @@ import Link from "next/link";
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { getInlandMonitoring, getMovementDetail, getPortMonitoring } from "@/lib/api";
+import {
+  getInlandMonitoring,
+  getMovementDetail,
+  getPlantContextOptions,
+  getPortMonitoring,
+} from "@/lib/api";
+import { selectedPlantContext } from "@/lib/plant-context";
 
 export const dynamic = "force-dynamic";
 
@@ -16,11 +22,23 @@ export default async function MovementsPage({
     confidence?: string;
     delayed_only?: string;
     view?: string;
+    plant_reference?: string;
   };
 }) {
+  const plantOptions = await getPlantContextOptions();
+  const selectedPlant = selectedPlantContext(
+    plantOptions,
+    searchParams?.plant_reference,
+  );
+  const canScopePlant =
+    !searchParams?.plant_reference || selectedPlant?.plantId !== undefined;
   const filters = {
-    plant_id: searchParams?.plant_id ? Number(searchParams.plant_id) : undefined,
-    material_id: searchParams?.material_id ? Number(searchParams.material_id) : undefined,
+    plant_id:
+      selectedPlant?.plantId ??
+      (searchParams?.plant_id ? Number(searchParams.plant_id) : undefined),
+    material_id: searchParams?.material_id
+      ? Number(searchParams.material_id)
+      : undefined,
     shipment_id: searchParams?.shipment_id,
     confidence: searchParams?.confidence,
     delayed_only: searchParams?.delayed_only === "true",
@@ -29,17 +47,33 @@ export default async function MovementsPage({
   const [portRows, inlandRows, detail] = await Promise.all([
     getPortMonitoring(filters),
     getInlandMonitoring(filters),
-    searchParams?.shipment_id ? getMovementDetail(searchParams.shipment_id) : Promise.resolve(null),
+    searchParams?.shipment_id
+      ? getMovementDetail(searchParams.shipment_id)
+      : Promise.resolve(null),
   ]);
-  const activeView = searchParams?.view === "port" || searchParams?.view === "inland" ? searchParams.view : null;
+  const activeView =
+    searchParams?.view === "port" || searchParams?.view === "inland"
+      ? searchParams.view
+      : null;
   const portViewHref = buildMovementHref(searchParams, "port");
   const inlandViewHref = buildMovementHref(searchParams, "inland");
   const combinedViewHref = buildMovementHref(searchParams, null);
   const portTable = (
     <MonitoringTable
-      headers={["Inbound ref", "Continuity path", "Node condition", "Waiting", "Freshness", "Trust"]}
+      headers={[
+        "Inbound ref",
+        "Continuity path",
+        "Node condition",
+        "Waiting",
+        "Freshness",
+        "Trust",
+      ]}
       rows={portRows.map((row) => [
-        <Link key={`${row.shipment_id}-link`} href={`/dashboard/shipments/${row.shipment_id}`} className="text-primary hover:underline">
+        <Link
+          key={`${row.shipment_id}-link`}
+          href={`/dashboard/shipments/${row.shipment_id}`}
+          className="text-primary hover:underline"
+        >
           {row.shipment_id}
         </Link>,
         `${row.material_name} · ${row.plant_name}`,
@@ -53,9 +87,20 @@ export default async function MovementsPage({
   );
   const inlandTable = (
     <MonitoringTable
-      headers={["Inbound ref", "Continuity path", "Inland condition", "Expected arrival", "Freshness", "Trust"]}
+      headers={[
+        "Inbound ref",
+        "Continuity path",
+        "Inland condition",
+        "Expected arrival",
+        "Freshness",
+        "Trust",
+      ]}
       rows={inlandRows.map((row) => [
-        <Link key={`${row.shipment_id}-link`} href={`/dashboard/shipments/${row.shipment_id}`} className="text-primary hover:underline">
+        <Link
+          key={`${row.shipment_id}-link`}
+          href={`/dashboard/shipments/${row.shipment_id}`}
+          className="text-primary hover:underline"
+        >
           {row.shipment_id}
         </Link>,
         `${row.material_name} · ${row.plant_name}`,
@@ -73,9 +118,21 @@ export default async function MovementsPage({
       <Card>
         <CardHeader>
           <CardTitle>Continuity signal degradation</CardTitle>
+          <p className="text-sm text-mutedForeground">
+            {selectedPlant
+              ? `Viewing continuity for ${selectedPlant.label}.`
+              : "Viewing continuity for All plants."}
+          </p>
         </CardHeader>
         <CardContent>
           <form className="grid gap-2 md:grid-cols-[minmax(220px,1fr)_160px_auto]">
+            {searchParams?.plant_reference ? (
+              <input
+                type="hidden"
+                name="plant_reference"
+                value={searchParams.plant_reference}
+              />
+            ) : null}
             <input
               type="text"
               name="shipment_id"
@@ -84,7 +141,12 @@ export default async function MovementsPage({
               className="rounded-xl border bg-card px-3 py-2 text-sm"
             />
             <label className="flex items-center gap-2 rounded-xl bg-slate-50 px-3 py-2 text-sm ring-1 ring-slate-900/5">
-              <input type="checkbox" name="delayed_only" value="true" defaultChecked={filters.delayed_only} />
+              <input
+                type="checkbox"
+                name="delayed_only"
+                value="true"
+                defaultChecked={filters.delayed_only}
+              />
               <span>Degraded only</span>
             </label>
             <button
@@ -97,11 +159,24 @@ export default async function MovementsPage({
         </CardContent>
       </Card>
 
+      {!canScopePlant ? (
+        <Card className="bg-card/90 shadow-panel">
+          <CardContent className="py-3 text-sm text-mutedForeground">
+            This view is tenant-wide until plant-level source data is available
+            for {searchParams?.plant_reference}.
+          </CardContent>
+        </Card>
+      ) : null}
+
       {detail ? (
-      <Card>
+        <Card>
           <CardHeader>
-            <CardTitle>{detail.shipment.shipment_id} continuity signal condition</CardTitle>
-            <Badge variant="outline">{operationalTrustLabel(detail.overall_confidence)}</Badge>
+            <CardTitle>
+              {detail.shipment.shipment_id} continuity signal condition
+            </CardTitle>
+            <Badge variant="outline">
+              {operationalTrustLabel(detail.overall_confidence)}
+            </Badge>
           </CardHeader>
           <CardContent className="grid gap-4 lg:grid-cols-3">
             <SummaryBlock
@@ -113,19 +188,29 @@ export default async function MovementsPage({
             />
             <SummaryBlock
               title="Port signal"
-              primary={detail.port_summary?.port_status.replaceAll("_", " ") ?? "No port feed"}
-              subtext={detail.port_summary?.freshness.freshness_label ?? "unknown"}
+              primary={
+                detail.port_summary?.port_status.replaceAll("_", " ") ??
+                "No port feed"
+              }
+              subtext={
+                detail.port_summary?.freshness.freshness_label ?? "unknown"
+              }
               confidence={detail.port_summary?.confidence ?? "low"}
               notes={
-                detail.port_summary?.confidence_reasons ?? ["No port movement records are available."]
+                detail.port_summary?.confidence_reasons ?? [
+                  "No port movement records are available.",
+                ]
               }
             />
             <SummaryBlock
               title="Inland signal"
               primary={
-                detail.inland_summary?.dispatch_status.replaceAll("_", " ") ?? "No inland feed"
+                detail.inland_summary?.dispatch_status.replaceAll("_", " ") ??
+                "No inland feed"
               }
-              subtext={detail.inland_summary?.freshness.freshness_label ?? "unknown"}
+              subtext={
+                detail.inland_summary?.freshness.freshness_label ?? "unknown"
+              }
               confidence={detail.inland_summary?.confidence ?? "low"}
               notes={
                 detail.inland_summary?.confidence_reasons ?? [
@@ -140,13 +225,17 @@ export default async function MovementsPage({
                 <p className="text-sm font-medium">Visibility degradation</p>
                 <div className="mt-3 space-y-2 text-sm text-mutedForeground">
                   {detail.missing_signals.map((note) => (
-                    <div key={note} className="rounded-xl border border-dashed px-4 py-3">
+                    <div
+                      key={note}
+                      className="rounded-xl border border-dashed px-4 py-3"
+                    >
                       {note}
                     </div>
                   ))}
                   {detail.missing_signals.length === 0 ? (
                     <div className="rounded-xl border border-dashed px-4 py-3">
-                      Visibility chain is intact for the selected inbound dependency.
+                      Visibility chain is intact for the selected inbound
+                      dependency.
                     </div>
                   ) : null}
                 </div>
@@ -155,7 +244,10 @@ export default async function MovementsPage({
                 <p className="text-sm font-medium">Latest signal freshness</p>
                 <div className="mt-3 rounded-xl bg-muted px-4 py-3 text-sm">
                   <p>Label: {detail.overall_freshness.freshness_label}</p>
-                  <p>Last update: {formatDate(detail.overall_freshness.last_updated_at)}</p>
+                  <p>
+                    Last update:{" "}
+                    {formatDate(detail.overall_freshness.last_updated_at)}
+                  </p>
                 </div>
               </div>
             </div>
@@ -167,24 +259,39 @@ export default async function MovementsPage({
         <Card>
           <CardHeader className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
-              <CardTitle>{activeView === "port" ? "Port signal view" : "Inland signal view"}</CardTitle>
+              <CardTitle>
+                {activeView === "port"
+                  ? "Port signal view"
+                  : "Inland signal view"}
+              </CardTitle>
             </div>
-            <Link className="rounded-xl bg-slate-50 px-3 py-2 text-sm font-medium ring-1 ring-slate-900/5" href={combinedViewHref}>
+            <Link
+              className="rounded-xl bg-slate-50 px-3 py-2 text-sm font-medium ring-1 ring-slate-900/5"
+              href={combinedViewHref}
+            >
               Back to continuity signals
             </Link>
           </CardHeader>
-          <CardContent>{activeView === "port" ? portTable : inlandTable}</CardContent>
+          <CardContent>
+            {activeView === "port" ? portTable : inlandTable}
+          </CardContent>
         </Card>
       ) : (
         <div className="grid gap-4 xl:grid-cols-2">
           <Card>
             <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <CardTitle>
-                <Link href={portViewHref} className="hover:text-primary hover:underline">
+                <Link
+                  href={portViewHref}
+                  className="hover:text-primary hover:underline"
+                >
                   Port degradation signals
                 </Link>
               </CardTitle>
-              <Link className="rounded-xl bg-slate-50 px-3 py-2 text-xs font-semibold ring-1 ring-slate-900/5" href={portViewHref}>
+              <Link
+                className="rounded-xl bg-slate-50 px-3 py-2 text-xs font-semibold ring-1 ring-slate-900/5"
+                href={portViewHref}
+              >
                 Inspect signals
               </Link>
             </CardHeader>
@@ -194,11 +301,17 @@ export default async function MovementsPage({
           <Card>
             <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <CardTitle>
-                <Link href={inlandViewHref} className="hover:text-primary hover:underline">
+                <Link
+                  href={inlandViewHref}
+                  className="hover:text-primary hover:underline"
+                >
                   Inland degradation signals
                 </Link>
               </CardTitle>
-              <Link className="rounded-xl bg-slate-50 px-3 py-2 text-xs font-semibold ring-1 ring-slate-900/5" href={inlandViewHref}>
+              <Link
+                className="rounded-xl bg-slate-50 px-3 py-2 text-xs font-semibold ring-1 ring-slate-900/5"
+                href={inlandViewHref}
+              >
                 Inspect signals
               </Link>
             </CardHeader>
@@ -233,7 +346,10 @@ function SummaryBlock({
       <p className="mt-1 text-mutedForeground">{subtext}</p>
       <div className="mt-3 space-y-2 text-mutedForeground">
         {notes.slice(0, 3).map((note) => (
-          <div key={note} className="rounded-xl bg-white px-3 py-2 ring-1 ring-slate-900/5">
+          <div
+            key={note}
+            className="rounded-xl bg-white px-3 py-2 ring-1 ring-slate-900/5"
+          >
             {note}
           </div>
         ))}
@@ -257,9 +373,7 @@ function MonitoringTable({
         <thead>
           <tr>
             {headers.map((header) => (
-              <th key={header}>
-                {header}
-              </th>
+              <th key={header}>{header}</th>
             ))}
           </tr>
         </thead>
@@ -275,7 +389,10 @@ function MonitoringTable({
           ))}
           {rows.length === 0 ? (
             <tr>
-              <td className="px-4 py-8 text-center text-mutedForeground" colSpan={headers.length}>
+              <td
+                className="px-4 py-8 text-center text-mutedForeground"
+                colSpan={headers.length}
+              >
                 {empty}
               </td>
             </tr>
@@ -287,11 +404,11 @@ function MonitoringTable({
 }
 
 function stateBadge(label: string, delayed: boolean) {
-  const className = delayed
-    ? "od-status-warning"
-    : "od-status-info";
+  const className = delayed ? "od-status-warning" : "od-status-info";
   return (
-    <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${className}`}>
+    <span
+      className={`rounded-full px-2.5 py-1 text-xs font-semibold ${className}`}
+    >
       {label.replaceAll("_", " ")}
     </span>
   );
@@ -305,7 +422,9 @@ function freshnessBadge(label: string) {
         ? "od-status-warning"
         : "od-status-passive";
   return (
-    <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${className}`}>
+    <span
+      className={`rounded-full px-2.5 py-1 text-xs font-semibold ${className}`}
+    >
       {label}
     </span>
   );
@@ -320,7 +439,9 @@ function trustBadge(confidence: string) {
         ? "od-status-warning"
         : "od-status-critical";
   return (
-    <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${className}`}>
+    <span
+      className={`rounded-full px-2.5 py-1 text-xs font-semibold ${className}`}
+    >
       {label}
     </span>
   );
@@ -333,14 +454,17 @@ function operationalTrustLabel(confidence: string) {
 }
 
 function buildMovementHref(
-  searchParams: {
-    plant_id?: string;
-    material_id?: string;
-    shipment_id?: string;
-    confidence?: string;
-    delayed_only?: string;
-    view?: string;
-  } | undefined,
+  searchParams:
+    | {
+        plant_id?: string;
+        material_id?: string;
+        shipment_id?: string;
+        confidence?: string;
+        delayed_only?: string;
+        view?: string;
+        plant_reference?: string;
+      }
+    | undefined,
   view: "port" | "inland" | null,
 ) {
   const params = new URLSearchParams();

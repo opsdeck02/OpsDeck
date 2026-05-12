@@ -2,18 +2,35 @@ import Link from "next/link";
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { getShipments } from "@/lib/api";
+import { getPlantContextOptions, getShipments } from "@/lib/api";
+import { selectedPlantContext } from "@/lib/plant-context";
 
 export const dynamic = "force-dynamic";
 
-const states = ["planned", "on_water", "at_port", "discharging", "in_transit", "delivered", "cancelled"];
+const states = [
+  "planned",
+  "on_water",
+  "at_port",
+  "discharging",
+  "in_transit",
+  "delivered",
+  "cancelled",
+];
 
 export default async function ShipmentsPage({
   searchParams,
 }: {
-  searchParams?: { state?: string; search?: string };
+  searchParams?: { state?: string; search?: string; plant_reference?: string };
 }) {
+  const plantOptions = await getPlantContextOptions();
+  const selectedPlant = selectedPlantContext(
+    plantOptions,
+    searchParams?.plant_reference,
+  );
+  const canScopePlant =
+    !searchParams?.plant_reference || selectedPlant?.plantId !== undefined;
   const shipments = await getShipments({
+    plant_id: selectedPlant?.plantId,
     state: searchParams?.state,
     search: searchParams?.search,
   });
@@ -23,9 +40,21 @@ export default async function ShipmentsPage({
       <Card>
         <CardHeader>
           <CardTitle>Inbound continuity</CardTitle>
+          <p className="text-sm text-mutedForeground">
+            {selectedPlant
+              ? `Viewing continuity for ${selectedPlant.label}.`
+              : "Viewing continuity for All plants."}
+          </p>
         </CardHeader>
         <CardContent>
           <form className="grid gap-3 md:grid-cols-[220px_1fr_auto]">
+            {searchParams?.plant_reference ? (
+              <input
+                type="hidden"
+                name="plant_reference"
+                value={searchParams.plant_reference}
+              />
+            ) : null}
             <select
               name="state"
               defaultValue={searchParams?.state ?? ""}
@@ -54,6 +83,15 @@ export default async function ShipmentsPage({
           </form>
         </CardContent>
       </Card>
+
+      {!canScopePlant ? (
+        <Card className="bg-card/90 shadow-panel">
+          <CardContent className="py-3 text-sm text-mutedForeground">
+            This view is tenant-wide until plant-level source data is available
+            for {searchParams?.plant_reference}.
+          </CardContent>
+        </Card>
+      ) : null}
 
       <Card>
         <CardContent>
@@ -91,14 +129,21 @@ export default async function ShipmentsPage({
                       <StateBadge state={shipment.shipment_state} />
                     </td>
                     <td>
-                      <TrustBadge confidence={shipment.confidence} state={shipment.shipment_state} />
+                      <TrustBadge
+                        confidence={shipment.confidence}
+                        state={shipment.shipment_state}
+                      />
                     </td>
                   </tr>
                 ))}
                 {shipments.length === 0 ? (
                   <tr>
-                    <td className="px-4 py-8 text-center text-mutedForeground" colSpan={8}>
-                      Monitored inbound dependencies remain stable for the current filters.
+                    <td
+                      className="px-4 py-8 text-center text-mutedForeground"
+                      colSpan={8}
+                    >
+                      Monitored inbound dependencies remain stable for the
+                      current filters.
                     </td>
                   </tr>
                 ) : null}
@@ -117,35 +162,48 @@ function StateBadge({ state }: { state: string }) {
       ? "od-status-passive"
       : state === "delivered"
         ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
-      : state === "discharging"
+        : state === "discharging"
           ? "od-status-warning"
           : state === "at_port"
             ? "od-status-warning"
             : "od-status-info";
   return (
-    <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${className}`}>
+    <span
+      className={`rounded-full px-2.5 py-1 text-xs font-semibold ${className}`}
+    >
       {state.replace("_", " ")}
     </span>
   );
 }
 
-function TrustBadge({ confidence, state }: { confidence: string; state: string }) {
+function TrustBadge({
+  confidence,
+  state,
+}: {
+  confidence: string;
+  state: string;
+}) {
   const degraded = ["at_port", "discharging", "cancelled"].includes(state);
-  const label =
-    degraded
-      ? "degraded signal"
-      : confidence === "high"
-        ? "verified"
-        : confidence === "medium"
-          ? "incomplete"
-          : "weak tracking";
+  const label = degraded
+    ? "degraded signal"
+    : confidence === "high"
+      ? "verified"
+      : confidence === "medium"
+        ? "incomplete"
+        : "weak tracking";
   const className =
     label === "verified"
       ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
       : label === "incomplete"
         ? "od-status-warning"
         : "od-status-critical";
-  return <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${className}`}>{label}</span>;
+  return (
+    <span
+      className={`rounded-full px-2.5 py-1 text-xs font-semibold ${className}`}
+    >
+      {label}
+    </span>
+  );
 }
 
 function formatDate(value: string) {

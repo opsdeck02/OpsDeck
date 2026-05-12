@@ -9,8 +9,15 @@ import { canAccessPilotAdmin } from "@/lib/roles";
 
 export const dynamic = "force-dynamic";
 
-export default async function SuppliersPage() {
-  const [user, suppliers] = await Promise.all([getCurrentUser(), getSuppliers()]);
+export default async function SuppliersPage({
+  searchParams,
+}: {
+  searchParams?: { plant_reference?: string };
+}) {
+  const [user, suppliers] = await Promise.all([
+    getCurrentUser(),
+    getSuppliers(),
+  ]);
   if (user?.is_superadmin) {
     redirect("/dashboard/superadmin");
   }
@@ -22,10 +29,25 @@ export default async function SuppliersPage() {
       <section className="od-panel px-4 py-5">
         <div className="flex flex-col gap-2">
           <Badge variant="outline">Continuity reliability</Badge>
-          <h1 className="text-2xl font-semibold tracking-tight">Reliability source patterns</h1>
-          <p className="text-sm text-mutedForeground">Inbound stability, exposure contribution, chronic degradation.</p>
+          <h1 className="text-2xl font-semibold tracking-tight">
+            Reliability source patterns
+          </h1>
+          <p className="text-sm text-mutedForeground">
+            {searchParams?.plant_reference
+              ? "This view is tenant-wide until plant-level source data is available."
+              : "Viewing continuity for All plants."}
+          </p>
         </div>
       </section>
+
+      {searchParams?.plant_reference ? (
+        <Card className="bg-card/90 shadow-panel">
+          <CardContent className="py-3 text-sm text-mutedForeground">
+            This view is tenant-wide until plant-level source data is available
+            for {searchParams.plant_reference}.
+          </CardContent>
+        </Card>
+      ) : null}
 
       <SupplierCreateForm canManage={canManage} />
 
@@ -53,19 +75,40 @@ export default async function SuppliersPage() {
                 {suppliers.map((supplier) => (
                   <tr key={supplier.id}>
                     <td className="font-medium">
-                      <Link href={`/dashboard/suppliers/${supplier.id}`} className="text-primary hover:underline">
+                      <Link
+                        href={`/dashboard/suppliers/${supplier.id}`}
+                        className="text-primary hover:underline"
+                      >
                         {supplier.name}
                       </Link>
                     </td>
                     <td>{supplier.primary_port ?? "-"}</td>
-                    <td>{supplier.performance.materials_supplied.join(", ") || "-"}</td>
-                    <td><GradeBadge grade={supplier.performance.reliability_grade} /></td>
-                    <td>{displayPercent(supplier.performance.on_time_reliability_pct)}</td>
-                    <td>{displayHours(supplier.performance.avg_eta_drift_hours)}</td>
-                    <td>{trackingCoverage(supplier.performance.risk_signal_pct)}</td>
+                    <td>
+                      {supplier.performance.materials_supplied.join(", ") ||
+                        "-"}
+                    </td>
+                    <td>
+                      <GradeBadge
+                        grade={supplier.performance.reliability_grade}
+                      />
+                    </td>
+                    <td>
+                      {displayPercent(
+                        supplier.performance.on_time_reliability_pct,
+                      )}
+                    </td>
+                    <td>
+                      {displayHours(supplier.performance.avg_eta_drift_hours)}
+                    </td>
+                    <td>
+                      {trackingCoverage(supplier.performance.risk_signal_pct)}
+                    </td>
                     <td>{supplier.performance.active_shipments}</td>
                     <td>
-                      <Link href={`/dashboard/suppliers/${supplier.id}`} className="rounded-xl border px-3 py-2 text-xs font-semibold">
+                      <Link
+                        href={`/dashboard/suppliers/${supplier.id}`}
+                        className="rounded-xl border px-3 py-2 text-xs font-semibold"
+                      >
                         View
                       </Link>
                     </td>
@@ -73,7 +116,10 @@ export default async function SuppliersPage() {
                 ))}
                 {suppliers.length === 0 ? (
                   <tr>
-                    <td className="px-4 py-8 text-center text-mutedForeground" colSpan={9}>
+                    <td
+                      className="px-4 py-8 text-center text-mutedForeground"
+                      colSpan={9}
+                    >
                       No continuity reliability sources are active yet.
                     </td>
                   </tr>
@@ -96,7 +142,13 @@ function GradeBadge({ grade }: { grade: string }) {
         : grade === "C"
           ? "od-status-warning"
           : "od-status-critical";
-  return <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${className}`}>{grade}</span>;
+  return (
+    <span
+      className={`rounded-full px-2.5 py-1 text-xs font-semibold ${className}`}
+    >
+      {grade}
+    </span>
+  );
 }
 
 function displayPercent(value: string) {

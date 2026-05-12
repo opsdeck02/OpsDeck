@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 
 import { DashboardShell } from "@/components/shell/dashboard-shell";
-import { getCurrentUser } from "@/lib/api";
+import { getCurrentUser, getPlantContextOptions } from "@/lib/api";
 
 export default async function DashboardLayout({
   children,
@@ -14,5 +14,11 @@ export default async function DashboardLayout({
     redirect("/login");
   }
 
-  return <DashboardShell user={user}>{children}</DashboardShell>;
+  const plantOptions = user.is_superadmin ? [] : await getPlantContextOptions();
+
+  return (
+    <DashboardShell user={user} plantOptions={plantOptions}>
+      {children}
+    </DashboardShell>
+  );
 }

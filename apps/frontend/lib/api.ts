@@ -27,6 +27,8 @@ import type {
   TenantUser,
 } from "@steelops/contracts";
 
+import type { PlantContextOption } from "@/lib/plant-context";
+
 const baseUrl =
   process.env.INTERNAL_API_BASE_URL ??
   process.env.NEXT_PUBLIC_API_BASE_URL ??
@@ -358,6 +360,35 @@ export async function getStockCoverSummary(): Promise<StockCoverSummaryResponse 
   return getAuthenticatedJson<StockCoverSummaryResponse>("/api/v1/stock/cover");
 }
 
+export async function getPlantContextOptions(): Promise<PlantContextOption[]> {
+  const [stockSummary, risks] = await Promise.all([
+    getStockCoverSummary(),
+    getSignalRisks(),
+  ]);
+  const options = new Map<string, PlantContextOption>();
+
+  for (const row of stockSummary?.rows ?? []) {
+    if (!row.plant_code) continue;
+    options.set(row.plant_code, {
+      reference: row.plant_code,
+      label: row.plant_name || row.plant_code,
+      plantId: row.plant_id,
+    });
+  }
+
+  for (const risk of risks) {
+    if (!risk.plant_reference || options.has(risk.plant_reference)) continue;
+    options.set(risk.plant_reference, {
+      reference: risk.plant_reference,
+      label: risk.plant_reference,
+    });
+  }
+
+  return [...options.values()].sort((left, right) =>
+    left.label.localeCompare(right.label),
+  );
+}
+
 export async function getStockCoverDetail(
   plantId: number,
   materialId: number,
@@ -499,9 +530,7 @@ export async function createTenant(
   }
 }
 
-export async function activateTenant(
-  tenantId: number,
-): Promise<{
+export async function activateTenant(tenantId: number): Promise<{
   id: number;
   name: string;
   slug: string;
@@ -534,9 +563,7 @@ export async function activateTenant(
   }
 }
 
-export async function deactivateTenant(
-  tenantId: number,
-): Promise<{
+export async function deactivateTenant(tenantId: number): Promise<{
   id: number;
   name: string;
   slug: string;
