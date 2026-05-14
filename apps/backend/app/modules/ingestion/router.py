@@ -12,14 +12,14 @@ from app.api.dependencies import (
     get_request_context,
     require_operator_access,
 )
-from app.models import IngestionJob, User
+from app.models import IngestionJob, UploadedFile, User
 from app.modules.ingestion.schemas import IngestionJobOut, MappingPreviewOut, UploadResult
 from app.modules.ingestion.service import (
     SUPPORTED_FILE_TYPES,
     delete_uploaded_data,
     preview_header_mapping,
-    process_upload_content,
     process_upload,
+    process_upload_content,
 )
 from app.modules.ingestion.templates import TEMPLATES
 from app.modules.tenants.sync_service import fetch_remote_file_for_values
@@ -103,8 +103,9 @@ def list_ingestion_jobs(
     context: Annotated[RequestContext, Depends(get_request_context)],
     db: Annotated[Session, Depends(get_db)],
 ) -> list[IngestionJobOut]:
-    jobs = db.scalars(
-        select(IngestionJob)
+    jobs = db.execute(
+        select(IngestionJob, UploadedFile)
+        .outerjoin(UploadedFile, UploadedFile.id == IngestionJob.uploaded_file_id)
         .where(IngestionJob.tenant_id == context.tenant_id)
         .order_by(IngestionJob.created_at.desc())
         .limit(25)
@@ -119,8 +120,14 @@ def list_ingestion_jobs(
             rows_accepted=job.records_succeeded,
             rows_rejected=job.records_failed,
             error_message=job.error_message,
+            file_name=uploaded_file.original_filename if uploaded_file else None,
+            source_type=job.source_type,
+            uploaded_at=job.created_at.isoformat() if job.created_at else None,
+            top_rejection_summary=top_rejection_summary(job.error_message),
+            refreshed_operational_visibility=job.records_succeeded > 0
+            and job.status in {"completed", "completed_with_errors"},
         )
-        for job in jobs
+        for job, uploaded_file in jobs
     ]
 
 
@@ -191,6 +198,35 @@ def parse_mapping_overrides(mapping_overrides: str | None) -> dict[str, str] | N
             detail="Invalid mapping overrides payload",
         )
     return {str(key): str(value) for key, value in parsed.items() if value}
+
+
+def top_rejection_summary(raw: str | None) -> str | None:
+    if not raw:
+        return None
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        return raw
+    if not isinstance(parsed, list):
+        return raw
+    counts: dict[str, int] = {}
+    for row in parsed:
+        if not isinstance(row, dict):
+            continue
+        field_errors = row.get("field_errors") or []
+        for field_error in field_errors:
+            if isinstance(field_error, dict) and isinstance(field_error.get("reason"), str):
+                reason = field_error["reason"]
+                counts[reason] = counts.get(reason, 0) + 1
+        if field_errors:
+            continue
+        for reason in row.get("errors") or []:
+            if isinstance(reason, str):
+                counts[reason] = counts.get(reason, 0) + 1
+    if not counts:
+        return raw
+    reason, count = max(counts.items(), key=lambda item: item[1])
+    return f"{reason} ({count} row{'s' if count != 1 else ''})"
 
 
 @router.get("/templates/{file_type}")

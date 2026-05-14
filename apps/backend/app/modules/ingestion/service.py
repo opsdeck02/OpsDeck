@@ -35,9 +35,11 @@ from app.models import (
 from app.models.enums import OperationalEventType, ShipmentState
 from app.modules.exceptions.service import create_audit_log
 from app.modules.ingestion.schemas import (
+    FieldValidationError,
     HeaderMappingSuggestion,
     IngestionSummary,
     MappingPreviewOut,
+    RejectionSummary,
     RowValidationError,
     UploadResult,
 )
@@ -59,13 +61,26 @@ ALIASES = {
     "material_code": {"materialcode", "material", "materialid"},
     "material_name": {"materialname"},
     "supplier_name": {"suppliername", "supplier", "vendor"},
-    "quantity_mt": {"quantitymt", "quantity", "qtymt", "mt", "inboundqtytons", "inboundquantitytons"},
+    "quantity_mt": {
+        "quantitymt",
+        "quantity",
+        "qtymt",
+        "mt",
+        "inboundqtytons",
+        "inboundquantitytons",
+    },
     "planned_eta": {"plannedeta", "originaleta", "eta", "dispatchdate", "shipmentdate"},
     "current_eta": {"currenteta", "latesteta", "revisedeta", "expectedarrivaldate", "arrivaldate"},
     "delay_days": {"delaydays", "delay", "delays", "etadelaydays", "etadelay", "delayindays"},
     "current_state": {"currentstate", "state", "status", "shipmentstate", "shipmentstatus"},
     "source_of_truth": {"sourceoftruth", "source", "datasource"},
-    "latest_update_at": {"latestupdateat", "lastupdatedat", "updatedat", "lastupdated", "eventtime"},
+    "latest_update_at": {
+        "latestupdateat",
+        "lastupdatedat",
+        "updatedat",
+        "lastupdated",
+        "eventtime",
+    },
     "vessel_name": {"vesselname", "vessel", "shipname"},
     "imo_number": {"imonumber", "imo"},
     "mmsi": {"mmsi"},
@@ -73,9 +88,25 @@ ALIASES = {
     "destination_port": {"destinationport", "destination", "dischargeport"},
     "eta_confidence": {"etaconfidence", "confidence"},
     "on_hand_mt": {"onhandmt", "onhand", "stockmt", "stock", "currentstocktons", "currentstock"},
-    "quality_held_mt": {"qualityheldmt", "qualityheld", "heldmt", "blockedstocktons", "blockedstock"},
-    "available_to_consume_mt": {"availabletoconsumemt", "availablemt", "available", "availableunrestrictedtons"},
-    "daily_consumption_mt": {"dailyconsumptionmt", "dailyconsumption", "consumptionmt", "dailyconsumptiontons"},
+    "quality_held_mt": {
+        "qualityheldmt",
+        "qualityheld",
+        "heldmt",
+        "blockedstocktons",
+        "blockedstock",
+    },
+    "available_to_consume_mt": {
+        "availabletoconsumemt",
+        "availablemt",
+        "available",
+        "availableunrestrictedtons",
+    },
+    "daily_consumption_mt": {
+        "dailyconsumptionmt",
+        "dailyconsumption",
+        "consumptionmt",
+        "dailyconsumptiontons",
+    },
     "snapshot_time": {"snapshottime", "snapshotat", "asof", "asoftime", "lastupdatedat"},
     "in_transit_open_tons": {"intransitopentons"},
     "days_to_line_stop": {"daystolinestop"},
@@ -83,6 +114,28 @@ ALIASES = {
     "next_inbound_eta_days": {"nextinboundetadays"},
     "threshold_days": {"thresholddays", "threshold", "criticaldays", "criticalcoverdays"},
     "warning_days": {"warningdays", "warning", "warningcoverdays", "mincoverdays"},
+}
+
+FIELD_LABELS = {
+    "shipment_id": "Inbound reference",
+    "plant_code": "Plant code/name",
+    "material_code": "Material code/name",
+    "supplier_name": "Reliability source",
+    "quantity_mt": "Quantity MT",
+    "planned_eta": "Planned ETA",
+    "current_eta": "Current ETA",
+    "delay_days": "Delay days",
+    "current_state": "Inbound continuity state",
+    "source_of_truth": "Signal source",
+    "latest_update_at": "Latest update time",
+    "on_hand_mt": "On-hand MT",
+    "quality_held_mt": "Quality-held MT",
+    "available_to_consume_mt": "Available to consume MT",
+    "daily_consumption_mt": "Daily consumption MT",
+    "snapshot_time": "Snapshot time",
+    "threshold_days": "Critical threshold days",
+    "warning_days": "Warning days",
+    "eta_confidence": "ETA confidence",
 }
 
 REQUIRED_FIELDS = {
@@ -158,6 +211,14 @@ class HeaderMatch:
     confidence: str
     score: float
     alternatives: list[str]
+
+
+class FieldValueError(ValueError):
+    def __init__(self, field: str, reason: str, suggested_fix: str | None = None) -> None:
+        self.field = field
+        self.reason = reason
+        self.suggested_fix = suggested_fix
+        super().__init__(reason)
 
 
 def process_upload(
@@ -331,12 +392,29 @@ def preview_header_mapping(
     suggestions = [build_header_mapping_suggestion(file_type, header) for header in headers]
     required_fields = sorted(REQUIRED_FIELDS[file_type])
     optional_fields = sorted(field for field in ALIASES if field not in REQUIRED_FIELDS[file_type])
+    mapped_required_fields = sorted(
+        {
+            suggestion.suggested_field
+            for suggestion in suggestions
+            if suggestion.suggested_field in REQUIRED_FIELDS[file_type]
+        }
+    )
+    if file_type == "shipment":
+        mapped_required_fields = sorted({*mapped_required_fields, "source_of_truth"})
+    missing_required_fields = sorted(REQUIRED_FIELDS[file_type] - set(mapped_required_fields))
+    blocking_errors = [
+        f"{field_label(field)} is required but no uploaded column is mapped."
+        for field in missing_required_fields
+    ]
     return MappingPreviewOut(
         file_type=file_type,
         headers=headers,
         required_fields=required_fields,
         optional_fields=optional_fields,
         suggestions=suggestions,
+        mapped_required_fields=mapped_required_fields,
+        missing_required_fields=missing_required_fields,
+        blocking_errors=blocking_errors,
     )
 
 
@@ -356,7 +434,9 @@ def delete_uploaded_data(db: Session, tenant_id: int) -> dict[str, int]:
             db.scalar(select(func.count(Shipment.id)).where(Shipment.tenant_id == tenant_id)) or 0
         ),
         "stock_snapshots": int(
-            db.scalar(select(func.count(StockSnapshot.id)).where(StockSnapshot.tenant_id == tenant_id))
+            db.scalar(
+                select(func.count(StockSnapshot.id)).where(StockSnapshot.tenant_id == tenant_id)
+            )
             or 0
         ),
         "thresholds": int(
@@ -374,7 +454,9 @@ def delete_uploaded_data(db: Session, tenant_id: int) -> dict[str, int]:
             or 0
         ),
         "exceptions": int(
-            db.scalar(select(func.count(ExceptionCase.id)).where(ExceptionCase.tenant_id == tenant_id))
+            db.scalar(
+                select(func.count(ExceptionCase.id)).where(ExceptionCase.tenant_id == tenant_id)
+            )
             or 0
         ),
         "operational_events": int(
@@ -400,9 +482,7 @@ def delete_uploaded_data(db: Session, tenant_id: int) -> dict[str, int]:
     db.execute(delete(ShipmentUpdate).where(ShipmentUpdate.tenant_id == tenant_id))
     db.execute(delete(Shipment).where(Shipment.tenant_id == tenant_id))
     db.execute(delete(StockSnapshot).where(StockSnapshot.tenant_id == tenant_id))
-    db.execute(
-        delete(PlantMaterialThreshold).where(PlantMaterialThreshold.tenant_id == tenant_id)
-    )
+    db.execute(delete(PlantMaterialThreshold).where(PlantMaterialThreshold.tenant_id == tenant_id))
     db.execute(delete(IngestionJob).where(IngestionJob.tenant_id == tenant_id))
     db.execute(delete(UploadedFile).where(UploadedFile.tenant_id == tenant_id))
     db.commit()
@@ -522,7 +602,9 @@ def log_missing_required_headers(file_type: str, headers: Iterable[str], header_
     matched_fields = {
         match.field
         for header in headers
-        if (match := best_header_match(str(header), required_fields=REQUIRED_FIELDS[file_type])).field
+        if (
+            match := best_header_match(str(header), required_fields=REQUIRED_FIELDS[file_type])
+        ).field
     }
     missing = sorted(REQUIRED_FIELDS[file_type] - matched_fields)
     if missing:
@@ -558,6 +640,14 @@ def normalize_records(
         header: overrides.get(header) or canonical_header(header, file_type=file_type)
         for header in headers
     }
+    missing_required_mapping = missing_required_mapped_fields(
+        file_type,
+        header_map,
+        source_of_truth=source_of_truth,
+    )
+    if missing_required_mapping:
+        labels = ", ".join(field_label(field) for field in missing_required_mapping)
+        raise ValueError(f"Missing required mapping: {labels}")
     parsed_rows: list[ParsedRow] = []
     for index, record in enumerate(records, start=start_row):
         normalized = {}
@@ -574,6 +664,22 @@ def normalize_records(
             normalized["source_of_truth"] = source_of_truth
         parsed_rows.append(ParsedRow(row_number=index, data=normalized))
     return parsed_rows
+
+
+def missing_required_mapped_fields(
+    file_type: str,
+    header_map: dict[str, str | None],
+    source_of_truth: str | None = None,
+) -> list[str]:
+    mapped_fields = {field for field in header_map.values() if field}
+    required_fields = set(REQUIRED_FIELDS[file_type])
+    if source_of_truth:
+        required_fields.discard("source_of_truth")
+    return sorted(required_fields - mapped_fields)
+
+
+def field_label(field: str) -> str:
+    return FIELD_LABELS.get(field, field.replace("_", " "))
 
 
 def canonical_header(header: str, file_type: str | None = None) -> str | None:
@@ -622,7 +728,9 @@ def best_header_match(header: str, required_fields: set[str] | None = None) -> H
         confidence = "medium"
 
     if best_score < 0.35:
-        return HeaderMatch(field=None, confidence="low", score=best_score, alternatives=alternatives)
+        return HeaderMatch(
+            field=None, confidence="low", score=best_score, alternatives=alternatives
+        )
     return HeaderMatch(
         field=best_field,
         confidence=confidence,
@@ -667,9 +775,9 @@ def normalize_rows(
     summary = IngestionSummary()
 
     for row in rows:
-        errors = missing_required_errors(file_type, row.data)
-        if errors:
-            validation_errors.append(RowValidationError(row_number=row.row_number, errors=errors))
+        field_errors = missing_required_field_errors(file_type, row.data)
+        if field_errors:
+            validation_errors.append(build_row_validation_error(row.row_number, field_errors))
             continue
 
         try:
@@ -684,9 +792,23 @@ def normalize_rows(
                 )
             else:
                 outcome = upsert_threshold(db, context, row.data)
+        except FieldValueError as exc:
+            validation_errors.append(
+                build_row_validation_error(
+                    row.row_number,
+                    [
+                        FieldValidationError(
+                            field=exc.field,
+                            reason=exc.reason,
+                            suggested_fix=exc.suggested_fix,
+                        )
+                    ],
+                )
+            )
+            continue
         except ValueError as exc:
             validation_errors.append(
-                RowValidationError(row_number=row.row_number, errors=[str(exc)])
+                build_row_validation_error(row.row_number, [generic_field_error(exc)])
             )
             continue
 
@@ -700,19 +822,65 @@ def normalize_rows(
         rows_accepted=summary.created + summary.updated + summary.unchanged,
         rows_rejected=len(validation_errors),
         validation_errors=validation_errors,
+        top_rejection_reasons=top_rejection_reasons(validation_errors),
         summary_counts=summary,
     )
 
 
-def missing_required_errors(file_type: str, data: dict[str, str]) -> list[str]:
+def missing_required_field_errors(
+    file_type: str, data: dict[str, str]
+) -> list[FieldValidationError]:
     errors = [
-        f"Missing required field: {field}"
+        FieldValidationError(
+            field=field,
+            reason=f"{field_label(field)} is required but was blank or unmapped.",
+            suggested_fix=(
+                f"Map a column to {field_label(field)} and make sure each row has a value."
+            ),
+        )
         for field in sorted(REQUIRED_FIELDS[file_type])
         if not data.get(field)
     ]
     if file_type == "shipment" and not data.get("current_eta") and not data.get("delay_days"):
-        errors.append("Missing required field: current_eta or delay_days")
+        errors.append(
+            FieldValidationError(
+                field="current_eta",
+                reason="Current ETA or Delay days is required for inbound continuity.",
+                suggested_fix="Provide either Current ETA or Delay days for this row.",
+            )
+        )
     return errors
+
+
+def build_row_validation_error(
+    row_number: int,
+    field_errors: list[FieldValidationError],
+) -> RowValidationError:
+    return RowValidationError(
+        row_number=row_number,
+        errors=[error.reason for error in field_errors],
+        field_errors=field_errors,
+    )
+
+
+def generic_field_error(exc: ValueError) -> FieldValidationError:
+    return FieldValidationError(
+        field="row",
+        reason=str(exc),
+        suggested_fix="Check the row values and upload again.",
+    )
+
+
+def top_rejection_reasons(errors: list[RowValidationError]) -> list[RejectionSummary]:
+    counts: dict[str, int] = {}
+    for row_error in errors:
+        for error in row_error.field_errors:
+            counts[error.reason] = counts.get(error.reason, 0) + 1
+        if not row_error.field_errors:
+            for reason in row_error.errors:
+                counts[reason] = counts.get(reason, 0) + 1
+    ranked = sorted(counts.items(), key=lambda item: item[1], reverse=True)
+    return [RejectionSummary(reason=reason, count=count) for reason, count in ranked[:5]]
 
 
 def resolve_plant(db: Session, tenant_id: int, value: str) -> Plant:
@@ -739,7 +907,9 @@ def resolve_plant(db: Session, tenant_id: int, value: str) -> Plant:
                 ),
                 None,
             )
-            if plant is not None and should_adopt_uploaded_plant_name(plant, requested_index, value):
+            if plant is not None and should_adopt_uploaded_plant_name(
+                plant, requested_index, value
+            ):
                 plant.name = value.strip()
     if plant is None:
         tenant = db.get(Tenant, tenant_id)
@@ -775,7 +945,9 @@ def resolve_material(db: Session, tenant_id: int, value: str) -> Material:
         return material
 
     code = build_material_code(value)
-    material = db.scalar(select(Material).where(Material.tenant_id == tenant_id, Material.code == code))
+    material = db.scalar(
+        select(Material).where(Material.tenant_id == tenant_id, Material.code == code)
+    )
     if material is not None:
         return material
 
@@ -792,24 +964,81 @@ def resolve_material(db: Session, tenant_id: int, value: str) -> Material:
 
 
 def parse_decimal(value: str, field: str, *, positive: bool = False) -> Decimal:
+    raw_value = "" if value is None else str(value).strip()
+    normalized = re.sub(
+        r"\s*(mt|mts|metric\s*tons?|tonnes?|tons?|t)\s*$",
+        "",
+        raw_value,
+        flags=re.IGNORECASE,
+    ).strip()
     try:
-        parsed = Decimal(value.replace(",", ""))
+        parsed = Decimal(normalized.replace(",", ""))
     except (InvalidOperation, AttributeError) as exc:
-        raise ValueError(f"Invalid decimal for {field}: {value}") from exc
+        raise FieldValueError(
+            field,
+            f"{field_label(field)} could not be interpreted from uploaded value.",
+            f"Use a number for {field_label(field)}, for example 12500 or 12,500 MT.",
+        ) from exc
     if positive and parsed <= 0:
-        raise ValueError(f"{field} must be greater than zero")
+        raise FieldValueError(
+            field,
+            f"{field_label(field)} must be greater than zero.",
+            f"Enter a positive number for {field_label(field)}.",
+        )
     return parsed
 
 
 def parse_datetime(value: str, field: str) -> datetime:
+    raw_value = "" if value is None else str(value).strip()
+    if not raw_value:
+        raise FieldValueError(
+            field,
+            f"{field_label(field)} is blank.",
+            f"Add a date/time value for {field_label(field)}.",
+        )
+    parsed: datetime | None = None
     try:
-        normalized = value.replace("Z", "+00:00")
+        normalized = raw_value.replace("Z", "+00:00")
         parsed = datetime.fromisoformat(normalized)
-    except ValueError as exc:
-        raise ValueError(f"Invalid datetime for {field}: {value}") from exc
+    except ValueError:
+        parsed = parse_common_datetime(raw_value)
+    if parsed is None:
+        raise FieldValueError(
+            field,
+            f"{field_label(field)} could not be interpreted from uploaded value.",
+            "Use a recognizable date such as 2026-05-14, 14/05/2026, or 14-05-2026 09:30.",
+        )
     if parsed.tzinfo is None:
         return parsed.replace(tzinfo=UTC)
     return parsed
+
+
+def parse_common_datetime(value: str) -> datetime | None:
+    formats = [
+        "%d/%m/%Y %H:%M:%S",
+        "%d/%m/%Y %H:%M",
+        "%d/%m/%Y",
+        "%d-%m-%Y %H:%M:%S",
+        "%d-%m-%Y %H:%M",
+        "%d-%m-%Y",
+        "%d.%m.%Y %H:%M:%S",
+        "%d.%m.%Y %H:%M",
+        "%d.%m.%Y",
+        "%d/%m/%y %H:%M",
+        "%d/%m/%y",
+        "%Y/%m/%d %H:%M:%S",
+        "%Y/%m/%d %H:%M",
+        "%Y/%m/%d",
+        "%m/%d/%Y %H:%M:%S",
+        "%m/%d/%Y %H:%M",
+        "%m/%d/%Y",
+    ]
+    for fmt in formats:
+        try:
+            return datetime.strptime(value, fmt).replace(tzinfo=UTC)
+        except ValueError:
+            continue
+    return None
 
 
 def resolve_current_eta(data: dict[str, str], planned_eta: datetime) -> datetime:
@@ -836,7 +1065,11 @@ def parse_state(value: str) -> ShipmentState:
     try:
         return ShipmentState(normalized)
     except ValueError as exc:
-        raise ValueError(f"Invalid shipment state: {value}") from exc
+        raise FieldValueError(
+            "current_state",
+            "Inbound continuity state is not recognized.",
+            "Use a known state such as in_transit, at_port, delivered, or delayed.",
+        ) from exc
 
 
 def values_equal(left: Any, right: Any) -> bool:
@@ -921,7 +1154,9 @@ def infer_material_category(value: str) -> str:
     return "raw"
 
 
-def should_adopt_uploaded_plant_name(plant: Plant, requested_index: int, uploaded_value: str) -> bool:
+def should_adopt_uploaded_plant_name(
+    plant: Plant, requested_index: int, uploaded_value: str
+) -> bool:
     normalized_uploaded = uploaded_value.strip()
     if not normalized_uploaded:
         return False

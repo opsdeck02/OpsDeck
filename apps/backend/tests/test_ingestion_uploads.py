@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import json
 from collections.abc import Generator
 from datetime import UTC, datetime
 
@@ -362,8 +363,11 @@ def test_shipment_upload_creates_unknown_plant(
         "shipment",
         "\n".join(
             [
-                "shipment_id,plant_code,material_code,supplier_name,quantity_mt,planned_eta,current_eta,current_state,latest_update_at",
-                "SHP-NEW-PLANT,TATA_JSR_BF1,COKING_COAL,Supplier A,100,2026-05-10T00:00:00Z,2026-05-10T00:00:00Z,in_transit,2026-05-06T08:00:00Z",
+                "shipment_id,plant_code,material_code,supplier_name,quantity_mt,"
+                "planned_eta,current_eta,current_state,latest_update_at",
+                "SHP-NEW-PLANT,TATA_JSR_BF1,COKING_COAL,Supplier A,100,"
+                "2026-05-10T00:00:00Z,2026-05-10T00:00:00Z,in_transit,"
+                "2026-05-06T08:00:00Z",
             ]
         ),
     )
@@ -396,9 +400,182 @@ def test_invalid_stock_upload_rejects_zero_daily_consumption(
     )
 
     assert response.status_code == 400
-    assert "daily_consumption_mt must be greater than zero" in str(response.json())
+    assert "Daily consumption MT must be greater than zero" in str(response.json())
     with SessionLocal() as db:
         assert db.scalar(select(func.count()).select_from(StockSnapshot)) == 0
+
+
+def test_missing_required_column_blocks_ingestion(
+    client_and_session: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, SessionLocal = client_and_session
+    response = upload_csv(
+        client,
+        login(client),
+        "stock",
+        "\n".join(
+            [
+                "plant_code,material_code,on_hand_mt,quality_held_mt,daily_consumption_mt,snapshot_time",
+                "JAM,COKING_COAL,10000,1000,500,14/05/2026",
+            ]
+        ),
+    )
+
+    assert response.status_code == 400
+    assert "Missing required mapping: Available to consume MT" in str(response.json())
+    with SessionLocal() as db:
+        assert db.scalar(select(func.count()).select_from(StockSnapshot)) == 0
+
+
+def test_header_alias_case_space_matching_works(
+    client_and_session: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, SessionLocal = client_and_session
+    response = upload_csv(
+        client,
+        login(client),
+        "stock",
+        "\n".join(
+            [
+                " Plant Code , MATERIAL CODE , Current Stock Tons , Blocked Stock Tons , "
+                "Available Unrestricted Tons , Daily Consumption Tons , Last Updated At ",
+                "JAM,COKING_COAL,10000,1000,9000,500,14/05/2026",
+            ]
+        ),
+    )
+
+    assert response.status_code == 200, response.json()
+    assert response.json()["rows_accepted"] == 1
+    with SessionLocal() as db:
+        assert db.scalar(select(func.count()).select_from(StockSnapshot)) == 1
+
+
+def test_rejected_row_includes_field_reason_and_suggested_fix(
+    client_and_session: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, _ = client_and_session
+    response = upload_csv(
+        client,
+        login(client),
+        "stock",
+        "\n".join(
+            [
+                "plant_code,material_code,on_hand_mt,quality_held_mt,available_to_consume_mt,daily_consumption_mt,snapshot_time",
+                "JAM,COKING_COAL,10000,1000,9000,abc,14/05/2026",
+            ]
+        ),
+    )
+
+    assert response.status_code == 400
+    body = response.json()["detail"]
+    assert body["rows_received"] == 1
+    assert body["rows_accepted"] == 0
+    assert body["rows_rejected"] == 1
+    row_error = body["validation_errors"][0]
+    assert row_error["row_number"] == 2
+    assert row_error["field_errors"][0]["field"] == "daily_consumption_mt"
+    assert "could not be interpreted" in row_error["field_errors"][0]["reason"]
+    assert row_error["field_errors"][0]["suggested_fix"]
+    assert body["top_rejection_reasons"][0]["count"] == 1
+
+
+def test_common_date_formats_and_numeric_strings_with_commas_parse(
+    client_and_session: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, SessionLocal = client_and_session
+    response = upload_csv(
+        client,
+        login(client),
+        "stock",
+        "\n".join(
+            [
+                "plant_code,material_code,on_hand_mt,quality_held_mt,available_to_consume_mt,daily_consumption_mt,snapshot_time",
+                'JAM,COKING_COAL,"10,000 MT","1,000 tonnes","9,000","500",14-05-2026 09:30',
+            ]
+        ),
+    )
+
+    assert response.status_code == 200, response.json()
+    with SessionLocal() as db:
+        snapshot = db.scalar(select(StockSnapshot))
+        assert snapshot is not None
+        assert str(snapshot.on_hand_mt) == "10000.000"
+        assert snapshot.snapshot_time.isoformat() == "2026-05-14T09:30:00"
+
+
+def test_upload_history_records_counts_and_rejection_summary(
+    client_and_session: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, _ = client_and_session
+    headers = login(client)
+    response = upload_csv(
+        client,
+        headers,
+        "stock",
+        "\n".join(
+            [
+                "plant_code,material_code,on_hand_mt,quality_held_mt,available_to_consume_mt,daily_consumption_mt,snapshot_time",
+                "JAM,COKING_COAL,10000,1000,9000,abc,14/05/2026",
+            ]
+        ),
+    )
+    assert response.status_code == 400
+
+    history_response = client.get("/api/v1/ingestion/jobs", headers=headers)
+    assert history_response.status_code == 200
+    job = history_response.json()[0]
+    assert job["file_name"] == "upload.csv"
+    assert job["source_type"] == "stock"
+    assert job["rows_received"] == 1
+    assert job["rows_accepted"] == 0
+    assert job["rows_rejected"] == 1
+    assert "Daily consumption MT could not be interpreted" in job["top_rejection_summary"]
+    assert job["refreshed_operational_visibility"] is False
+
+
+def test_ingestion_history_does_not_leak_between_tenants(
+    client_and_session: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, SessionLocal = client_and_session
+    tenant_a_headers = login(client)
+    upload_response = upload_csv(client, tenant_a_headers, "shipment", shipment_csv("SHP-TENANT-A"))
+    assert upload_response.status_code == 200
+
+    with SessionLocal() as db:
+        role = db.scalar(select(Role).where(Role.name == LOGISTICS_USER))
+        assert role is not None
+        tenant_b = Tenant(name="Tenant B", slug="tenant-b")
+        user_b = User(
+            email="tenant-b@test.local",
+            full_name="Tenant B User",
+            password_hash=hash_password("Password123!"),
+            is_active=True,
+        )
+        db.add_all([tenant_b, user_b])
+        db.flush()
+        db.add(
+            TenantMembership(
+                tenant_id=tenant_b.id,
+                user_id=user_b.id,
+                role_id=role.id,
+                is_active=True,
+            )
+        )
+        db.commit()
+
+    login_response = client.post(
+        "/api/v1/auth/login",
+        json={"email": "tenant-b@test.local", "password": "Password123!"},
+    )
+    assert login_response.status_code == 200
+    tenant_b_headers = {
+        "Authorization": f"Bearer {login_response.json()['access_token']}",
+        "X-Tenant-Slug": "tenant-b",
+    }
+
+    history_response = client.get("/api/v1/ingestion/jobs", headers=tenant_b_headers)
+    assert history_response.status_code == 200
+    assert history_response.json() == []
 
 
 def test_threshold_upload(client_and_session: tuple[TestClient, sessionmaker[Session]]) -> None:
@@ -447,8 +624,10 @@ def test_shipment_upload_accepts_dispatched_state_and_date_only_eta(
         "shipment",
         "\n".join(
             [
-                "shipment_id,plant_code,material_code,supplier_name,quantity_mt,planned_eta,current_eta,current_state,latest_update_at",
-                "SHP-DISPATCHED,JAM,COKING_COAL,Supplier A,74000,2026-04-20,2026-04-21,dispatched,2026-04-15 09:00:00",
+                "shipment_id,plant_code,material_code,supplier_name,quantity_mt,"
+                "planned_eta,current_eta,current_state,latest_update_at",
+                "SHP-DISPATCHED,JAM,COKING_COAL,Supplier A,74000,"
+                "2026-04-20,2026-04-21,dispatched,2026-04-15 09:00:00",
             ]
         ),
     )
@@ -470,8 +649,10 @@ def test_shipment_upload_can_derive_current_eta_from_delay_days(
         "shipment",
         "\n".join(
             [
-                "shipment_id,plant_code,material_code,supplier_name,quantity_mt,planned_eta,delay_days,current_state,latest_update_at",
-                "SHP-DELAY-DAYS,JAM,COKING_COAL,Supplier A,74000,2026-04-20T08:00:00Z,2.5,in_transit,2026-04-15T09:00:00Z",
+                "shipment_id,plant_code,material_code,supplier_name,quantity_mt,"
+                "planned_eta,delay_days,current_state,latest_update_at",
+                "SHP-DELAY-DAYS,JAM,COKING_COAL,Supplier A,74000,"
+                "2026-04-20T08:00:00Z,2.5,in_transit,2026-04-15T09:00:00Z",
             ]
         ),
     )
@@ -544,8 +725,10 @@ def test_mapping_preview_and_manual_override_support_nonstandard_headers(
     csv_body = "\n".join(
         [
             "OneDrive shipment export",
-            "shipment reference,plant location,material name,vendor,qty,eta original,eta latest,status now,last updated",
-            "SHP-MAP,JAM,COKING_COAL,Supplier A,74000,2026-04-20T08:00:00Z,2026-04-21T08:00:00Z,in_transit,2026-04-15T09:00:00Z",
+            "shipment reference,plant location,material name,vendor,qty,eta original,"
+            "eta latest,status now,last updated",
+            "SHP-MAP,JAM,COKING_COAL,Supplier A,74000,2026-04-20T08:00:00Z,"
+            "2026-04-21T08:00:00Z,in_transit,2026-04-15T09:00:00Z",
         ]
     )
 
@@ -559,10 +742,7 @@ def test_mapping_preview_and_manual_override_support_nonstandard_headers(
     preview = preview_response.json()
     assert "shipment_id" in preview["required_fields"]
     assert preview["headers"][0] == "shipment reference"
-    suggested = {
-        item["source_header"]: item["suggested_field"]
-        for item in preview["suggestions"]
-    }
+    suggested = {item["source_header"]: item["suggested_field"] for item in preview["suggestions"]}
     assert suggested["shipment reference"] == "shipment_id"
     assert suggested["vendor"] == "supplier_name"
 
@@ -570,8 +750,16 @@ def test_mapping_preview_and_manual_override_support_nonstandard_headers(
         "/api/v1/ingestion/uploads",
         headers=headers,
         data={
-          "file_type": "shipment",
-            "mapping_overrides": '{"plant location":"plant_code","material name":"material_code","eta original":"planned_eta","eta latest":"current_eta","status now":"current_state"}',
+            "file_type": "shipment",
+            "mapping_overrides": json.dumps(
+                {
+                    "plant location": "plant_code",
+                    "material name": "material_code",
+                    "eta original": "planned_eta",
+                    "eta latest": "current_eta",
+                    "status now": "current_state",
+                }
+            ),
         },
         files={"file": ("mapping.csv", csv_body.encode(), "text/csv")},
     )

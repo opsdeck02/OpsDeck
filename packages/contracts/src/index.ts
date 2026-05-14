@@ -398,9 +398,21 @@ export interface Shipment {
   contribution_band: string;
 }
 
+export interface FieldValidationError {
+  field: string;
+  reason: string;
+  suggested_fix: string | null;
+}
+
 export interface RowValidationError {
   row_number: number;
   errors: string[];
+  field_errors: FieldValidationError[];
+}
+
+export interface RejectionSummary {
+  reason: string;
+  count: number;
 }
 
 export interface IngestionSummary {
@@ -417,6 +429,8 @@ export interface UploadResult {
   rows_accepted: number;
   rows_rejected: number;
   validation_errors: RowValidationError[];
+  top_rejection_reasons: RejectionSummary[];
+  blocking_errors: string[];
   summary_counts: IngestionSummary;
   platform_detected: string | null;
   transformed_url: string | null;
@@ -431,6 +445,11 @@ export interface IngestionJob {
   rows_accepted: number;
   rows_rejected: number;
   error_message: string | null;
+  file_name: string | null;
+  source_type: string | null;
+  uploaded_at: string | null;
+  top_rejection_summary: string | null;
+  refreshed_operational_visibility: boolean;
 }
 
 export interface CarrierOption {
@@ -525,6 +544,9 @@ export interface MappingPreview {
   required_fields: string[];
   optional_fields: string[];
   suggestions: HeaderMappingSuggestion[];
+  mapped_required_fields: string[];
+  missing_required_fields: string[];
+  blocking_errors: string[];
   platform_detected: string | null;
   transformed_url: string | null;
 }

@@ -51,12 +51,18 @@ export function UploadPanel({
   const [fileType, setFileType] = useState("shipment");
   const [uploadMode, setUploadMode] = useState<"file" | "url">("file");
   const [file, setFile] = useState<File | null>(null);
-  const [sourceType, setSourceType] = useState<"google_sheets" | "excel_online">("excel_online");
+  const [sourceType, setSourceType] = useState<
+    "google_sheets" | "excel_online"
+  >("excel_online");
   const [sourceUrl, setSourceUrl] = useState("");
   const [result, setResult] = useState<UploadResult | null>(null);
   const [history, setHistory] = useState<IngestionJob[]>([]);
-  const [mappingPreview, setMappingPreview] = useState<MappingPreview | null>(null);
-  const [mappingOverrides, setMappingOverrides] = useState<Record<string, string>>({});
+  const [mappingPreview, setMappingPreview] = useState<MappingPreview | null>(
+    null,
+  );
+  const [mappingOverrides, setMappingOverrides] = useState<
+    Record<string, string>
+  >({});
   const [dataSources, setDataSources] = useState<ExternalDataSource[]>([]);
   const [editingSourceId, setEditingSourceId] = useState<number | null>(null);
   const [dataSourceForm, setDataSourceForm] = useState({
@@ -73,6 +79,23 @@ export function UploadPanel({
   const [isPending, startTransition] = useTransition();
   const uploadUrlDetection = describeUrl(sourceUrl);
   const dataSourceUrlDetection = describeUrl(dataSourceForm.source_url);
+  const mappedRequiredFields = mappingPreview
+    ? new Set([
+        ...mappingPreview.mapped_required_fields,
+        ...Object.values(mappingOverrides).filter((field) =>
+          mappingPreview.required_fields.includes(field),
+        ),
+      ])
+    : new Set<string>();
+  if (mappingPreview?.file_type === "shipment") {
+    mappedRequiredFields.add("source_of_truth");
+  }
+  const missingRequiredFields = mappingPreview
+    ? mappingPreview.required_fields.filter(
+        (field) => !mappedRequiredFields.has(field),
+      )
+    : [];
+  const hasBlockingMappingErrors = missingRequiredFields.length > 0;
 
   useEffect(() => {
     void loadHistory();
@@ -101,7 +124,9 @@ export function UploadPanel({
   }, [automatedSourcesEnabled, fileType, uploadMode]);
 
   async function loadHistory() {
-    const response = await fetch("/api/ingestion/history", { cache: "no-store" });
+    const response = await fetch("/api/ingestion/history", {
+      cache: "no-store",
+    });
     if (response.ok) {
       setHistoryError(null);
       setHistory((await response.json()) as IngestionJob[]);
@@ -115,7 +140,9 @@ export function UploadPanel({
       setDataSources([]);
       return;
     }
-    const response = await fetch("/api/tenant-data-sources", { cache: "no-store" });
+    const response = await fetch("/api/tenant-data-sources", {
+      cache: "no-store",
+    });
     if (!response.ok) {
       setDataSources([]);
       return;
@@ -165,7 +192,11 @@ export function UploadPanel({
     if (!response.ok) {
       setMappingPreview(null);
       setMappingOverrides({});
-      setError(typeof body.detail === "string" ? body.detail : "URL mapping preview failed.");
+      setError(
+        typeof body.detail === "string"
+          ? body.detail
+          : "URL mapping preview failed.",
+      );
       return;
     }
     const preview = body as MappingPreview;
@@ -193,9 +224,16 @@ export function UploadPanel({
       const response = await fetch("/api/ingestion/upload/clear", {
         method: "DELETE",
       });
-      const body = (await response.json()) as { detail?: string } & Record<string, number>;
+      const body = (await response.json()) as { detail?: string } & Record<
+        string,
+        number
+      >;
       if (!response.ok) {
-        setError(typeof body.detail === "string" ? body.detail : "Uploaded data could not be deleted.");
+        setError(
+          typeof body.detail === "string"
+            ? body.detail
+            : "Uploaded data could not be deleted.",
+        );
         return;
       }
       setFile(null);
@@ -218,6 +256,12 @@ export function UploadPanel({
       setError("Choose a CSV or XLSX file first.");
       return;
     }
+    if (hasBlockingMappingErrors) {
+      setError(
+        `Map required continuity fields before loading: ${missingRequiredFields.map((field) => fieldLabels[field] ?? field).join(", ")}.`,
+      );
+      return;
+    }
 
     setError(null);
     setResult(null);
@@ -234,7 +278,11 @@ export function UploadPanel({
       const body = await response.json();
 
       if (!response.ok) {
-        setError(typeof body.detail === "string" ? body.detail : "Upload failed validation.");
+        setError(
+          typeof body.detail === "string"
+            ? body.detail
+            : "Upload failed validation.",
+        );
         if (body.detail?.validation_errors) {
           setResult(body.detail as UploadResult);
         }
@@ -254,6 +302,12 @@ export function UploadPanel({
       setError("Paste a Google Sheets or Excel/OneDrive URL first.");
       return;
     }
+    if (hasBlockingMappingErrors) {
+      setError(
+        `Map required continuity fields before loading: ${missingRequiredFields.map((field) => fieldLabels[field] ?? field).join(", ")}.`,
+      );
+      return;
+    }
 
     setError(null);
     setResult(null);
@@ -271,7 +325,11 @@ export function UploadPanel({
       const body = await response.json();
 
       if (!response.ok) {
-        setError(typeof body.detail === "string" ? body.detail : "URL upload failed validation.");
+        setError(
+          typeof body.detail === "string"
+            ? body.detail
+            : "URL upload failed validation.",
+        );
         if (body.detail?.validation_errors) {
           setResult(body.detail as UploadResult);
         }
@@ -320,13 +378,17 @@ export function UploadPanel({
 
   function saveDataSource() {
     if (!automatedSourcesEnabled) {
-      setError("Automated URL sources are included in paid and enterprise plans.");
+      setError(
+        "Automated URL sources are included in paid and enterprise plans.",
+      );
       return;
     }
     let mappingConfig: Record<string, unknown> = {};
     if (dataSourceForm.mapping_config_text.trim()) {
       try {
-        mappingConfig = JSON.parse(dataSourceForm.mapping_config_text) as Record<string, unknown>;
+        mappingConfig = JSON.parse(
+          dataSourceForm.mapping_config_text,
+        ) as Record<string, unknown>;
       } catch {
         setError("URL source mapping JSON is invalid.");
         return;
@@ -336,7 +398,9 @@ export function UploadPanel({
     setError(null);
     startTransition(async () => {
       const response = await fetch(
-        editingSourceId ? `/api/tenant-data-sources/${editingSourceId}` : "/api/tenant-data-sources",
+        editingSourceId
+          ? `/api/tenant-data-sources/${editingSourceId}`
+          : "/api/tenant-data-sources",
         {
           method: editingSourceId ? "PUT" : "POST",
           headers: { "Content-Type": "application/json" },
@@ -346,14 +410,20 @@ export function UploadPanel({
             source_url: dataSourceForm.source_url,
             dataset_type: dataSourceForm.dataset_type,
             mapping_config: mappingConfig,
-            sync_frequency_minutes: Number(dataSourceForm.sync_frequency_minutes),
+            sync_frequency_minutes: Number(
+              dataSourceForm.sync_frequency_minutes,
+            ),
             is_active: dataSourceForm.is_active,
           }),
         },
       );
       const body = (await response.json()) as { detail?: string };
       if (!response.ok) {
-        setError(typeof body.detail === "string" ? body.detail : "URL source save failed.");
+        setError(
+          typeof body.detail === "string"
+            ? body.detail
+            : "URL source save failed.",
+        );
         return;
       }
       resetDataSourceForm();
@@ -368,10 +438,16 @@ export function UploadPanel({
     }
     setError(null);
     startTransition(async () => {
-      const response = await fetch(`/api/tenant-data-sources/${sourceId}`, { method: "POST" });
-      const body = (await response.json()) as ExternalDataSourceSyncResult & { detail?: string };
+      const response = await fetch(`/api/tenant-data-sources/${sourceId}`, {
+        method: "POST",
+      });
+      const body = (await response.json()) as ExternalDataSourceSyncResult & {
+        detail?: string;
+      };
       if (!response.ok) {
-        setError(typeof body.detail === "string" ? body.detail : "URL sync failed.");
+        setError(
+          typeof body.detail === "string" ? body.detail : "URL sync failed.",
+        );
         return;
       }
       setError(
@@ -387,7 +463,9 @@ export function UploadPanel({
       <section className="od-panel p-3">
         <div className="space-y-2">
           <h2 className="text-lg font-semibold">Activate continuity signals</h2>
-          <p className="text-sm text-mutedForeground">Inbound, inventory, thresholds, and source mapping.</p>
+          <p className="text-sm text-mutedForeground">
+            Inbound, inventory, thresholds, and source mapping.
+          </p>
         </div>
         <form onSubmit={uploadFile} className="mt-4 space-y-3">
           <label className="block space-y-2 text-sm font-medium">
@@ -410,7 +488,9 @@ export function UploadPanel({
               <input
                 type="file"
                 accept=".csv,.xlsx"
-                onChange={(event) => onFileSelected(event.target.files?.[0] ?? null)}
+                onChange={(event) =>
+                  onFileSelected(event.target.files?.[0] ?? null)
+                }
                 className="w-full rounded-xl border bg-card px-3 py-2.5"
               />
             </label>
@@ -449,11 +529,19 @@ export function UploadPanel({
                 <div className="mt-3 grid gap-3">
                   <select
                     value={sourceType}
-                    onChange={(event) => setSourceType(event.target.value as "google_sheets" | "excel_online")}
+                    onChange={(event) =>
+                      setSourceType(
+                        event.target.value as "google_sheets" | "excel_online",
+                      )
+                    }
                     className="rounded-xl border bg-card px-3 py-2.5 text-sm"
                   >
-                    <option value="excel_online">Excel / OneDrive direct link</option>
-                    <option value="google_sheets">Google Sheets public link</option>
+                    <option value="excel_online">
+                      Excel / OneDrive direct link
+                    </option>
+                    <option value="google_sheets">
+                      Google Sheets public link
+                    </option>
                   </select>
                   <div className="grid gap-3 md:grid-cols-[1fr_auto]">
                     <input
@@ -476,7 +564,9 @@ export function UploadPanel({
                       {uploadUrlDetection.label}
                     </span>
                     <span>
-                      Paste any OneDrive, Google Drive, or SharePoint share link. Ensure &apos;Anyone with the link can view&apos; is enabled.
+                      Paste any OneDrive, Google Drive, or SharePoint share
+                      link. Ensure &apos;Anyone with the link can view&apos; is
+                      enabled.
                     </span>
                   </div>
                 </div>
@@ -486,7 +576,9 @@ export function UploadPanel({
             <div className="rounded-xl bg-slate-50 p-3 ring-1 ring-slate-900/5">
               <p className="font-medium">Manual signal source</p>
               <p className="mt-1 text-sm text-mutedForeground">
-                Pilot tenants can load continuity signals by CSV or XLSX. URL sources and Microsoft 365 auto-sync are included in paid and enterprise plans.
+                Pilot tenants can load continuity signals by CSV or XLSX. URL
+                sources and Microsoft 365 auto-sync are included in paid and
+                enterprise plans.
               </p>
             </div>
           )}
@@ -495,36 +587,111 @@ export function UploadPanel({
             <div className="mt-3 space-y-3">
               <div className="rounded-xl bg-muted/50 p-3 text-sm">
                 <p className="font-medium">Required continuity signal fields</p>
-                <div className="mt-2 flex flex-wrap gap-2">
+                <div className="mt-2 grid gap-2 md:grid-cols-2">
                   {(mappingPreview?.required_fields ?? []).map((field) => (
-                    <span key={field} className="rounded-full bg-card px-3 py-1 text-xs">
-                      {fieldLabels[field] ?? field}
-                    </span>
+                    <div key={field} className="rounded-xl bg-card p-2 text-xs">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-medium">
+                          {fieldLabels[field] ?? field}
+                        </span>
+                        <span
+                          className={
+                            mappedRequiredFields.has(field)
+                              ? "text-emerald-700"
+                              : "text-primary"
+                          }
+                        >
+                          {mappedRequiredFields.has(field)
+                            ? "mapped"
+                            : "unmapped"}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-mutedForeground">
+                        Uploaded column:{" "}
+                        {uploadedColumnForField(mappingOverrides, field) ??
+                          (field === "source_of_truth"
+                            ? "system-filled"
+                            : "not selected")}
+                      </p>
+                    </div>
                   ))}
                   {!mappingPreview ? (
-                    <span className="text-mutedForeground">Choose a file to see required columns.</span>
+                    <span className="text-mutedForeground">
+                      Choose a file to see required columns.
+                    </span>
                   ) : null}
                 </div>
+                {missingRequiredFields.length > 0 ? (
+                  <p className="mt-2 rounded-lg bg-card p-2 text-xs text-primary">
+                    Unmapped required fields:{" "}
+                    {missingRequiredFields
+                      .map((field) => fieldLabels[field] ?? field)
+                      .join(", ")}
+                  </p>
+                ) : null}
                 {mappingPreview?.file_type === "shipment" ? (
                   <p className="mt-2 text-xs text-mutedForeground">
-                    Signal source is saved automatically as manual_upload for file loads and as the URL source type for automated sync.
+                    Signal source is saved automatically as manual_upload for
+                    file loads and as the URL source type for automated sync.
                   </p>
                 ) : null}
               </div>
               {mappingPreview ? (
                 <div className="rounded-xl bg-muted/50 p-3 text-sm">
-                  <p className="font-medium">Columns found in this signal feed</p>
-                  <p className="mt-1 break-words text-mutedForeground">{mappingPreview.headers.join(", ")}</p>
+                  <p className="font-medium">Optional continuity details</p>
+                  <div className="mt-2 grid gap-2 md:grid-cols-2">
+                    {mappingPreview.optional_fields
+                      .slice(0, 12)
+                      .map((field) => (
+                        <div
+                          key={field}
+                          className="rounded-xl bg-card p-2 text-xs"
+                        >
+                          <span className="font-medium">
+                            {fieldLabels[field] ?? field}
+                          </span>
+                          <p className="mt-1 text-mutedForeground">
+                            Uploaded column:{" "}
+                            {uploadedColumnForField(mappingOverrides, field) ??
+                              "not selected"}
+                          </p>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              ) : null}
+              {mappingPreview ? (
+                <div className="rounded-xl bg-muted/50 p-3 text-sm">
+                  <p className="font-medium">
+                    Columns found in this signal feed
+                  </p>
+                  <p className="mt-1 break-words text-mutedForeground">
+                    {mappingPreview.headers.join(", ")}
+                  </p>
                 </div>
               ) : null}
               {!mappingPreview || mappingPreview.suggestions.length === 0 ? (
-                <p className="text-sm text-mutedForeground">Choose a file to preview header mapping.</p>
+                <p className="text-sm text-mutedForeground">
+                  Choose a file to preview header mapping.
+                </p>
               ) : (
                 mappingPreview.suggestions.map((item) => (
-                  <div key={item.source_header} className="grid gap-2 rounded-xl border bg-card p-3 md:grid-cols-[1fr_1fr_auto]">
+                  <div
+                    key={item.source_header}
+                    className="grid gap-2 rounded-xl border bg-card p-3 md:grid-cols-[1fr_1fr_auto]"
+                  >
                     <div>
-                      <p className="text-xs text-mutedForeground">Incoming signal column</p>
+                      <p className="text-xs text-mutedForeground">
+                        Incoming signal column
+                      </p>
                       <p className="font-medium">{item.source_header}</p>
+                      {item.suggested_field ? (
+                        <p className="mt-1 text-xs text-mutedForeground">
+                          Detected match:{" "}
+                          {fieldLabels[item.suggested_field] ??
+                            item.suggested_field}
+                        </p>
+                      ) : null}
                     </div>
                     <div>
                       <p className="text-xs text-mutedForeground">Mapped to</p>
@@ -551,8 +718,10 @@ export function UploadPanel({
                         ))}
                       </select>
                     </div>
-                    <div className="self-end rounded-full bg-muted px-3 py-1 text-xs">
-                      {item.confidence}
+                    <div
+                      className={`self-end rounded-full px-3 py-1 text-xs ${confidenceClass(item.confidence)}`}
+                    >
+                      {item.confidence} confidence
                     </div>
                   </div>
                 ))
@@ -563,7 +732,8 @@ export function UploadPanel({
             <div className="rounded-xl bg-slate-50 p-3 ring-1 ring-slate-900/5">
               <p className="font-medium">URL source for continuity signals</p>
               <p className="mt-1 text-sm text-mutedForeground">
-                Save a Google Sheets or Excel Online URL here if the same continuity signal should refresh without manual files.
+                Save a Google Sheets or Excel Online URL here if the same
+                continuity signal should refresh without manual files.
               </p>
               <div className="mt-3 grid gap-3">
                 <div className="grid gap-3 md:grid-cols-2">
@@ -572,7 +742,9 @@ export function UploadPanel({
                     onChange={(event) =>
                       setDataSourceForm((current) => ({
                         ...current,
-                        source_type: event.target.value as "google_sheets" | "excel_online",
+                        source_type: event.target.value as
+                          | "google_sheets"
+                          | "excel_online",
                       }))
                     }
                     className="rounded-xl border bg-card px-3 py-2.5 text-sm"
@@ -585,7 +757,10 @@ export function UploadPanel({
                     onChange={(event) =>
                       setDataSourceForm((current) => ({
                         ...current,
-                        dataset_type: event.target.value as "shipments" | "stock" | "thresholds",
+                        dataset_type: event.target.value as
+                          | "shipments"
+                          | "stock"
+                          | "thresholds",
                       }))
                     }
                     className="rounded-xl border bg-card px-3 py-2.5 text-sm"
@@ -597,13 +772,23 @@ export function UploadPanel({
                 </div>
                 <input
                   value={dataSourceForm.source_name}
-                  onChange={(event) => setDataSourceForm((current) => ({ ...current, source_name: event.target.value }))}
+                  onChange={(event) =>
+                    setDataSourceForm((current) => ({
+                      ...current,
+                      source_name: event.target.value,
+                    }))
+                  }
                   placeholder="Source name"
                   className="rounded-xl border bg-card px-3 py-2.5 text-sm"
                 />
                 <input
                   value={dataSourceForm.source_url}
-                  onChange={(event) => setDataSourceForm((current) => ({ ...current, source_url: event.target.value }))}
+                  onChange={(event) =>
+                    setDataSourceForm((current) => ({
+                      ...current,
+                      source_url: event.target.value,
+                    }))
+                  }
                   placeholder="OneDrive, Google Drive, SharePoint, CSV, or XLSX URL"
                   className="rounded-xl border bg-card px-3 py-2.5 text-sm"
                 />
@@ -612,13 +797,17 @@ export function UploadPanel({
                     {dataSourceUrlDetection.label}
                   </span>
                   <span>
-                    Paste any OneDrive, Google Drive, or SharePoint share link. Ensure &apos;Anyone with the link can view&apos; is enabled.
+                    Paste any OneDrive, Google Drive, or SharePoint share link.
+                    Ensure &apos;Anyone with the link can view&apos; is enabled.
                   </span>
                 </div>
                 <textarea
                   value={dataSourceForm.mapping_config_text}
                   onChange={(event) =>
-                    setDataSourceForm((current) => ({ ...current, mapping_config_text: event.target.value }))
+                    setDataSourceForm((current) => ({
+                      ...current,
+                      mapping_config_text: event.target.value,
+                    }))
                   }
                   placeholder={'Optional source config JSON\n{"sheet_gid":"0"}'}
                   className="min-h-24 rounded-xl border bg-card px-3 py-2.5 text-sm"
@@ -627,7 +816,10 @@ export function UploadPanel({
                   <input
                     value={dataSourceForm.sync_frequency_minutes}
                     onChange={(event) =>
-                      setDataSourceForm((current) => ({ ...current, sync_frequency_minutes: event.target.value }))
+                      setDataSourceForm((current) => ({
+                        ...current,
+                        sync_frequency_minutes: event.target.value,
+                      }))
                     }
                     className="rounded-xl border bg-card px-3 py-2.5 text-sm"
                     placeholder="Sync frequency minutes"
@@ -638,21 +830,32 @@ export function UploadPanel({
                     disabled={isPending}
                     className="rounded-xl border px-3 py-2.5 text-sm font-medium disabled:opacity-60"
                   >
-                    {editingSourceId ? "Update signal source" : "Save signal source"}
+                    {editingSourceId
+                      ? "Update signal source"
+                      : "Save signal source"}
                   </button>
                 </div>
               </div>
               <div className="mt-3 space-y-3">
                 {dataSources.map((source) => (
-                  <div key={source.id} className="rounded-xl border bg-card p-3 text-sm">
+                  <div
+                    key={source.id}
+                    className="rounded-xl border bg-card p-3 text-sm"
+                  >
                     <div className="flex items-center justify-between gap-3">
                       <div>
                         <p className="font-medium">{source.source_name}</p>
-                    <p className="text-mutedForeground">{source.source_type} · {source.dataset_type}</p>
+                        <p className="text-mutedForeground">
+                          {source.source_type} · {source.dataset_type}
+                        </p>
                       </div>
-                      <span className="rounded-full bg-muted px-3 py-1 text-xs">{source.last_sync_status ?? "not_started"}</span>
+                      <span className="rounded-full bg-muted px-3 py-1 text-xs">
+                        {source.last_sync_status ?? "not_started"}
+                      </span>
                     </div>
-                    <p className="mt-2 break-all text-mutedForeground">{source.source_url}</p>
+                    <p className="mt-2 break-all text-mutedForeground">
+                      {source.source_url}
+                    </p>
                     <div className="mt-3 flex flex-wrap gap-3">
                       <button
                         type="button"
@@ -672,7 +875,9 @@ export function UploadPanel({
                   </div>
                 ))}
                 {dataSources.length === 0 ? (
-                  <p className="text-sm text-mutedForeground">No operational signal sources are watching continuity yet.</p>
+                  <p className="text-sm text-mutedForeground">
+                    No operational signal sources are watching continuity yet.
+                  </p>
                 ) : null}
               </div>
             </div>
@@ -680,10 +885,14 @@ export function UploadPanel({
           <div className="flex flex-wrap gap-3">
             <button
               type="submit"
-              disabled={isPending}
+              disabled={isPending || hasBlockingMappingErrors}
               className="rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primaryForeground disabled:opacity-60"
             >
-              {isPending ? "Loading..." : automatedSourcesEnabled && uploadMode === "url" ? "Load source URL" : "Load signal file"}
+              {isPending
+                ? "Loading..."
+                : automatedSourcesEnabled && uploadMode === "url"
+                  ? "Load source URL"
+                  : "Load signal file"}
             </button>
             {fileTypes.map((type) => (
               <a
@@ -704,7 +913,11 @@ export function UploadPanel({
             </button>
           </div>
         </form>
-        {error ? <p className="mt-4 rounded-xl bg-muted p-3 text-sm text-primary">{error}</p> : null}
+        {error ? (
+          <p className="mt-4 rounded-xl bg-muted p-3 text-sm text-primary">
+            {error}
+          </p>
+        ) : null}
         {result ? (
           <div className="mt-5 rounded-xl bg-muted p-3 text-sm">
             <p className="font-semibold">Signal load summary</p>
@@ -712,15 +925,56 @@ export function UploadPanel({
             <p>Accepted: {result.rows_accepted}</p>
             <p>Rejected: {result.rows_rejected}</p>
             <p>
-              Created {result.summary_counts.created}, updated {result.summary_counts.updated},
-              unchanged {result.summary_counts.unchanged}
+              Created {result.summary_counts.created}, updated{" "}
+              {result.summary_counts.updated}, unchanged{" "}
+              {result.summary_counts.unchanged}
             </p>
+            {(result.top_rejection_reasons ?? []).length > 0 ? (
+              <div className="mt-3 rounded-xl bg-card p-3">
+                <p className="font-medium">Top rejection reasons</p>
+                <div className="mt-2 space-y-1">
+                  {(result.top_rejection_reasons ?? []).map((reason) => (
+                    <p key={reason.reason} className="text-mutedForeground">
+                      {reason.count} row{reason.count === 1 ? "" : "s"}:{" "}
+                      {reason.reason}
+                    </p>
+                  ))}
+                </div>
+              </div>
+            ) : null}
             {result.validation_errors.length > 0 ? (
-              <div className="mt-3 space-y-2">
+              <div className="mt-3 space-y-2 rounded-xl bg-card p-3">
+                <p className="font-medium">Sample rejected rows</p>
                 {result.validation_errors.slice(0, 5).map((rowError) => (
-                  <p key={rowError.row_number}>
-                    Row {rowError.row_number}: {rowError.errors.join("; ")}
-                  </p>
+                  <div
+                    key={rowError.row_number}
+                    className="rounded-lg border bg-background p-2"
+                  >
+                    <p className="font-medium">
+                      Original row {rowError.row_number}
+                    </p>
+                    {((rowError.field_errors ?? []).length > 0
+                      ? rowError.field_errors
+                      : rowError.errors.map((reason) => ({
+                          field: "row",
+                          reason,
+                          suggested_fix: null,
+                        }))
+                    ).map((fieldError) => (
+                      <p
+                        key={`${rowError.row_number}-${fieldError.field}-${fieldError.reason}`}
+                        className="mt-1 text-mutedForeground"
+                      >
+                        {fieldError.field !== "row"
+                          ? `${fieldLabels[fieldError.field] ?? fieldError.field}: `
+                          : ""}
+                        {fieldError.reason}
+                        {fieldError.suggested_fix
+                          ? ` Suggested fix: ${fieldError.suggested_fix}`
+                          : ""}
+                      </p>
+                    ))}
+                  </div>
                 ))}
               </div>
             ) : null}
@@ -730,26 +984,57 @@ export function UploadPanel({
       <section className="od-panel p-3">
         <div className="flex items-center justify-between gap-3">
           <h2 className="text-lg font-semibold">Signal source activity</h2>
-          <span className="text-xs font-semibold text-mutedForeground">{history.length} jobs</span>
+          <span className="text-xs font-semibold text-mutedForeground">
+            {history.length} jobs
+          </span>
         </div>
         <div className="mt-3 space-y-2">
           {historyError ? (
-            <p className="rounded-xl bg-muted p-3 text-sm text-primary">{historyError}</p>
+            <p className="rounded-xl bg-muted p-3 text-sm text-primary">
+              {historyError}
+            </p>
           ) : null}
           {history.map((job) => (
-            <div key={job.id} className="rounded-xl bg-slate-50 p-3 text-sm ring-1 ring-slate-900/5">
+            <div
+              key={job.id}
+              className="rounded-xl bg-slate-50 p-3 text-sm ring-1 ring-slate-900/5"
+            >
               <div className="flex items-center justify-between gap-3">
-                <span className="font-semibold">{job.file_type}</span>
-                <span className="rounded-full bg-muted px-3 py-1 text-xs">{job.status}</span>
+                <div>
+                  <span className="font-semibold">
+                    {job.file_name ?? job.file_type}
+                  </span>
+                  <p className="text-xs text-mutedForeground">
+                    {job.source_type ?? job.file_type}
+                    {job.uploaded_at
+                      ? ` · ${new Date(job.uploaded_at).toLocaleString()}`
+                      : ""}
+                  </p>
+                </div>
+                <span className="rounded-full bg-muted px-3 py-1 text-xs">
+                  {job.status}
+                </span>
               </div>
               <p className="mt-2 text-mutedForeground">
-                {job.rows_accepted}/{job.rows_received} accepted, {job.rows_rejected} rejected
+                {job.rows_accepted}/{job.rows_received} accepted,{" "}
+                {job.rows_rejected} rejected
               </p>
+              <p className="mt-1 text-mutedForeground">
+                {job.refreshed_operational_visibility
+                  ? "Refreshed operational visibility"
+                  : "Did not refresh operational visibility"}
+              </p>
+              {job.top_rejection_summary || job.error_message ? (
+                <p className="mt-1 text-mutedForeground">
+                  {job.top_rejection_summary ?? job.error_message}
+                </p>
+              ) : null}
             </div>
           ))}
           {history.length === 0 ? (
             <div className="rounded-xl bg-slate-50 p-3 text-sm text-mutedForeground ring-1 ring-slate-900/5">
-              No source ingestion has contributed to the continuity signal chain yet.
+              No source ingestion has contributed to the continuity signal chain
+              yet.
             </div>
           ) : null}
         </div>
@@ -780,7 +1065,11 @@ function describeUrl(url: string): { platform: string; label: string } {
   if (host.includes("sharepoint.com")) {
     return { platform: "sharepoint", label: "SharePoint detected ✓" };
   }
-  if (host.includes("onedrive.live.com") || host.includes("1drv.ms") || host.includes("onedrive.com")) {
+  if (
+    host.includes("onedrive.live.com") ||
+    host.includes("1drv.ms") ||
+    host.includes("onedrive.com")
+  ) {
     return { platform: "onedrive", label: "OneDrive detected ✓" };
   }
   if (
@@ -790,7 +1079,31 @@ function describeUrl(url: string): { platform: string; label: string } {
     parsed.searchParams.get("download") === "1" ||
     parsed.searchParams.get("export") === "download"
   ) {
-    return { platform: "direct", label: "Direct URL (no transformation needed)" };
+    return {
+      platform: "direct",
+      label: "Direct URL (no transformation needed)",
+    };
   }
   return { platform: "unknown", label: "Unknown - may not work" };
+}
+
+function uploadedColumnForField(
+  mappingOverrides: Record<string, string>,
+  field: string,
+): string | null {
+  return (
+    Object.entries(mappingOverrides).find(
+      ([, mappedField]) => mappedField === field,
+    )?.[0] ?? null
+  );
+}
+
+function confidenceClass(confidence: string): string {
+  if (confidence === "high") {
+    return "bg-emerald-50 text-emerald-700";
+  }
+  if (confidence === "medium") {
+    return "bg-amber-50 text-amber-700";
+  }
+  return "bg-muted text-mutedForeground";
 }
