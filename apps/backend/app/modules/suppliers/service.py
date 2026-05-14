@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
 from decimal import ROUND_HALF_UP, Decimal
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models import Material, PortEvent, Shipment, Supplier
+from app.models import Material, Plant, Shipment, Supplier
 from app.models.enums import ShipmentState
 from app.modules.shipments.confidence import assess_freshness, ensure_utc
 from app.modules.shipments.movement import build_context, build_inland_summary, build_port_summary
@@ -36,7 +35,15 @@ ACTIVE_STATES = {
 GRADE_ORDER = {"A": 0, "B": 1, "C": 2, "D": 3}
 
 
-def list_suppliers(db: Session, context: RequestContext) -> list[SupplierOut]:
+def list_suppliers(
+    db: Session,
+    context: RequestContext,
+    plant_reference: str | None = None,
+) -> list[SupplierOut]:
+    plant = plant_for_reference(db, context, plant_reference)
+    if plant_reference and plant is None:
+        return []
+
     suppliers = list(
         db.scalars(
             select(Supplier)
@@ -44,7 +51,13 @@ def list_suppliers(db: Session, context: RequestContext) -> list[SupplierOut]:
             .order_by(Supplier.is_active.desc(), Supplier.name.asc())
         )
     )
-    return [serialize_supplier(db, context, supplier) for supplier in suppliers]
+    rows = [
+        serialize_supplier(db, context, supplier, plant_id=plant.id if plant else None)
+        for supplier in suppliers
+    ]
+    if plant is not None:
+        rows = [supplier for supplier in rows if supplier.performance.total_shipments > 0]
+    return rows
 
 
 def get_supplier_detail(
@@ -81,7 +94,7 @@ def create_supplier(db: Session, context: RequestContext, payload: SupplierCreat
         db.commit()
     except Exception:
         db.rollback()
-        raise ValueError("Supplier name or code already exists for this tenant")
+        raise ValueError("Supplier name or code already exists for this tenant") from None
     db.refresh(supplier)
     return serialize_supplier(db, context, supplier)
 
@@ -112,7 +125,7 @@ def update_supplier(
         db.commit()
     except Exception:
         db.rollback()
-        raise ValueError("Supplier name or code already exists for this tenant")
+        raise ValueError("Supplier name or code already exists for this tenant") from None
     db.refresh(supplier)
     return serialize_supplier(db, context, supplier)
 
@@ -157,8 +170,12 @@ def link_shipments_by_supplier_name(
     )
 
 
-def performance_summary(db: Session, context: RequestContext) -> SupplierPerformanceSummary:
-    suppliers = list_suppliers(db, context)
+def performance_summary(
+    db: Session,
+    context: RequestContext,
+    plant_reference: str | None = None,
+) -> SupplierPerformanceSummary:
+    suppliers = list_suppliers(db, context, plant_reference=plant_reference)
     active = [supplier for supplier in suppliers if supplier.is_active]
     top = sorted(
         active,
@@ -186,7 +203,12 @@ def performance_summary(db: Session, context: RequestContext) -> SupplierPerform
     )
 
 
-def serialize_supplier(db: Session, context: RequestContext, supplier: Supplier) -> SupplierOut:
+def serialize_supplier(
+    db: Session,
+    context: RequestContext,
+    supplier: Supplier,
+    plant_id: int | None = None,
+) -> SupplierOut:
     return SupplierOut(
         id=supplier.id,
         tenant_id=supplier.tenant_id,
@@ -201,7 +223,7 @@ def serialize_supplier(db: Session, context: RequestContext, supplier: Supplier)
         is_active=supplier.is_active,
         created_at=ensure_utc(supplier.created_at),
         updated_at=ensure_utc(supplier.updated_at),
-        performance=calculate_supplier_performance(db, context, supplier),
+        performance=calculate_supplier_performance(db, context, supplier, plant_id=plant_id),
     )
 
 
@@ -209,8 +231,9 @@ def calculate_supplier_performance(
     db: Session,
     context: RequestContext,
     supplier: Supplier,
+    plant_id: int | None = None,
 ) -> SupplierPerformance:
-    shipments = linked_shipments(db, context.tenant_id, supplier.id)
+    shipments = linked_shipments(db, context.tenant_id, supplier.id, plant_id=plant_id)
     active_shipments = [item for item in shipments if item.current_state in ACTIVE_STATES]
     eta_drifts = [
         Decimal(str((ensure_utc(item.current_eta) - ensure_utc(item.planned_eta)).total_seconds()))
@@ -282,17 +305,44 @@ def shipment_has_risk_signal(db: Session, shipment: Shipment) -> bool:
             item.confidence == "low",
             assess_freshness(item.last_update_at).freshness_label == "stale",
             bool(port_summary and (port_summary.stale_record or port_summary.likely_port_delay)),
-            bool(inland_summary and (inland_summary.stale_record or inland_summary.inland_delay_flag)),
+            bool(
+                inland_summary
+                and (inland_summary.stale_record or inland_summary.inland_delay_flag)
+            ),
         ]
     )
 
 
-def linked_shipments(db: Session, tenant_id: int, supplier_id: uuid.UUID) -> list[Shipment]:
+def linked_shipments(
+    db: Session,
+    tenant_id: int,
+    supplier_id: uuid.UUID,
+    plant_id: int | None = None,
+) -> list[Shipment]:
+    query = select(Shipment).where(
+        Shipment.tenant_id == tenant_id,
+        Shipment.supplier_id == supplier_id,
+    )
+    if plant_id is not None:
+        query = query.where(Shipment.plant_id == plant_id)
     return list(
         db.scalars(
-            select(Shipment)
-            .where(Shipment.tenant_id == tenant_id, Shipment.supplier_id == supplier_id)
-            .order_by(Shipment.current_eta.desc())
+            query.order_by(Shipment.current_eta.desc())
+        )
+    )
+
+
+def plant_for_reference(
+    db: Session,
+    context: RequestContext,
+    plant_reference: str | None,
+) -> Plant | None:
+    if not plant_reference:
+        return None
+    return db.scalar(
+        select(Plant).where(
+            Plant.tenant_id == context.tenant_id,
+            Plant.code == plant_reference,
         )
     )
 

@@ -398,8 +398,17 @@ export async function getStockCoverDetail(
   );
 }
 
-export async function getSuppliers(): Promise<Supplier[]> {
-  return (await getAuthenticatedJson<Supplier[]>("/api/v1/suppliers")) ?? [];
+export async function getSuppliers(params?: {
+  plant_reference?: string;
+}): Promise<Supplier[]> {
+  const query = new URLSearchParams();
+  if (params?.plant_reference) {
+    query.set("plant_reference", params.plant_reference);
+  }
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  return (
+    (await getAuthenticatedJson<Supplier[]>(`/api/v1/suppliers${suffix}`)) ?? []
+  );
 }
 
 export async function getSupplierDetail(
@@ -410,9 +419,16 @@ export async function getSupplierDetail(
   );
 }
 
-export async function getSupplierPerformanceSummary(): Promise<SupplierPerformanceSummary | null> {
+export async function getSupplierPerformanceSummary(params?: {
+  plant_reference?: string;
+}): Promise<SupplierPerformanceSummary | null> {
+  const query = new URLSearchParams();
+  if (params?.plant_reference) {
+    query.set("plant_reference", params.plant_reference);
+  }
+  const suffix = query.toString() ? `?${query.toString()}` : "";
   return getAuthenticatedJson<SupplierPerformanceSummary>(
-    "/api/v1/suppliers/performance/summary",
+    `/api/v1/suppliers/performance/summary${suffix}`,
   );
 }
 

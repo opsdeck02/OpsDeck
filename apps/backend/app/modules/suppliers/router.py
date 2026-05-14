@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_db, get_request_context, require_admin_access
@@ -33,8 +33,9 @@ router = APIRouter(prefix="/suppliers", tags=["suppliers"])
 def list_supplier_records(
     context: Annotated[RequestContext, Depends(get_request_context)],
     db: Annotated[Session, Depends(get_db)],
+    plant_reference: Annotated[str | None, Query()] = None,
 ) -> list[SupplierOut]:
-    return list_suppliers(db, context)
+    return list_suppliers(db, context, plant_reference=plant_reference)
 
 
 @router.post("", response_model=SupplierOut)
@@ -54,8 +55,9 @@ def create_supplier_record(
 def supplier_performance_summary(
     context: Annotated[RequestContext, Depends(get_request_context)],
     db: Annotated[Session, Depends(get_db)],
+    plant_reference: Annotated[str | None, Query()] = None,
 ) -> SupplierPerformanceSummary:
-    return performance_summary(db, context)
+    return performance_summary(db, context, plant_reference=plant_reference)
 
 
 @router.get("/{supplier_id}", response_model=SupplierDetail)

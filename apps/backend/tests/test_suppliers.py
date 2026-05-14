@@ -116,6 +116,82 @@ def test_supplier_summary_best_and_worst() -> None:
         assert body["bottom_suppliers"][0]["performance"]["reliability_grade"] in {"C", "D"}
 
 
+def test_supplier_list_is_tenant_wide_by_default() -> None:
+    for client, SessionLocal in client_with_db():
+        headers = auth_headers(client)
+        with SessionLocal() as db:
+            seed_supplier_contexts(db)
+
+        response = client.get("/api/v1/suppliers", headers=headers)
+
+        assert response.status_code == 200
+        names = {item["name"] for item in response.json()}
+        assert {"Acme Coal", "Late Coal", "Shared Coke"}.issubset(names)
+        assert "Other Tenant Coal" not in names
+
+
+def test_supplier_list_scopes_to_selected_plant_reference() -> None:
+    for client, SessionLocal in client_with_db():
+        headers = auth_headers(client)
+        with SessionLocal() as db:
+            seed_supplier_contexts(db)
+
+        response = client.get("/api/v1/suppliers?plant_reference=JAM", headers=headers)
+
+        assert response.status_code == 200
+        names = {item["name"] for item in response.json()}
+        assert {"Acme Coal", "Late Coal", "Shared Coke"} == names
+
+        body_by_name = {item["name"]: item for item in response.json()}
+        assert body_by_name["Shared Coke"]["performance"]["total_shipments"] == 1
+
+
+def test_same_supplier_can_appear_in_multiple_plant_contexts() -> None:
+    for client, SessionLocal in client_with_db():
+        headers = auth_headers(client)
+        with SessionLocal() as db:
+            seed_supplier_contexts(db)
+
+        jam = client.get("/api/v1/suppliers?plant_reference=JAM", headers=headers)
+        kal = client.get("/api/v1/suppliers?plant_reference=KAL", headers=headers)
+
+        assert jam.status_code == 200
+        assert kal.status_code == 200
+        assert "Shared Coke" in {item["name"] for item in jam.json()}
+        assert "Shared Coke" in {item["name"] for item in kal.json()}
+        assert {item["name"] for item in kal.json()} == {"Shared Coke"}
+
+
+def test_supplier_summary_scopes_to_selected_plant_reference() -> None:
+    for client, SessionLocal in client_with_db():
+        headers = auth_headers(client)
+        with SessionLocal() as db:
+            seed_supplier_contexts(db)
+
+        summary = client.get(
+            "/api/v1/suppliers/performance/summary?plant_reference=KAL",
+            headers=headers,
+        )
+
+        assert summary.status_code == 200
+        top_names = {item["name"] for item in summary.json()["top_suppliers"]}
+        bottom_names = {item["name"] for item in summary.json()["bottom_suppliers"]}
+        assert top_names == {"Shared Coke"}
+        assert bottom_names == {"Shared Coke"}
+
+
+def test_supplier_plant_filter_does_not_leak_other_tenant_suppliers() -> None:
+    for client, SessionLocal in client_with_db():
+        headers = auth_headers(client)
+        with SessionLocal() as db:
+            seed_supplier_contexts(db)
+
+        response = client.get("/api/v1/suppliers?plant_reference=BOK", headers=headers)
+
+        assert response.status_code == 200
+        assert response.json() == []
+
+
 def test_ingestion_auto_links_supplier_by_name() -> None:
     for _, SessionLocal in client_with_db():
         with SessionLocal() as db:
@@ -229,6 +305,112 @@ def seed_base(db: Session) -> None:
             ),
         ]
     )
+    db.commit()
+
+
+def seed_supplier_contexts(db: Session) -> None:
+    tenant = db.scalar(select(Tenant).where(Tenant.slug == "tenant-a"))
+    material = db.scalar(select(Material).where(Material.code == "COAL"))
+    jam = db.scalar(select(Plant).where(Plant.tenant_id == tenant.id, Plant.code == "JAM"))
+    kal = Plant(tenant_id=tenant.id, code="KAL", name="Kalinganagar", location="IN")
+    shared = Supplier(
+        tenant_id=tenant.id,
+        name="Shared Coke",
+        code="SHARED",
+        is_active=True,
+    )
+    acme = Supplier(
+        tenant_id=tenant.id,
+        name="Acme Coal",
+        code="ACME",
+        is_active=True,
+    )
+    late = Supplier(
+        tenant_id=tenant.id,
+        name="Late Coal",
+        code="LATE",
+        is_active=True,
+    )
+    other_tenant = Tenant(name="Tenant B", slug="tenant-b")
+    db.add_all([kal, shared, acme, late, other_tenant])
+    db.flush()
+    other_plant = Plant(
+        tenant_id=other_tenant.id,
+        code="BOK",
+        name="Bokaro",
+        location="IN",
+    )
+    other_material = Material(
+        tenant_id=other_tenant.id,
+        code="COAL",
+        name="Coking Coal",
+        category="coal",
+    )
+    other_supplier = Supplier(
+        tenant_id=other_tenant.id,
+        name="Other Tenant Coal",
+        code="OTHER",
+        is_active=True,
+    )
+    db.add_all([other_plant, other_material, other_supplier])
+    db.flush()
+    now = datetime.now(UTC)
+    db.add_all(
+        [
+            Shipment(
+                tenant_id=tenant.id,
+                shipment_id="SHARED-JAM",
+                plant_id=jam.id,
+                material_id=material.id,
+                supplier_id=shared.id,
+                supplier_name=shared.name,
+                quantity_mt=Decimal("100"),
+                planned_eta=now + timedelta(days=1),
+                current_eta=now + timedelta(days=1),
+                current_state=ShipmentState.IN_TRANSIT,
+                source_of_truth="manual_upload",
+                latest_update_at=now,
+            ),
+            Shipment(
+                tenant_id=tenant.id,
+                shipment_id="SHARED-KAL",
+                plant_id=kal.id,
+                material_id=material.id,
+                supplier_id=shared.id,
+                supplier_name=shared.name,
+                quantity_mt=Decimal("120"),
+                planned_eta=now + timedelta(days=2),
+                current_eta=now + timedelta(days=3),
+                current_state=ShipmentState.IN_TRANSIT,
+                source_of_truth="manual_upload",
+                latest_update_at=now,
+            ),
+            Shipment(
+                tenant_id=other_tenant.id,
+                shipment_id="OTHER-BOK",
+                plant_id=other_plant.id,
+                material_id=other_material.id,
+                supplier_id=other_supplier.id,
+                supplier_name=other_supplier.name,
+                quantity_mt=Decimal("100"),
+                planned_eta=now + timedelta(days=1),
+                current_eta=now + timedelta(days=1),
+                current_state=ShipmentState.IN_TRANSIT,
+                source_of_truth="manual_upload",
+                latest_update_at=now,
+            ),
+        ]
+    )
+    for shipment in db.scalars(
+        select(Shipment).where(
+            Shipment.tenant_id == tenant.id,
+            Shipment.supplier_id.is_(None),
+        )
+    ):
+        if shipment.supplier_name == acme.name:
+            shipment.supplier_id = acme.id
+        if shipment.supplier_name == late.name:
+            shipment.supplier_id = late.id
     db.commit()
 
 

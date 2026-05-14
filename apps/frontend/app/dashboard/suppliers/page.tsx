@@ -16,7 +16,7 @@ export default async function SuppliersPage({
 }) {
   const [user, suppliers] = await Promise.all([
     getCurrentUser(),
-    getSuppliers(),
+    getSuppliers({ plant_reference: searchParams?.plant_reference }),
   ]);
   if (user?.is_superadmin) {
     redirect("/dashboard/superadmin");
@@ -34,20 +34,11 @@ export default async function SuppliersPage({
           </h1>
           <p className="text-sm text-mutedForeground">
             {searchParams?.plant_reference
-              ? "This view is tenant-wide until plant-level source data is available."
+              ? `Viewing continuity for ${searchParams.plant_reference}.`
               : "Viewing continuity for All plants."}
           </p>
         </div>
       </section>
-
-      {searchParams?.plant_reference ? (
-        <Card className="bg-card/90 shadow-panel">
-          <CardContent className="py-3 text-sm text-mutedForeground">
-            This view is tenant-wide until plant-level source data is available
-            for {searchParams.plant_reference}.
-          </CardContent>
-        </Card>
-      ) : null}
 
       <SupplierCreateForm canManage={canManage} />
 
@@ -76,7 +67,10 @@ export default async function SuppliersPage({
                   <tr key={supplier.id}>
                     <td className="font-medium">
                       <Link
-                        href={`/dashboard/suppliers/${supplier.id}`}
+                        href={supplierHref(
+                          supplier.id,
+                          searchParams?.plant_reference,
+                        )}
                         className="text-primary hover:underline"
                       >
                         {supplier.name}
@@ -106,7 +100,10 @@ export default async function SuppliersPage({
                     <td>{supplier.performance.active_shipments}</td>
                     <td>
                       <Link
-                        href={`/dashboard/suppliers/${supplier.id}`}
+                        href={supplierHref(
+                          supplier.id,
+                          searchParams?.plant_reference,
+                        )}
                         className="rounded-xl border px-3 py-2 text-xs font-semibold"
                       >
                         View
@@ -120,7 +117,9 @@ export default async function SuppliersPage({
                       className="px-4 py-8 text-center text-mutedForeground"
                       colSpan={9}
                     >
-                      No continuity reliability sources are active yet.
+                      {searchParams?.plant_reference
+                        ? `No continuity reliability sources are linked to ${searchParams.plant_reference} yet.`
+                        : "No continuity reliability sources are active yet."}
                     </td>
                   </tr>
                 ) : null}
@@ -131,6 +130,13 @@ export default async function SuppliersPage({
       </Card>
     </main>
   );
+}
+
+function supplierHref(supplierId: string, plantReference?: string) {
+  if (!plantReference) return `/dashboard/suppliers/${supplierId}`;
+  return `/dashboard/suppliers/${supplierId}?${new URLSearchParams({
+    plant_reference: plantReference,
+  }).toString()}`;
 }
 
 function GradeBadge({ grade }: { grade: string }) {
