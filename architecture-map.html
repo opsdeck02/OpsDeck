@@ -1,0 +1,917 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>OpsDeck Architecture Map</title>
+  <style>
+    :root {
+      --bg: #0F0F0F;
+      --panel: #161616;
+      --panel-2: #1c1c1c;
+      --border: #2a2a2a;
+      --text: #e8e8e8;
+      --muted: #8a8a8a;
+      --client: #4ea1ff;
+      --route: #7bd389;
+      --service: #c792ea;
+      --db: #ffb86b;
+      --external: #ff6b9d;
+      --critical: #ff3860;
+      --accent: #f5b942;
+      --accent-2: #ff7a45;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: var(--bg);
+      color: var(--text);
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    .app {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 360px;
+      height: 100vh;
+    }
+    .stage {
+      position: relative;
+      min-width: 0;
+      background:
+        radial-gradient(circle at 18% 12%, rgba(78, 161, 255, 0.10), transparent 24%),
+        radial-gradient(circle at 88% 82%, rgba(255, 184, 107, 0.08), transparent 26%),
+        var(--bg);
+    }
+    header {
+      position: absolute;
+      z-index: 3;
+      left: 14px;
+      right: 14px;
+      top: 12px;
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      pointer-events: none;
+    }
+    .title {
+      max-width: 720px;
+      padding: 12px 14px;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: rgba(22, 22, 22, 0.88);
+      box-shadow: 0 20px 60px rgba(0,0,0,0.35);
+      backdrop-filter: blur(8px);
+      pointer-events: auto;
+    }
+    h1 { margin: 0 0 4px; font-size: 18px; letter-spacing: 0; }
+    .subtitle { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 8px;
+      max-width: 720px;
+      pointer-events: auto;
+    }
+    button.chip, button.zoom {
+      border: 1px solid var(--border);
+      color: var(--text);
+      background: rgba(28, 28, 28, 0.9);
+      border-radius: 999px;
+      padding: 8px 10px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    button.chip.active {
+      border-color: var(--accent);
+      color: #111;
+      background: var(--accent);
+    }
+    .zoomBox { display: flex; gap: 6px; }
+    svg { width: 100%; height: 100%; display: block; cursor: grab; }
+    svg.dragging { cursor: grabbing; }
+    .cluster rect {
+      fill: rgba(28,28,28,0.62);
+      stroke: var(--border);
+      stroke-width: 1;
+      rx: 18;
+    }
+    .cluster text {
+      fill: var(--muted);
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    .edgePath {
+      fill: none;
+      stroke-width: 1.7;
+      opacity: 0.50;
+    }
+    .edgeLabel {
+      fill: #d7d7d7;
+      font-size: 11px;
+      paint-order: stroke;
+      stroke: #0F0F0F;
+      stroke-width: 4px;
+      stroke-linejoin: round;
+    }
+    .node rect.main {
+      fill: rgba(22,22,22,0.96);
+      stroke-width: 1.5;
+      rx: 10;
+      filter: drop-shadow(0 10px 22px rgba(0,0,0,0.25));
+    }
+    .node.critical rect.main { stroke-width: 2.2; }
+    .node text.label {
+      fill: var(--text);
+      font-size: 13px;
+      font-weight: 800;
+    }
+    .node text.sub {
+      fill: var(--muted);
+      font-size: 11px;
+    }
+    .node text.pathHint {
+      fill: #b8b8b8;
+      font-size: 10px;
+    }
+    .badgeText { fill: #111; font-size: 10px; font-weight: 900; text-anchor: middle; dominant-baseline: central; }
+    .fixBadge { fill: #7bd389; }
+    .bugBadge { fill: #ff3860; }
+    .dim { opacity: 0.16; }
+    .hide { display: none; }
+    aside {
+      height: 100vh;
+      overflow: auto;
+      border-left: 1px solid var(--border);
+      background: linear-gradient(180deg, var(--panel), #101010);
+      padding: 18px;
+    }
+    .sideSection {
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: var(--panel-2);
+      padding: 14px;
+      margin-bottom: 12px;
+    }
+    .sideSection h2, .sideSection h3 {
+      margin: 0 0 8px;
+      font-size: 14px;
+    }
+    .sideSection p, .sideSection li {
+      color: #c8c8c8;
+      font-size: 12px;
+      line-height: 1.55;
+    }
+    .sideSection ul { margin: 8px 0 0; padding-left: 17px; }
+    .meta {
+      display: inline-block;
+      margin: 3px 5px 3px 0;
+      padding: 3px 7px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      color: var(--muted);
+      font-size: 11px;
+    }
+    .legendRow {
+      display: grid;
+      grid-template-columns: 16px 1fr;
+      gap: 8px;
+      align-items: center;
+      margin: 7px 0;
+      color: #cfcfcf;
+      font-size: 12px;
+    }
+    .swatch { width: 14px; height: 3px; border-radius: 999px; }
+    code {
+      color: #f6d48a;
+      background: #111;
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      padding: 1px 4px;
+      font-size: 11px;
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <main class="stage">
+      <header>
+        <div class="title">
+          <h1>OpsDeck Architecture Map</h1>
+          <p class="subtitle">Continuity intelligence path, supporting ingestion, tenant context, data models, and external integrations. Drag to pan, wheel to zoom, click nodes for detail.</p>
+        </div>
+        <div>
+          <div class="toolbar" id="filters"></div>
+          <div class="toolbar" style="margin-top:8px">
+            <div class="zoomBox">
+              <button class="zoom" id="fit">Fit</button>
+              <button class="zoom" id="zoomIn">+</button>
+              <button class="zoom" id="zoomOut">-</button>
+            </div>
+          </div>
+        </div>
+      </header>
+      <svg id="svg" viewBox="0 0 1500 900" aria-label="Architecture graph">
+        <defs>
+          <marker id="arrow-normal" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#8a8a8a"/></marker>
+          <marker id="arrow-critical" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#ff3860"/></marker>
+          <marker id="arrow-api" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#ff7a45"/></marker>
+          <marker id="arrow-db" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#ffb86b"/></marker>
+          <marker id="arrow-mount" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#4ea1ff"/></marker>
+        </defs>
+        <g id="viewport">
+          <g id="clusters"></g>
+          <g id="edges"></g>
+          <g id="nodes"></g>
+        </g>
+      </svg>
+    </main>
+    <aside id="sidebar"></aside>
+  </div>
+
+  <script>
+const clusters = [
+  { id: 'client', label: 'Client shell', x: 40, y: 92, w: 180, h: 690 },
+  { id: 'frontend-data', label: 'Frontend data', x: 265, y: 92, w: 190, h: 690 },
+  { id: 'server-entry', label: 'Server entry', x: 505, y: 92, w: 170, h: 690 },
+  { id: 'routes', label: 'Routes', x: 720, y: 92, w: 180, h: 690 },
+  { id: 'services', label: 'Services', x: 945, y: 92, w: 235, h: 690 },
+  { id: 'data', label: 'Data model', x: 1225, y: 92, w: 185, h: 690 },
+  { id: 'external', label: 'External', x: 1450, y: 92, w: 170, h: 690 },
+];
+
+const N = (id, cluster, label, sub, x, y, w, h, color, opts = {}) => ({
+  id, cluster, label, sub, x, y, w, h, color, ...opts
+});
+
+const nodes = [
+  N('dashboard-layout', 'client', 'layout.tsx', 'loads user + plant options', 60, 130, 140, 76, 'client', {
+    role: 'The dashboard layout authenticates the current user and fetches plant context options before rendering the shell.',
+    plain: 'This is the front door for signed-in dashboard pages; it checks who you are and prepares the plant chooser.',
+    path: 'apps/frontend/app/dashboard/layout.tsx:11',
+    notes: ['line:11, getCurrentUser gates dashboard access', 'line:17, superadmins skip tenant plant options', 'line:20, DashboardShell receives plantOptions'],
+    tag: ['overview', 'plant-context', 'critical-path', 'all'],
+    critical: true,
+  }),
+  N('dashboard-shell', 'client', 'dashboard-shell.tsx', 'global nav + plant context', 60, 230, 140, 86, 'client', {
+    role: 'The client shell owns the global Plant context selector and preserves plant_reference across the main dashboard routes.',
+    plain: 'This is the left menu users see; it lets them choose All plants or a single plant and keeps that choice as they move around.',
+    path: 'apps/frontend/components/shell/dashboard-shell.tsx:118',
+    notes: ['line:107, reads plant_reference from the URL', 'line:118, updates URL query state', 'line:205, preserves context only on the five main continuity pages'],
+    tag: ['overview', 'plant-context', 'critical-path', 'all'],
+    critical: true,
+  }),
+  N('dashboard-page', 'client', 'page.tsx', 'continuity overview UI', 60, 350, 140, 90, 'client', {
+    role: 'The continuity overview fetches executive, user, and stock-cover data, then scopes visible KPIs by selected plant where possible.',
+    plain: 'This is the first dashboard screen; it summarizes whether operations are exposed now or stable.',
+    path: 'apps/frontend/app/dashboard/page.tsx:31',
+    notes: ['line:31, parallel fetches executive dashboard, current user, and stock cover', 'line:47, filters stock rows by selected plant id', 'line:59, recomputes plant-scoped critical and warning counts'],
+    tag: ['overview', 'plant-context', 'critical-path', 'all'],
+    critical: true,
+  }),
+  N('risk-workspace-page', 'client', 'risk-workspace/page.tsx', 'selected exposure UI', 60, 472, 140, 94, 'client', {
+    role: 'The risk workspace page requests a selected signal-engine workspace and a plant-scoped active exposure list.',
+    plain: 'This screen explains one continuity risk: what is exposed, why, and how trustworthy the signals are.',
+    path: 'apps/frontend/app/dashboard/risk-workspace/page.tsx:42',
+    notes: ['line:43, forwards risk and plant query parameters to getRiskWorkspace', 'line:52, plant-scopes getSignalRisks for the exposure selector', 'line:220, filter form keeps plant_reference visible'],
+    tag: ['overview', 'signal-engine', 'critical-path', 'plant-context', 'all'],
+    critical: true,
+  }),
+  N('shipments-page', 'client', 'shipments/page.tsx', 'inbound continuity UI', 60, 600, 140, 82, 'client', {
+    role: 'The inbound page maps plant_reference to plant_id and passes the existing plant filter to shipment visibility.',
+    plain: 'This page lists inbound dependencies and narrows them to one plant when the current plant has a known database id.',
+    path: 'apps/frontend/app/dashboard/shipments/page.tsx:25',
+    notes: ['line:25, loads derived plant context options', 'line:32, passes selectedPlant.plantId into getShipments', 'line:87, warns if a plant reference cannot be mapped to plant data'],
+    tag: ['inbound', 'plant-context', 'overview', 'all'],
+  }),
+  N('movements-page', 'client', 'movements/page.tsx', 'signal trust UI', 60, 705, 140, 76, 'client', {
+    role: 'The signal-trust page applies plant_id to port and inland monitoring calls after resolving the selected plant reference.',
+    plain: 'This page checks whether port, discharge, and inland movement signals are reliable for the selected context.',
+    path: 'apps/frontend/app/dashboard/movements/page.tsx:28',
+    notes: ['line:35, filters use selectedPlant.plantId before URL plant_id', 'line:47, calls port and inland monitoring in parallel', 'line:58, view links preserve plant_reference'],
+    tag: ['inbound', 'plant-context', 'overview', 'all'],
+  }),
+
+  N('frontend-api', 'frontend-data', 'api.ts', 'server-side API facade', 285, 145, 150, 88, 'service', {
+    role: 'The Next.js data facade builds authenticated backend URLs from cookies and typed query parameters.',
+    plain: 'This file is the dashboard app asking the backend for data while carrying the user session and tenant.',
+    path: 'apps/frontend/lib/api.ts:204',
+    notes: ['line:204, getRiskWorkspace builds signal-engine query params', 'line:234, getSignalRisks mirrors the same plant filters', 'line:359, getStockCoverSummary feeds overview and plant options'],
+    tag: ['overview', 'signal-engine', 'critical-path', 'plant-context', 'all'],
+    critical: true,
+  }),
+  N('plant-context-options', 'frontend-data', 'getPlantContextOptions', 'plant refs from stock + risks', 285, 265, 150, 78, 'service', {
+    role: 'getPlantContextOptions derives selectable plants from stock-cover plant codes and signal-risk plant references.',
+    plain: 'This builds the list in the plant chooser without adding a separate plant-management screen.',
+    path: 'apps/frontend/lib/api.ts:363',
+    notes: ['line:364, loads stock summary and signal risks in parallel', 'line:370, stock rows provide plantId for id-based APIs', 'line:379, signal risks fill gaps where only plant_reference exists'],
+    tag: ['plant-context', 'overview', 'all'],
+  }),
+  N('dead-dashboard-snapshot', 'frontend-data', 'getDashboardSnapshot', 'DEAD, zero callers', 285, 386, 150, 68, 'service', {
+    role: 'This exported frontend API function wraps /api/v1/dashboard/snapshot but has no live callers in apps or packages.',
+    plain: 'There is an old dashboard data helper that nobody in the current app appears to use.',
+    path: 'apps/frontend/lib/api.ts:258',
+    notes: ['rg found only the definition in apps/frontend/lib/api.ts', 'The live overview uses getExecutiveDashboard and getStockCoverSummary instead', 'Cleanup candidate: remove or reconnect intentionally'],
+    tag: ['dead-code', 'all'],
+  }),
+  N('dead-supplier-summary', 'frontend-data', 'getSupplierPerformanceSummary', 'DEAD, zero callers', 285, 478, 150, 68, 'service', {
+    role: 'This exported frontend API function wraps /api/v1/suppliers/performance/summary but has no live callers in apps or packages.',
+    plain: 'There is a supplier summary helper ready to call, but the supplier page is not using it.',
+    path: 'apps/frontend/lib/api.ts:413',
+    notes: ['rg found only the definition in apps/frontend/lib/api.ts', 'Suppliers page currently calls getSuppliers at app/dashboard/suppliers/page.tsx:17', 'This relates to plant-level supplier reliability being tenant-wide today'],
+    tag: ['dead-code', 'suppliers', 'all'],
+  }),
+
+  N('fastapi-main', 'server-entry', 'main.py', 'FastAPI app + scheduler', 525, 150, 130, 88, 'route', {
+    role: 'The backend creates the FastAPI app, adds security and CORS middleware, mounts v1 routes, and starts the scheduler loop.',
+    plain: 'This starts the API server and the background sync timer.',
+    path: 'apps/backend/app/main.py:18',
+    notes: ['line:18, SecurityMiddleware wraps requests', 'line:20, CORS origins come from settings', 'line:24, all API routes mount under settings.api_v1_prefix', 'line:28, startup creates the data-source scheduler task'],
+    tag: ['overview', 'critical-path', 'ingestion', 'all'],
+    critical: true,
+  }),
+  N('api-router', 'server-entry', 'router.py', 'v1 router registry', 525, 285, 130, 82, 'route', {
+    role: 'The API router mounts feature routers for auth, tenants, tracking, shipments, stock, suppliers, signal engine, reports, exceptions, and dashboard.',
+    plain: 'This is the backend table of contents: it decides which API module handles each URL group.',
+    path: 'apps/backend/app/api/v1/router.py:18',
+    notes: ['line:18, api_router is a FastAPI APIRouter', 'line:29, signal_engine_router is mounted before reports and exceptions', 'line:31, dashboard_router is mounted last'],
+    tag: ['overview', 'critical-path', 'all'],
+    critical: true,
+  }),
+  N('auth-context', 'server-entry', 'dependencies.py', 'tenant request context', 525, 410, 130, 82, 'route', {
+    role: 'API dependencies resolve the current user, database session, and tenant-scoped request context for routers.',
+    plain: 'This is how the backend knows who is asking and which tenant data they are allowed to see.',
+    path: 'apps/backend/app/api/dependencies.py',
+    notes: ['Imported by dashboard, shipments, signal-engine, tenants, and other routers', 'RequestContext is passed into service calls instead of global tenant state', 'Superadmin and role gates sit at this boundary'],
+    tag: ['overview', 'admin', 'critical-path', 'all'],
+    critical: true,
+  }),
+  N('scheduler-loop', 'server-entry', 'scheduler.py', 'background source sync loop', 525, 555, 130, 82, 'service', {
+    role: 'The scheduler scans active external and Microsoft sources and triggers syncs when freshness rules say they are due.',
+    plain: 'This keeps uploaded or connected source data fresh without a user clicking a button.',
+    path: 'apps/backend/app/modules/tenants/scheduler.py:21',
+    notes: ['line:21, async loop repeats until shutdown', 'line:34, process_due_data_sources_once opens a DB session', 'line:54, external sources call sync_loaded_data_source', 'line:86, Microsoft sources call sync_microsoft_data_source'],
+    tag: ['ingestion', 'external', 'all'],
+  }),
+
+  N('dashboard-router', 'routes', 'dashboard/router.py', 'executive dashboard endpoint', 740, 138, 140, 78, 'route', {
+    role: 'The dashboard router exposes the executive continuity dashboard and a legacy snapshot endpoint.',
+    plain: 'This is the backend endpoint that powers the overview screen.',
+    path: 'apps/backend/app/modules/dashboard/router.py:60',
+    notes: ['line:60, GET /dashboard/executive returns ExecutiveDashboardResponse', 'line:65, delegates to build_executive_dashboard', 'line:22, /dashboard/snapshot still exists separately'],
+    tag: ['overview', 'critical-path', 'all'],
+    critical: true,
+  }),
+  N('signal-router', 'routes', 'signal_engine/router.py', 'risk workspace endpoints', 740, 245, 140, 92, 'route', {
+    role: 'The signal-engine router exposes risk workspace, risk list, exposure, timeline, context graph, and continuity endpoints with plant_reference filters.',
+    plain: 'These URLs answer why continuity is at risk and what signals support that answer.',
+    path: 'apps/backend/app/modules/signal_engine/router.py:57',
+    notes: ['line:57, GET /signal-engine/risk-workspace', 'line:82, GET /signal-engine/risks', 'line:122, timeline endpoint accepts plant/material/shipment filters', 'line:162, inventory-continuity endpoint accepts plant_reference'],
+    tag: ['overview', 'signal-engine', 'critical-path', 'plant-context', 'all'],
+    critical: true,
+  }),
+  N('shipments-router', 'routes', 'shipments/router.py', 'inbound visibility endpoints', 740, 378, 140, 86, 'route', {
+    role: 'The shipments router exposes visibility, port monitoring, inland monitoring, movement detail, and shipment detail endpoints.',
+    plain: 'These URLs return inbound shipments and the trust state of their movement signals.',
+    path: 'apps/backend/app/modules/shipments/router.py:65',
+    notes: ['line:65, /shipments/visibility accepts plant_id, material_id, state, search', 'line:77, /port-monitoring accepts delayed_only and confidence', 'line:98, /inland-monitoring mirrors the same plant_id filters'],
+    tag: ['inbound', 'plant-context', 'all'],
+  }),
+  N('suppliers-router', 'routes', 'suppliers/router.py', 'reliability source endpoints', 740, 500, 140, 76, 'route', {
+    role: 'The suppliers router exposes supplier CRUD, detail, linking, and performance summary routes.',
+    plain: 'These URLs describe supplier reliability, but they are tenant-wide rather than plant-scoped today.',
+    path: 'apps/backend/app/modules/suppliers/router.py',
+    notes: ['Used by app/dashboard/suppliers/page.tsx through getSuppliers', 'Current frontend notes tenant-wide behavior when plant_reference is selected', 'Backend service calculates performance from linked shipments'],
+    tag: ['suppliers', 'overview', 'all'],
+  }),
+  N('tenants-router', 'routes', 'tenants/router.py', 'tenant plan + data sources', 740, 610, 140, 82, 'route', {
+    role: 'The tenants router handles tenant setup, plan limits, active data sources, and tenant admin operations.',
+    plain: 'This is where tenant-level setup and connected source configuration live.',
+    path: 'apps/backend/app/modules/tenants/router.py:101',
+    notes: ['line:101, POST /tenants/plants bootstraps numbered plants', 'line:132, /tenants/data-sources requires admin access', 'line:55, TenantPlantBootstrapRequest only supports count and names'],
+    tag: ['admin', 'ingestion', 'plant-context', 'all'],
+  }),
+
+  N('dashboard-service', 'services', 'build_executive_dashboard', 'overview aggregator', 970, 120, 165, 92, 'service', {
+    role: 'build_executive_dashboard aggregates stock cover, exceptions, shipment movement, supplier performance, freshness, and attention items into one response.',
+    plain: 'This is the overview brain: it gathers the important continuity signals and turns them into the dashboard summary.',
+    path: 'apps/backend/app/modules/dashboard/service.py:36',
+    notes: ['line:40, calculates stock cover summary', 'line:41, loads exception cases', 'line:43, loads shipment visibility', 'line:68, builds movement snapshot from port and inland data'],
+    tag: ['overview', 'critical-path', 'all'],
+    critical: true,
+  }),
+  N('stock-service', 'services', 'calculate_stock_cover_summary', 'stock cover calculation', 970, 240, 165, 84, 'service', {
+    role: 'calculate_stock_cover_summary builds plant/material continuity rows from stock snapshots, thresholds, weighted inbound shipments, and action state.',
+    plain: 'This computes how long each plant and material can keep operating from current and inbound supply.',
+    path: 'apps/backend/app/modules/stock/service.py:101',
+    notes: ['line:251, build_stock_cover_rows creates row objects', 'line:304, weighted_shipments groups inbound by plant/material', 'line:602, risk_status maps cover into safe/warning/critical'],
+    tag: ['overview', 'critical-path', 'plant-context', 'all'],
+    critical: true,
+  }),
+  N('signal-service', 'services', 'get_risk_workspace', 'selected risk composition', 970, 352, 165, 98, 'service', {
+    role: 'get_risk_workspace selects the highest-priority filtered risk, then composes exposure, timeline, graph, inventory continuity, shipment continuity, and trust summary.',
+    plain: 'This builds the full explanation for one risk: what happened, why it matters, what is connected, and whether to trust the data.',
+    path: 'apps/backend/app/modules/signal_engine/service.py:100',
+    notes: ['line:113, calls list_signal_risks with filters', 'line:123, selects the highest priority risk', 'line:130, builds exposure mapping', 'line:139, builds timeline and graph context'],
+    tag: ['overview', 'signal-engine', 'critical-path', 'plant-context', 'all'],
+    critical: true,
+  }),
+  N('rules-engine', 'services', 'evaluate_rule_based_risks', 'deterministic risk rules', 970, 485, 165, 100, 'service', {
+    role: 'evaluate_rule_based_risks evaluates inventory continuity, shipment continuity, inbound delays against cover, and operational event trust into RiskCandidate objects.',
+    plain: 'This is the rules engine that turns raw signals into continuity risks without artificial intelligence.',
+    path: 'apps/backend/app/modules/rules/engine.py:86',
+    notes: ['line:93, computes inventory continuity items', 'line:94, computes shipment continuity items', 'line:112, compares inbound delay to available cover', 'line:117, attaches explainability to candidates'],
+    tag: ['overview', 'signal-engine', 'critical-path', 'all'],
+    critical: true,
+  }),
+  N('inventory-continuity', 'services', 'calculate_inventory_continuity_for', 'inventory continuity math', 970, 620, 165, 82, 'service', {
+    role: 'calculate_inventory_continuity_for loads plant, material, latest stock, and inbound quantities before calculating usable cover and projected exhaustion.',
+    plain: 'This answers: given today’s stock and expected inbound supply, how many days can this plant keep going?',
+    path: 'apps/backend/app/modules/stock/continuity.py:93',
+    notes: ['line:116, latest snapshot is required', 'line:120, inbound quantities are split into committed and uncertain', 'line:128, pure calculator returns InventoryContinuityResult'],
+    tag: ['overview', 'signal-engine', 'critical-path', 'all'],
+    critical: true,
+  }),
+  N('shipment-continuity', 'services', 'calculate_shipment_continuity_for', 'inbound continuity math', 970, 728, 165, 82, 'service', {
+    role: 'calculate_shipment_continuity_for loads a shipment and linked plant/material references, then scores ETA slip, stale tracking, overdue delivery, and missing context.',
+    plain: 'This decides whether an inbound shipment is on track, needs watching, or is degraded.',
+    path: 'apps/backend/app/modules/shipments/continuity.py:113',
+    notes: ['line:141, tracking freshness uses last tracking, latest update, or updated_at', 'line:146, delegates to calculate_shipment_continuity', 'line:154, purchase order reference is currently passed as None'],
+    tag: ['inbound', 'signal-engine', 'critical-path', 'all'],
+    critical: true,
+  }),
+  N('exposure-mapping', 'services', 'build_exposure_mapping', 'exposure timing + trust', 1168, 352, 155, 92, 'service', {
+    role: 'build_exposure_mapping turns graph, risk, inventory, shipment, and trust signals into exposure level, basis, timing, and plain operational reason.',
+    plain: 'This translates a risk into a simple statement of how soon disruption could happen and why.',
+    path: 'apps/backend/app/modules/exposure/mapping.py:40',
+    notes: ['line:51, builds operational relationship graph first', 'line:66, finds relevant risk candidates for the graph scope', 'line:93, inbound delay against cover has priority over other bases'],
+    tag: ['overview', 'signal-engine', 'critical-path', 'all'],
+    critical: true,
+  }),
+  N('relationship-graph', 'services', 'build_operational_relationship_graph', 'context graph builder', 1168, 478, 155, 94, 'service', {
+    role: 'build_operational_relationship_graph creates plant, material, shipment, supplier, event, and risk nodes for one operational scope.',
+    plain: 'This connects the selected risk to the plant, material, shipment, supplier, and source events around it.',
+    path: 'apps/backend/app/modules/relationships/graph.py:71',
+    notes: ['line:88, shipment reference can resolve plant/material scope', 'line:99, relevant events become timeline and graph inputs', 'line:109, GraphBuilder collects nodes and edges'],
+    tag: ['signal-engine', 'critical-path', 'all'],
+    critical: true,
+  }),
+  N('timeline-service', 'services', 'build_timeline_for_risk_candidate', 'causal signal chain', 1168, 605, 155, 82, 'service', {
+    role: 'build_timeline_for_risk_candidate queries operational events matching a risk candidate and converts them into readable timeline entries.',
+    plain: 'This creates the chronological story behind a risk.',
+    path: 'apps/backend/app/modules/operational_events/timeline.py:55',
+    notes: ['line:63, risk_context_query returns only matching event rows', 'line:121, ORs source ids, shipment, and plant/material context', 'line:133, timeline_entry_from_event formats the response'],
+    tag: ['signal-engine', 'critical-path', 'all'],
+    critical: true,
+  }),
+  N('supplier-service', 'services', 'performance_summary', 'supplier reliability metrics', 970, 28, 165, 66, 'service', {
+    role: 'performance_summary ranks supplier reliability using linked shipments, risk signals, on-time performance, and visibility coverage.',
+    plain: 'This is how OpsDeck turns supplier history into reliability patterns.',
+    path: 'apps/backend/app/modules/suppliers/service.py:160',
+    notes: ['line:160, service returns SupplierPerformanceSummary', 'line:208, calculate_supplier_performance works from supplier-linked shipments', 'No plant_reference argument exists in this service today'],
+    tag: ['suppliers', 'overview', 'all'],
+  }),
+  N('sync-service', 'services', 'sync_loaded_data_source', 'remote source ingestion', 1168, 120, 155, 78, 'external', {
+    role: 'sync_loaded_data_source downloads a configured source, processes it as an ingestion upload, recomputes risk deltas, and records freshness metadata.',
+    plain: 'This pulls a connected spreadsheet or file into OpsDeck and updates continuity signals from it.',
+    path: 'apps/backend/app/modules/tenants/sync_service.py:67',
+    notes: ['line:78, fetch_remote_file loads the source', 'line:80, process_upload_content applies ingestion mapping and validation', 'line:91, before/after snapshots detect new critical risks'],
+    tag: ['ingestion', 'external', 'all'],
+  }),
+  N('tracking-provider', 'services', 'get_tracking_provider', 'mock + DCSA adapter', 1168, 728, 155, 82, 'external', {
+    role: 'get_tracking_provider selects a deterministic mock provider or a DCSA HTTP adapter for container tracking events.',
+    plain: 'This is the seam for real shipment tracking feeds; local development uses predictable fake tracking data.',
+    path: 'apps/backend/app/modules/tracking/providers.py:413',
+    notes: ['line:34, MockTrackingProvider creates deterministic events', 'line:105, DcsaTrackingProvider requires base URL and API key', 'line:281, DCSA event datetimes normalize to UTC'],
+    tag: ['inbound', 'external', 'all'],
+  }),
+
+  N('db-plants-materials', 'data', 'Plant / Material', 'tenant-scoped master data', 1245, 150, 145, 78, 'db', {
+    role: 'Plant and Material models define tenant-scoped master records with unique tenant/code constraints.',
+    plain: 'These tables define the real plants and materials that all continuity views talk about.',
+    path: 'apps/backend/app/models/plant.py:8',
+    notes: ['plant.py line:11, unique tenant/code plant key', 'material.py line:11, unique tenant/code material key', 'material.py line:19, default material unit is MT'],
+    tag: ['overview', 'plant-context', 'critical-path', 'all'],
+    critical: true,
+  }),
+  N('db-shipments', 'data', 'Shipment', 'inbound dependency table', 1245, 265, 145, 86, 'db', {
+    role: 'Shipment stores inbound dependency state, ETA, plant/material links, supplier, tracking identifiers, and update timestamps.',
+    plain: 'This table is the source of inbound shipment status and how each shipment connects to a plant and material.',
+    path: 'apps/backend/app/models/shipment.py:14',
+    notes: ['line:17, tenant/shipment_id is unique', 'line:18, tenant/plant/current_state index supports plant filtering', 'line:47, last_tracking_update_at feeds freshness'],
+    tag: ['inbound', 'signal-engine', 'critical-path', 'all'],
+    critical: true,
+  }),
+  N('db-stock', 'data', 'StockSnapshot', 'inventory position table', 1245, 385, 145, 82, 'db', {
+    role: 'StockSnapshot records stock position, quality hold, daily consumption, and snapshot time used by cover calculations.',
+    plain: 'This table says how much material is available right now and how fast it is consumed.',
+    path: 'apps/backend/app/models/operations.py:12',
+    notes: ['line:16, index covers tenant, plant, material, and snapshot_time', 'line:27, on_hand_mt stores total stock', 'line:30, daily_consumption_mt drives days-of-cover math'],
+    tag: ['overview', 'signal-engine', 'critical-path', 'all'],
+    critical: true,
+  }),
+  N('db-events', 'data', 'OperationalEvent', 'signal event ledger', 1245, 505, 145, 92, 'db', {
+    role: 'OperationalEvent stores normalized source events with context references, confidence, freshness, and before/after values.',
+    plain: 'This is the event log that explains what changed and whether the signal is trustworthy.',
+    path: 'apps/backend/app/models/operational_event.py:21',
+    notes: ['line:24, tenant/occurred_at index supports timelines', 'line:67, optional plant_id with plant_reference string', 'line:84, confidence_score and freshness_status drive trust warnings'],
+    tag: ['signal-engine', 'critical-path', 'ingestion', 'all'],
+    critical: true,
+  }),
+  N('db-risk-snapshots', 'data', 'ContinuityRiskSnapshot', 'escalation history table', 1245, 635, 145, 86, 'db', {
+    role: 'ContinuityRiskSnapshot stores risk fingerprints, context, severity, exposure, freshness, confidence, and escalation state over time.',
+    plain: 'This table remembers whether a risk is getting worse, improving, or staying the same.',
+    path: 'apps/backend/app/models/risk_snapshot.py:14',
+    notes: ['line:17, tenant/fingerprint/snapshot_time is unique', 'line:29, context index covers plant/material/shipment reference', 'line:65, escalation_state is persisted for later comparison'],
+    tag: ['signal-engine', 'all'],
+  }),
+
+  N('postgres', 'external', 'session.py', 'PostgreSQL connection', 1470, 240, 130, 78, 'db', {
+    role: 'PostgreSQL stores tenant-scoped operational, master, ingestion, exception, and risk snapshot data through SQLAlchemy models.',
+    plain: 'This is the main database behind OpsDeck.',
+    path: 'docker-compose.yml',
+    notes: ['README lists PostgreSQL as the database', 'apps/backend/app/db/session.py:6 creates SQLAlchemy engine from settings.database_url', 'Alembic migrations live under apps/backend/alembic/versions'],
+    tag: ['overview', 'critical-path', 'ingestion', 'all'],
+    critical: true,
+  }),
+  N('redis-celery', 'external', 'celery_app.py', 'Redis / Celery plumbing', 1470, 372, 130, 78, 'external', {
+    role: 'Redis backs Celery broker/result storage for background workers alongside the in-process scheduler.',
+    plain: 'This is the queue infrastructure for work that should happen outside a browser request.',
+    path: 'apps/backend/app/workers/celery_app.py',
+    notes: ['README line:21, Celery with Redis broker/result backend', 'README command uses celery -A app.workers.celery_app.celery_app worker', 'Scheduler loop also runs inside FastAPI startup'],
+    tag: ['ingestion', 'external', 'all'],
+  }),
+  N('microsoft-graph', 'external', 'sync_microsoft_data_source', 'Drive/SharePoint source', 1470, 500, 130, 82, 'external', {
+    role: 'Microsoft service functions list, download, and sync OneDrive/SharePoint files into tenant data sources.',
+    plain: 'This is how OpsDeck can pull continuity data from Microsoft-hosted files.',
+    path: 'apps/backend/app/modules/microsoft/service.py:339',
+    notes: ['service.py line:339, sync_microsoft_data_source handles Microsoft-backed source sync', 'README references Microsoft Graph OAuth setup', 'Scheduler calls sync_microsoft_data_source at scheduler.py:86'],
+    tag: ['ingestion', 'external', 'all'],
+  }),
+  N('dcsa-api', 'external', 'DcsaTrackingProvider', 'container tracking source', 1470, 635, 130, 78, 'external', {
+    role: 'The DCSA tracking adapter fetches external Track & Trace events over HTTP and maps provider payloads to tracking events.',
+    plain: 'This is the external shipping-data provider path for container events.',
+    path: 'apps/backend/app/modules/tracking/providers.py:105',
+    notes: ['line:119, base_url is required', 'line:121, API key is required', 'line:304, provider event codes map to user-readable milestones'],
+    tag: ['inbound', 'external', 'all'],
+  }),
+];
+
+const edges = [
+  { from: 'dashboard-layout', to: 'dashboard-shell', kind: 'critical', label: 'renders shell', tag: ['overview','plant-context','critical-path','all'] },
+  { from: 'dashboard-shell', to: 'dashboard-page', kind: 'critical', label: 'plant_reference URL', tag: ['overview','plant-context','critical-path','all'] },
+  { from: 'dashboard-shell', to: 'risk-workspace-page', kind: 'critical', label: 'nav preserves context', tag: ['overview','plant-context','critical-path','all'] },
+  { from: 'dashboard-page', to: 'frontend-api', kind: 'critical', label: 'getExecutive + stock', tag: ['overview','critical-path','all'] },
+  { from: 'risk-workspace-page', to: 'frontend-api', kind: 'critical', label: 'getRiskWorkspace', tag: ['signal-engine','critical-path','all'] },
+  { from: 'shipments-page', to: 'frontend-api', kind: 'normal', label: 'getShipments', tag: ['inbound','plant-context','all'] },
+  { from: 'movements-page', to: 'frontend-api', kind: 'normal', label: 'port + inland calls', tag: ['inbound','plant-context','all'] },
+  { from: 'dashboard-layout', to: 'plant-context-options', kind: 'normal', label: 'load options', tag: ['plant-context','all'] },
+  { from: 'plant-context-options', to: 'frontend-api', kind: 'normal', label: 'stock + risks', tag: ['plant-context','all'] },
+  { from: 'frontend-api', to: 'fastapi-main', kind: 'api', label: 'HTTP /api/v1/*', tag: ['overview','critical-path','all'] },
+  { from: 'fastapi-main', to: 'api-router', kind: 'mount', label: 'include_router', tag: ['overview','critical-path','all'] },
+  { from: 'api-router', to: 'dashboard-router', kind: 'mount', label: 'mount dashboard', tag: ['overview','critical-path','all'] },
+  { from: 'api-router', to: 'signal-router', kind: 'critical', label: 'mount signal-engine', tag: ['signal-engine','critical-path','all'] },
+  { from: 'api-router', to: 'shipments-router', kind: 'mount', label: 'mount shipments', tag: ['inbound','all'] },
+  { from: 'api-router', to: 'suppliers-router', kind: 'mount', label: 'mount suppliers', tag: ['suppliers','all'] },
+  { from: 'api-router', to: 'tenants-router', kind: 'mount', label: 'mount tenants', tag: ['admin','ingestion','all'] },
+  { from: 'dashboard-router', to: 'dashboard-service', kind: 'critical', label: 'GET /dashboard/executive', tag: ['overview','critical-path','all'] },
+  { from: 'signal-router', to: 'signal-service', kind: 'critical', label: 'GET /risk-workspace', tag: ['signal-engine','critical-path','all'] },
+  { from: 'shipments-router', to: 'shipment-continuity', kind: 'normal', label: 'movement detail support', tag: ['inbound','all'] },
+  { from: 'shipments-router', to: 'db-shipments', kind: 'db', label: 'plant_id filters', tag: ['inbound','plant-context','all'] },
+  { from: 'dashboard-service', to: 'stock-service', kind: 'critical', label: 'cover summary', tag: ['overview','critical-path','all'] },
+  { from: 'dashboard-service', to: 'supplier-service', kind: 'normal', label: 'supplier summary', tag: ['suppliers','overview','all'] },
+  { from: 'dashboard-service', to: 'db-events', kind: 'db', label: 'freshness + movement', tag: ['overview','all'] },
+  { from: 'signal-service', to: 'rules-engine', kind: 'critical', label: 'list_signal_risks', tag: ['signal-engine','critical-path','all'] },
+  { from: 'signal-service', to: 'exposure-mapping', kind: 'critical', label: 'build exposure', tag: ['signal-engine','critical-path','all'] },
+  { from: 'signal-service', to: 'relationship-graph', kind: 'critical', label: 'context graph', tag: ['signal-engine','critical-path','all'] },
+  { from: 'signal-service', to: 'timeline-service', kind: 'critical', label: 'risk timeline', tag: ['signal-engine','critical-path','all'] },
+  { from: 'signal-service', to: 'inventory-continuity', kind: 'critical', label: 'inventory context', tag: ['signal-engine','critical-path','all'] },
+  { from: 'signal-service', to: 'shipment-continuity', kind: 'critical', label: 'shipment context', tag: ['signal-engine','critical-path','all'] },
+  { from: 'rules-engine', to: 'inventory-continuity', kind: 'critical', label: 'inventory rules', tag: ['signal-engine','critical-path','all'] },
+  { from: 'rules-engine', to: 'shipment-continuity', kind: 'critical', label: 'shipment rules', tag: ['signal-engine','critical-path','all'] },
+  { from: 'inventory-continuity', to: 'db-plants-materials', kind: 'db', label: 'plant/material lookup', tag: ['signal-engine','critical-path','all'] },
+  { from: 'inventory-continuity', to: 'db-stock', kind: 'critical', label: 'latest stock', tag: ['signal-engine','critical-path','all'] },
+  { from: 'inventory-continuity', to: 'db-shipments', kind: 'db', label: 'inbound quantity', tag: ['signal-engine','critical-path','all'] },
+  { from: 'shipment-continuity', to: 'db-shipments', kind: 'critical', label: 'ETA + tracking', tag: ['inbound','signal-engine','critical-path','all'] },
+  { from: 'timeline-service', to: 'db-events', kind: 'critical', label: 'event chain', tag: ['signal-engine','critical-path','all'] },
+  { from: 'relationship-graph', to: 'db-events', kind: 'db', label: 'relevant events', tag: ['signal-engine','critical-path','all'] },
+  { from: 'exposure-mapping', to: 'relationship-graph', kind: 'critical', label: 'graph summary', tag: ['signal-engine','critical-path','all'] },
+  { from: 'signal-service', to: 'db-risk-snapshots', kind: 'db', label: 'latest escalation', tag: ['signal-engine','all'] },
+  { from: 'db-plants-materials', to: 'postgres', kind: 'db', label: 'SQLAlchemy table', tag: ['overview','critical-path','all'] },
+  { from: 'db-shipments', to: 'postgres', kind: 'db', label: 'SQLAlchemy table', tag: ['inbound','critical-path','all'] },
+  { from: 'db-stock', to: 'postgres', kind: 'db', label: 'SQLAlchemy table', tag: ['overview','critical-path','all'] },
+  { from: 'db-events', to: 'postgres', kind: 'db', label: 'SQLAlchemy table', tag: ['signal-engine','critical-path','all'] },
+  { from: 'db-risk-snapshots', to: 'postgres', kind: 'db', label: 'SQLAlchemy table', tag: ['signal-engine','all'] },
+  { from: 'scheduler-loop', to: 'sync-service', kind: 'normal', label: 'due source sync', tag: ['ingestion','external','all'] },
+  { from: 'sync-service', to: 'db-stock', kind: 'db', label: 'upload writes rows', tag: ['ingestion','all'] },
+  { from: 'sync-service', to: 'postgres', kind: 'db', label: 'sync metadata', tag: ['ingestion','all'] },
+  { from: 'sync-service', to: 'microsoft-graph', kind: 'api', label: 'download file', tag: ['ingestion','external','all'] },
+  { from: 'scheduler-loop', to: 'redis-celery', kind: 'normal', label: 'parallel worker stack', tag: ['ingestion','external','all'] },
+  { from: 'tracking-provider', to: 'dcsa-api', kind: 'api', label: 'Track & Trace events', tag: ['inbound','external','all'] },
+  { from: 'tracking-provider', to: 'db-shipments', kind: 'normal', label: 'updates ETA signals', tag: ['inbound','external','all'] },
+];
+
+const FIXES = {
+  'dead-dashboard-snapshot': [{n: 1, t: 'Remove unused frontend helper or reconnect it to a deliberate snapshot page.'}],
+  'dead-supplier-summary': [{n: 2, t: 'Either use supplier performance summary on Reliability sources or remove the wrapper.'}, {n: 3, t: 'Add backend plant-level supplier contract before claiming plant-scoped supplier reliability.'}],
+  'supplier-service': [{n: 3, t: 'Add plant_reference or plant_id support if supplier reliability must become plant-scoped.'}],
+  'suppliers-router': [{n: 3, t: 'Expose plant-scoped supplier metrics only when source data supports it.'}],
+  'shipment-continuity': [{n: 4, t: 'Consider passing real purchase_order_reference when PO linkage becomes part of the continuity contract.'}],
+};
+const KNOWN_BUGS = {};
+
+const filterDefs = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'plant-context', label: 'Plant context' },
+  { id: 'signal-engine', label: 'Signal engine' },
+  { id: 'inbound', label: 'Inbound continuity' },
+  { id: 'ingestion', label: 'Source ingestion' },
+  { id: 'suppliers', label: 'Supplier reliability' },
+  { id: 'admin', label: 'Admin / tenant' },
+  { id: 'critical-path', label: 'Critical path' },
+  { id: 'dead-code', label: 'Dead code' },
+  { id: 'all', label: 'Show all wires' },
+  { id: 'roadmap', label: 'Roadmap & bugs' },
+];
+
+const colorMap = {
+  client: 'var(--client)',
+  route: 'var(--route)',
+  service: 'var(--service)',
+  db: 'var(--db)',
+  external: 'var(--external)',
+};
+const edgeColors = {
+  critical: 'var(--critical)',
+  api: 'var(--accent-2)',
+  db: 'var(--db)',
+  mount: 'var(--client)',
+  normal: '#8a8a8a',
+};
+
+let activeFilter = 'overview';
+let selectedId = null;
+let hoverId = null;
+let transform = { x: 10, y: 20, s: 0.82 };
+const svg = document.getElementById('svg');
+const viewport = document.getElementById('viewport');
+const clusterLayer = document.getElementById('clusters');
+const edgeLayer = document.getElementById('edges');
+const nodeLayer = document.getElementById('nodes');
+const sidebar = document.getElementById('sidebar');
+const nodeById = new Map(nodes.map(n => [n.id, n]));
+
+function tagVisible(item) {
+  if (activeFilter === 'all') return true;
+  if (activeFilter === 'roadmap') return Boolean(FIXES[item.id] || KNOWN_BUGS[item.id]);
+  return (item.tag || []).includes(activeFilter);
+}
+function edgeVisible(edge) {
+  if (activeFilter === 'all') return true;
+  if (activeFilter === 'roadmap') return Boolean(FIXES[edge.from] || FIXES[edge.to] || KNOWN_BUGS[edge.from] || KNOWN_BUGS[edge.to]);
+  return (edge.tag || []).includes(activeFilter);
+}
+function connectedIds(id) {
+  const set = new Set([id]);
+  edges.forEach(e => {
+    if (e.from === id) set.add(e.to);
+    if (e.to === id) set.add(e.from);
+  });
+  return set;
+}
+function renderFilters() {
+  const box = document.getElementById('filters');
+  box.innerHTML = '';
+  filterDefs.forEach(f => {
+    const b = document.createElement('button');
+    b.className = 'chip' + (activeFilter === f.id ? ' active' : '');
+    b.textContent = f.label;
+    b.onclick = () => { activeFilter = f.id; selectedId = null; hoverId = null; render(); };
+    box.appendChild(b);
+  });
+}
+function applyTransform() {
+  viewport.setAttribute('transform', `translate(${transform.x} ${transform.y}) scale(${transform.s})`);
+}
+function renderClusters() {
+  clusterLayer.innerHTML = '';
+  clusters.forEach(c => {
+    const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    g.setAttribute('class', 'cluster');
+    g.innerHTML = `<rect x="${c.x}" y="${c.y}" width="${c.w}" height="${c.h}"></rect><text x="${c.x + 14}" y="${c.y + 28}">${escapeHtml(c.label)}</text>`;
+    clusterLayer.appendChild(g);
+  });
+}
+function edgePath(edge, index) {
+  const a = nodeById.get(edge.from);
+  const b = nodeById.get(edge.to);
+  const x1 = a.x + a.w;
+  const y1 = a.y + a.h / 2;
+  const x2 = b.x;
+  const y2 = b.y + b.h / 2;
+  const dx = Math.max(70, (x2 - x1) * 0.46);
+  const stagger = ((index % 5) - 2) * 10;
+  return { d: `M ${x1} ${y1} C ${x1 + dx} ${y1 + stagger}, ${x2 - dx} ${y2 - stagger}, ${x2} ${y2}`, lx: (x1 + x2) / 2, ly: (y1 + y2) / 2 + stagger };
+}
+function renderEdges(focusSet) {
+  edgeLayer.innerHTML = '';
+  edges.forEach((e, i) => {
+    if (!edgeVisible(e)) return;
+    const activeFocus = focusSet && (focusSet.has(e.from) || focusSet.has(e.to));
+    const hiddenByFocus = focusSet && !(focusSet.has(e.from) && focusSet.has(e.to));
+    const p = edgePath(e, i);
+    const color = edgeColors[e.kind] || edgeColors.normal;
+    const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    g.setAttribute('class', hiddenByFocus ? 'dim' : '');
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('class', 'edgePath');
+    path.setAttribute('d', p.d);
+    path.setAttribute('stroke', color);
+    path.setAttribute('marker-end', `url(#arrow-${e.kind === 'critical' ? 'critical' : e.kind === 'api' ? 'api' : e.kind === 'db' ? 'db' : e.kind === 'mount' ? 'mount' : 'normal'})`);
+    path.setAttribute('stroke-width', e.kind === 'critical' ? '2.7' : '1.7');
+    path.setAttribute('opacity', activeFocus ? '0.95' : '0.52');
+    const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    label.setAttribute('class', 'edgeLabel');
+    label.setAttribute('x', p.lx);
+    label.setAttribute('y', p.ly);
+    label.textContent = e.label;
+    g.appendChild(path);
+    g.appendChild(label);
+    edgeLayer.appendChild(g);
+  });
+}
+function renderNodes(focusSet) {
+  nodeLayer.innerHTML = '';
+  nodes.forEach(n => {
+    if (!tagVisible(n)) return;
+    const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    const dim = focusSet && !focusSet.has(n.id);
+    g.setAttribute('class', `node ${n.critical ? 'critical' : ''} ${dim ? 'dim' : ''}`);
+    g.setAttribute('transform', `translate(${n.x} ${n.y})`);
+    g.style.cursor = 'pointer';
+    const stroke = n.critical ? 'var(--critical)' : colorMap[n.color] || colorMap.service;
+    const fixCount = (FIXES[n.id] || []).length;
+    const bugCount = (KNOWN_BUGS[n.id] || []).length;
+    g.innerHTML = `
+      <rect class="main" x="0" y="0" width="${n.w}" height="${n.h}" stroke="${stroke}"></rect>
+      <text class="label" x="12" y="23">${escapeHtml(n.label)}</text>
+      <text class="sub" x="12" y="43">${escapeHtml(n.sub)}</text>
+      <text class="pathHint" x="12" y="${n.h - 12}">${escapeHtml(shortPath(n.path))}</text>
+      ${fixCount ? `<circle class="fixBadge" cx="${n.w - 28}" cy="16" r="10"></circle><text class="badgeText" x="${n.w - 28}" y="16">${fixCount}</text>` : ''}
+      ${bugCount ? `<circle class="bugBadge" cx="${n.w - 52}" cy="16" r="10"></circle><text class="badgeText" x="${n.w - 52}" y="16">${bugCount}</text>` : ''}
+    `;
+    g.addEventListener('mouseenter', () => { hoverId = n.id; updateFocus(); showNode(n.id, true); });
+    g.addEventListener('mouseleave', () => { hoverId = null; updateFocus(); showSelectedOrDefault(); });
+    g.addEventListener('click', evt => { evt.stopPropagation(); selectedId = selectedId === n.id ? null : n.id; updateFocus(); showSelectedOrDefault(); });
+    nodeLayer.appendChild(g);
+  });
+}
+function updateFocus() {
+  const focusId = selectedId || hoverId;
+  const focusSet = focusId ? connectedIds(focusId) : null;
+  renderEdges(focusSet);
+  renderNodes(focusSet);
+}
+function render() {
+  renderFilters();
+  renderClusters();
+  updateFocus();
+  showSelectedOrDefault();
+  applyTransform();
+}
+function incoming(id) { return edges.filter(e => e.to === id); }
+function outgoing(id) { return edges.filter(e => e.from === id); }
+function showSelectedOrDefault() {
+  if (selectedId) showNode(selectedId, false);
+  else showDefault();
+}
+function showDefault() {
+  sidebar.innerHTML = `
+    <div class="sideSection">
+      <h2>Notable findings from this map</h2>
+      <ul>
+        <li><code>getDashboardSnapshot</code> and <code>getSupplierPerformanceSummary</code> are exported frontend helpers with zero live callers found by search.</li>
+        <li>The risk workspace hot path is intentionally heavy: one request composes rules, exposure mapping, graph, timeline, inventory continuity, shipment continuity, and escalation context.</li>
+        <li>Plant scoping crosses two identifiers: signal-engine APIs use <code>plant_reference</code>, while shipment and movement APIs use numeric <code>plant_id</code>.</li>
+        <li>Supplier reliability remains tenant-wide because the current supplier service has no plant-level filter contract.</li>
+      </ul>
+    </div>
+    <div class="sideSection">
+      <h3>Critical path</h3>
+      <p>Dashboard route -> plant context shell -> risk workspace page -> frontend API facade -> FastAPI v1 router -> signal-engine route -> get_risk_workspace -> rule engine -> inventory and shipment continuity -> exposure, graph, timeline, and PostgreSQL-backed events.</p>
+    </div>
+    <div class="sideSection">
+      <h3>Legend</h3>
+      <div class="legendRow"><span class="swatch" style="background:var(--critical)"></span><span>Critical path</span></div>
+      <div class="legendRow"><span class="swatch" style="background:var(--accent-2)"></span><span>HTTP or external API call</span></div>
+      <div class="legendRow"><span class="swatch" style="background:var(--db)"></span><span>Database read/write</span></div>
+      <div class="legendRow"><span class="swatch" style="background:var(--client)"></span><span>Route mount or client navigation</span></div>
+      <div class="legendRow"><span class="swatch" style="background:#8a8a8a"></span><span>Normal function/data flow</span></div>
+    </div>
+  `;
+}
+function showNode(id, transient) {
+  const n = nodeById.get(id);
+  const fixes = FIXES[id] || [];
+  const bugs = KNOWN_BUGS[id] || [];
+  sidebar.innerHTML = `
+    <div class="sideSection">
+      <h2>${escapeHtml(n.label)}</h2>
+      <span class="meta">${escapeHtml(n.cluster)}</span>
+      ${n.critical ? '<span class="meta">critical path</span>' : ''}
+      ${(n.tag || []).filter(t => t !== 'all').map(t => `<span class="meta">${escapeHtml(t)}</span>`).join('')}
+      <p><strong>Role:</strong> ${escapeHtml(n.role)}</p>
+      <p><strong>Plain English:</strong> ${escapeHtml(n.plain)}</p>
+      <p><strong>Path:</strong> <code>${escapeHtml(n.path)}</code></p>
+    </div>
+    <div class="sideSection">
+      <h3>Concrete notes</h3>
+      <ul>${n.notes.map(note => `<li>${escapeHtml(note)}</li>`).join('')}</ul>
+    </div>
+    <div class="sideSection">
+      <h3>Incoming edges</h3>
+      ${edgeList(incoming(id), true)}
+    </div>
+    <div class="sideSection">
+      <h3>Outgoing edges</h3>
+      ${edgeList(outgoing(id), false)}
+    </div>
+    ${fixes.length ? `<div class="sideSection"><h3>Fix opportunities</h3><ul>${fixes.map(f => `<li>${escapeHtml(f.t)}</li>`).join('')}</ul></div>` : ''}
+    ${bugs.length ? `<div class="sideSection"><h3>Known bugs</h3><ul>${bugs.map(b => `<li>${escapeHtml(b.sev)}: ${escapeHtml(b.t)}</li>`).join('')}</ul></div>` : ''}
+    ${transient ? '<div class="sideSection"><p>Hover preview. Click the node to pin this detail.</p></div>' : ''}
+  `;
+}
+function edgeList(list, incomingMode) {
+  if (!list.length) return '<p>No edges.</p>';
+  return `<ul>${list.map(e => {
+    const other = nodeById.get(incomingMode ? e.from : e.to);
+    return `<li><code>${escapeHtml(e.kind)}</code> ${escapeHtml(e.label)} ${incomingMode ? 'from' : 'to'} ${escapeHtml(other ? other.label : 'unknown')}</li>`;
+  }).join('')}</ul>`;
+}
+function shortPath(path) {
+  if (!path) return '';
+  const parts = path.split('/');
+  return parts.length > 3 ? parts.slice(-3).join('/') : path;
+}
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+}
+function fit() {
+  const minX = Math.min(...clusters.map(c => c.x));
+  const minY = Math.min(...clusters.map(c => c.y));
+  const maxX = Math.max(...clusters.map(c => c.x + c.w));
+  const maxY = Math.max(...clusters.map(c => c.y + c.h));
+  const rect = svg.getBoundingClientRect();
+  const sx = (rect.width - 40) / (maxX - minX);
+  const sy = (rect.height - 120) / (maxY - minY);
+  transform.s = Math.min(sx, sy);
+  transform.x = 20 - minX * transform.s;
+  transform.y = 104 - minY * transform.s;
+  applyTransform();
+}
+document.getElementById('fit').onclick = fit;
+document.getElementById('zoomIn').onclick = () => { transform.s *= 1.16; applyTransform(); };
+document.getElementById('zoomOut').onclick = () => { transform.s /= 1.16; applyTransform(); };
+svg.addEventListener('click', () => { selectedId = null; updateFocus(); showDefault(); });
+let dragging = false, last = null;
+svg.addEventListener('pointerdown', e => {
+  dragging = true;
+  last = { x: e.clientX, y: e.clientY };
+  svg.setPointerCapture(e.pointerId);
+  svg.classList.add('dragging');
+});
+svg.addEventListener('pointermove', e => {
+  if (!dragging) return;
+  transform.x += e.clientX - last.x;
+  transform.y += e.clientY - last.y;
+  last = { x: e.clientX, y: e.clientY };
+  applyTransform();
+});
+svg.addEventListener('pointerup', e => {
+  dragging = false;
+  last = null;
+  svg.releasePointerCapture(e.pointerId);
+  svg.classList.remove('dragging');
+});
+svg.addEventListener('wheel', e => {
+  e.preventDefault();
+  const rect = svg.getBoundingClientRect();
+  const mx = e.clientX - rect.left;
+  const my = e.clientY - rect.top;
+  const before = { x: (mx - transform.x) / transform.s, y: (my - transform.y) / transform.s };
+  const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
+  transform.s = Math.max(0.25, Math.min(2.6, transform.s * factor));
+  transform.x = mx - before.x * transform.s;
+  transform.y = my - before.y * transform.s;
+  applyTransform();
+}, { passive: false });
+
+render();
+fit();
+  </script>
+</body>
+</html>
