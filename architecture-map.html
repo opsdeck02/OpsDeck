@@ -235,13 +235,13 @@
 
   <script>
 const clusters = [
-  { id: 'client', label: 'Client shell', x: 40, y: 92, w: 180, h: 690 },
-  { id: 'frontend-data', label: 'Frontend data', x: 265, y: 92, w: 190, h: 690 },
-  { id: 'server-entry', label: 'Server entry', x: 505, y: 92, w: 170, h: 690 },
-  { id: 'routes', label: 'Routes', x: 720, y: 92, w: 180, h: 690 },
-  { id: 'services', label: 'Services', x: 945, y: 92, w: 235, h: 690 },
-  { id: 'data', label: 'Data model', x: 1225, y: 92, w: 185, h: 690 },
-  { id: 'external', label: 'External', x: 1450, y: 92, w: 170, h: 690 },
+  { id: 'client', label: 'Client shell', x: 40, y: 92, w: 180, h: 730 },
+  { id: 'frontend-data', label: 'Frontend data', x: 265, y: 92, w: 190, h: 730 },
+  { id: 'server-entry', label: 'Server entry', x: 505, y: 92, w: 170, h: 730 },
+  { id: 'routes', label: 'Routes', x: 720, y: 92, w: 180, h: 730 },
+  { id: 'services', label: 'Services', x: 945, y: 92, w: 235, h: 730 },
+  { id: 'data', label: 'Data model', x: 1225, y: 92, w: 185, h: 730 },
+  { id: 'external', label: 'External', x: 1450, y: 92, w: 170, h: 730 },
 ];
 
 const N = (id, cluster, label, sub, x, y, w, h, color, opts = {}) => ({
@@ -296,6 +296,14 @@ const nodes = [
     tag: ['inbound', 'plant-context', 'overview', 'all'],
   }),
 
+  N('upload-panel', 'frontend-data', 'upload-panel.tsx', 'manual signal upload UI', 285, 582, 150, 94, 'client', {
+    role: 'The onboarding upload panel previews mappings, blocks required-field gaps, submits manual or URL uploads, and renders structured validation history.',
+    plain: 'This is where a pilot user checks whether a spreadsheet column means the right OpsDeck field before loading continuity signals.',
+    path: 'apps/frontend/components/onboarding/upload-panel.tsx:585',
+    notes: ['line:82, required mapping state is calculated from preview plus user overrides', 'line:589, required fields are shown separately from optional details', 'line:776, top rejection reasons and sample rejected rows are shown after upload', 'line:837, history states whether visibility was refreshed'],
+    tag: ['ingestion', 'overview', 'all'],
+  }),
+
   N('frontend-api', 'frontend-data', 'api.ts', 'server-side API facade', 285, 145, 150, 88, 'service', {
     role: 'The Next.js data facade builds authenticated backend URLs from cookies and typed query parameters.',
     plain: 'This file is the dashboard app asking the backend for data while carrying the user session and tenant.',
@@ -321,8 +329,8 @@ const nodes = [
   N('dead-supplier-summary', 'frontend-data', 'getSupplierPerformanceSummary', 'DEAD, zero callers', 285, 478, 150, 68, 'service', {
     role: 'This exported frontend API function wraps /api/v1/suppliers/performance/summary but has no live callers in apps or packages.',
     plain: 'There is a supplier summary helper ready to call, but the supplier page is not using it.',
-    path: 'apps/frontend/lib/api.ts:413',
-    notes: ['rg found only the definition in apps/frontend/lib/api.ts', 'Suppliers page currently calls getSuppliers at app/dashboard/suppliers/page.tsx:17', 'This relates to plant-level supplier reliability being tenant-wide today'],
+    path: 'apps/frontend/lib/api.ts:422',
+    notes: ['rg found only the definition in apps/frontend/lib/api.ts', 'line:423, the helper accepts plant_reference', 'Suppliers page currently scopes through getSuppliers at app/dashboard/suppliers/page.tsx:19'],
     tag: ['dead-code', 'suppliers', 'all'],
   }),
 
@@ -381,12 +389,19 @@ const nodes = [
     notes: ['line:65, /shipments/visibility accepts plant_id, material_id, state, search', 'line:77, /port-monitoring accepts delayed_only and confidence', 'line:98, /inland-monitoring mirrors the same plant_id filters'],
     tag: ['inbound', 'plant-context', 'all'],
   }),
-  N('suppliers-router', 'routes', 'suppliers/router.py', 'reliability source endpoints', 740, 500, 140, 76, 'route', {
-    role: 'The suppliers router exposes supplier CRUD, detail, linking, and performance summary routes.',
-    plain: 'These URLs describe supplier reliability, but they are tenant-wide rather than plant-scoped today.',
-    path: 'apps/backend/app/modules/suppliers/router.py',
-    notes: ['Used by app/dashboard/suppliers/page.tsx through getSuppliers', 'Current frontend notes tenant-wide behavior when plant_reference is selected', 'Backend service calculates performance from linked shipments'],
-    tag: ['suppliers', 'overview', 'all'],
+  N('suppliers-router', 'routes', 'suppliers/router.py', 'plant-scoped reliability endpoints', 740, 500, 140, 76, 'route', {
+    role: 'The suppliers router exposes supplier list and performance summary endpoints that accept plant_reference for continuity-source scoping.',
+    plain: 'These URLs answer which reliability sources matter for all plants or for one selected plant.',
+    path: 'apps/backend/app/modules/suppliers/router.py:32',
+    notes: ['line:36, supplier list accepts plant_reference', 'line:58, performance summary accepts plant_reference', 'Frontend passes the global plant context from app/dashboard/suppliers/page.tsx:19'],
+    tag: ['suppliers', 'overview', 'plant-context', 'all'],
+  }),
+  N('ingestion-router', 'routes', 'ingestion/router.py', 'upload + mapping API', 740, 710, 140, 76, 'route', {
+    role: 'The ingestion router handles upload, URL upload, mapping preview, job history, and template download endpoints.',
+    plain: 'These URLs receive spreadsheets, preview column meaning, and report whether the load improved continuity visibility.',
+    path: 'apps/backend/app/modules/ingestion/router.py:100',
+    notes: ['line:100, job history joins uploaded file metadata', 'line:126, history includes top rejection summary', 'line:203, stored row errors are condensed into readable history text'],
+    tag: ['ingestion', 'overview', 'all'],
   }),
   N('tenants-router', 'routes', 'tenants/router.py', 'tenant plan + data sources', 740, 610, 140, 82, 'route', {
     role: 'The tenants router handles tenant setup, plan limits, active data sources, and tenant admin operations.',
@@ -468,12 +483,19 @@ const nodes = [
     tag: ['signal-engine', 'critical-path', 'all'],
     critical: true,
   }),
-  N('supplier-service', 'services', 'performance_summary', 'supplier reliability metrics', 970, 28, 165, 66, 'service', {
-    role: 'performance_summary ranks supplier reliability using linked shipments, risk signals, on-time performance, and visibility coverage.',
-    plain: 'This is how OpsDeck turns supplier history into reliability patterns.',
-    path: 'apps/backend/app/modules/suppliers/service.py:160',
-    notes: ['line:160, service returns SupplierPerformanceSummary', 'line:208, calculate_supplier_performance works from supplier-linked shipments', 'No plant_reference argument exists in this service today'],
-    tag: ['suppliers', 'overview', 'all'],
+  N('supplier-service', 'services', 'performance_summary', 'plant-scoped source reliability', 970, 28, 165, 66, 'service', {
+    role: 'performance_summary ranks supplier reliability using linked shipments, risk signals, on-time performance, visibility coverage, and optional plant_reference scope.',
+    plain: 'This is how OpsDeck turns supplier-linked inbound history into reliability patterns for all plants or one plant.',
+    path: 'apps/backend/app/modules/suppliers/service.py:173',
+    notes: ['line:176, plant_reference scopes the summary', 'line:178, list_suppliers is reused for plant-scoped rows', 'line:226, calculate_supplier_performance receives plant_id'],
+    tag: ['suppliers', 'overview', 'plant-context', 'all'],
+  }),
+  N('ingestion-service', 'services', 'service.py', 'mapping + validation hardening', 1168, 220, 155, 94, 'service', {
+    role: 'The ingestion service detects headers, blocks missing required mappings, normalizes rows, records structured rejection reasons, and parses common date/number formats.',
+    plain: 'This is the trust layer for uploaded spreadsheets: it says what matched, what failed, and how to fix bad rows.',
+    path: 'apps/backend/app/modules/ingestion/service.py:385',
+    notes: ['line:391, mapping preview extracts headers and suggestions', 'line:643, required mapping gaps block ingestion before rows are written', 'line:795, field-level validation errors carry reason and suggested fix', 'line:991, common date formats are parsed deterministically'],
+    tag: ['ingestion', 'overview', 'all'],
   }),
   N('sync-service', 'services', 'sync_loaded_data_source', 'remote source ingestion', 1168, 120, 155, 78, 'external', {
     role: 'sync_loaded_data_source downloads a configured source, processes it as an ingestion upload, recomputes risk deltas, and records freshness metadata.',
@@ -529,6 +551,13 @@ const nodes = [
     notes: ['line:17, tenant/fingerprint/snapshot_time is unique', 'line:29, context index covers plant/material/shipment reference', 'line:65, escalation_state is persisted for later comparison'],
     tag: ['signal-engine', 'all'],
   }),
+  N('db-ingestion', 'data', 'UploadedFile / IngestionJob', 'upload history tables', 1245, 735, 145, 72, 'db', {
+    role: 'UploadedFile and IngestionJob persist tenant-scoped upload metadata, row counts, status, and rejection details.',
+    plain: 'These records are the upload audit trail: what file came in, when, whether it worked, and what failed.',
+    path: 'apps/backend/app/models/ingestion.py:11',
+    notes: ['line:11, UploadedFile stores original filename and status', 'line:29, IngestionJob stores source type and processing status', 'line:47, records_total/succeeded/failed drive upload history counts'],
+    tag: ['ingestion', 'all'],
+  }),
 
   N('postgres', 'external', 'session.py', 'PostgreSQL connection', 1470, 240, 130, 78, 'db', {
     role: 'PostgreSQL stores tenant-scoped operational, master, ingestion, exception, and risk snapshot data through SQLAlchemy models.',
@@ -569,6 +598,7 @@ const edges = [
   { from: 'risk-workspace-page', to: 'frontend-api', kind: 'critical', label: 'getRiskWorkspace', tag: ['signal-engine','critical-path','all'] },
   { from: 'shipments-page', to: 'frontend-api', kind: 'normal', label: 'getShipments', tag: ['inbound','plant-context','all'] },
   { from: 'movements-page', to: 'frontend-api', kind: 'normal', label: 'port + inland calls', tag: ['inbound','plant-context','all'] },
+  { from: 'upload-panel', to: 'ingestion-router', kind: 'api', label: 'preview + upload', tag: ['ingestion','all'] },
   { from: 'dashboard-layout', to: 'plant-context-options', kind: 'normal', label: 'load options', tag: ['plant-context','all'] },
   { from: 'plant-context-options', to: 'frontend-api', kind: 'normal', label: 'stock + risks', tag: ['plant-context','all'] },
   { from: 'frontend-api', to: 'fastapi-main', kind: 'api', label: 'HTTP /api/v1/*', tag: ['overview','critical-path','all'] },
@@ -578,10 +608,13 @@ const edges = [
   { from: 'api-router', to: 'shipments-router', kind: 'mount', label: 'mount shipments', tag: ['inbound','all'] },
   { from: 'api-router', to: 'suppliers-router', kind: 'mount', label: 'mount suppliers', tag: ['suppliers','all'] },
   { from: 'api-router', to: 'tenants-router', kind: 'mount', label: 'mount tenants', tag: ['admin','ingestion','all'] },
+  { from: 'api-router', to: 'ingestion-router', kind: 'mount', label: 'mount ingestion', tag: ['ingestion','all'] },
   { from: 'dashboard-router', to: 'dashboard-service', kind: 'critical', label: 'GET /dashboard/executive', tag: ['overview','critical-path','all'] },
   { from: 'signal-router', to: 'signal-service', kind: 'critical', label: 'GET /risk-workspace', tag: ['signal-engine','critical-path','all'] },
   { from: 'shipments-router', to: 'shipment-continuity', kind: 'normal', label: 'movement detail support', tag: ['inbound','all'] },
   { from: 'shipments-router', to: 'db-shipments', kind: 'db', label: 'plant_id filters', tag: ['inbound','plant-context','all'] },
+  { from: 'suppliers-router', to: 'supplier-service', kind: 'normal', label: 'plant_reference', tag: ['suppliers','plant-context','all'] },
+  { from: 'ingestion-router', to: 'ingestion-service', kind: 'normal', label: 'process + preview', tag: ['ingestion','all'] },
   { from: 'dashboard-service', to: 'stock-service', kind: 'critical', label: 'cover summary', tag: ['overview','critical-path','all'] },
   { from: 'dashboard-service', to: 'supplier-service', kind: 'normal', label: 'supplier summary', tag: ['suppliers','overview','all'] },
   { from: 'dashboard-service', to: 'db-events', kind: 'db', label: 'freshness + movement', tag: ['overview','all'] },
@@ -606,8 +639,14 @@ const edges = [
   { from: 'db-stock', to: 'postgres', kind: 'db', label: 'SQLAlchemy table', tag: ['overview','critical-path','all'] },
   { from: 'db-events', to: 'postgres', kind: 'db', label: 'SQLAlchemy table', tag: ['signal-engine','critical-path','all'] },
   { from: 'db-risk-snapshots', to: 'postgres', kind: 'db', label: 'SQLAlchemy table', tag: ['signal-engine','all'] },
+  { from: 'db-ingestion', to: 'postgres', kind: 'db', label: 'SQLAlchemy table', tag: ['ingestion','all'] },
+  { from: 'supplier-service', to: 'db-shipments', kind: 'db', label: 'supplier + plant shipments', tag: ['suppliers','plant-context','all'] },
+  { from: 'ingestion-service', to: 'db-ingestion', kind: 'db', label: 'history + errors', tag: ['ingestion','all'] },
+  { from: 'ingestion-service', to: 'db-shipments', kind: 'db', label: 'shipment writes', tag: ['ingestion','inbound','all'] },
+  { from: 'ingestion-service', to: 'db-stock', kind: 'db', label: 'stock writes', tag: ['ingestion','all'] },
+  { from: 'ingestion-service', to: 'db-events', kind: 'db', label: 'trust events', tag: ['ingestion','signal-engine','all'] },
   { from: 'scheduler-loop', to: 'sync-service', kind: 'normal', label: 'due source sync', tag: ['ingestion','external','all'] },
-  { from: 'sync-service', to: 'db-stock', kind: 'db', label: 'upload writes rows', tag: ['ingestion','all'] },
+  { from: 'sync-service', to: 'ingestion-service', kind: 'normal', label: 'process_upload_content', tag: ['ingestion','external','all'] },
   { from: 'sync-service', to: 'postgres', kind: 'db', label: 'sync metadata', tag: ['ingestion','all'] },
   { from: 'sync-service', to: 'microsoft-graph', kind: 'api', label: 'download file', tag: ['ingestion','external','all'] },
   { from: 'scheduler-loop', to: 'redis-celery', kind: 'normal', label: 'parallel worker stack', tag: ['ingestion','external','all'] },
@@ -617,9 +656,8 @@ const edges = [
 
 const FIXES = {
   'dead-dashboard-snapshot': [{n: 1, t: 'Remove unused frontend helper or reconnect it to a deliberate snapshot page.'}],
-  'dead-supplier-summary': [{n: 2, t: 'Either use supplier performance summary on Reliability sources or remove the wrapper.'}, {n: 3, t: 'Add backend plant-level supplier contract before claiming plant-scoped supplier reliability.'}],
-  'supplier-service': [{n: 3, t: 'Add plant_reference or plant_id support if supplier reliability must become plant-scoped.'}],
-  'suppliers-router': [{n: 3, t: 'Expose plant-scoped supplier metrics only when source data supports it.'}],
+  'dead-supplier-summary': [{n: 2, t: 'Either use supplier performance summary on Reliability sources or remove the unused wrapper.'}],
+  'upload-panel': [{n: 5, t: 'Consider extracting mapping review into a smaller component if upload onboarding grows further.'}],
   'shipment-continuity': [{n: 4, t: 'Consider passing real purchase_order_reference when PO linkage becomes part of the continuity contract.'}],
 };
 const KNOWN_BUGS = {};
@@ -797,7 +835,7 @@ function showDefault() {
         <li><code>getDashboardSnapshot</code> and <code>getSupplierPerformanceSummary</code> are exported frontend helpers with zero live callers found by search.</li>
         <li>The risk workspace hot path is intentionally heavy: one request composes rules, exposure mapping, graph, timeline, inventory continuity, shipment continuity, and escalation context.</li>
         <li>Plant scoping crosses two identifiers: signal-engine APIs use <code>plant_reference</code>, while shipment and movement APIs use numeric <code>plant_id</code>.</li>
-        <li>Supplier reliability remains tenant-wide because the current supplier service has no plant-level filter contract.</li>
+        <li>Supplier reliability is now plant-scoped through linked shipment context, while manual upload trust is hardened at the ingestion service boundary.</li>
       </ul>
     </div>
     <div class="sideSection">
