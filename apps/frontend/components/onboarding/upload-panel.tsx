@@ -8,12 +8,22 @@ import type {
   MappingPreview,
   IngestionJob,
   UploadResult,
+  WorkbookPreview,
+  WorkbookUploadResult,
 } from "@steelops/contracts";
 
 const fileTypes = [
   { value: "shipment", label: "Inbound continuity feed" },
   { value: "stock", label: "Inventory continuity feed" },
   { value: "threshold", label: "Continuity threshold feed" },
+];
+
+const workbookFileTypes = [
+  { value: "stock", label: "Inventory" },
+  { value: "shipment", label: "Inbound continuity" },
+  { value: "threshold", label: "Thresholds" },
+  { value: "consumption", label: "Consumption" },
+  { value: "ignore", label: "Ignore sheet" },
 ];
 
 const fieldLabels: Record<string, string> = {
@@ -43,6 +53,11 @@ const fieldLabels: Record<string, string> = {
   warning_days: "Warning days",
 };
 
+type WorkbookSheetConfig = {
+  file_type: string;
+  mapping_overrides: Record<string, string>;
+};
+
 export function UploadPanel({
   automatedSourcesEnabled = true,
 }: {
@@ -55,13 +70,20 @@ export function UploadPanel({
     "google_sheets" | "excel_online"
   >("excel_online");
   const [sourceUrl, setSourceUrl] = useState("");
-  const [result, setResult] = useState<UploadResult | null>(null);
+  const [result, setResult] = useState<
+    UploadResult | WorkbookUploadResult | null
+  >(null);
   const [history, setHistory] = useState<IngestionJob[]>([]);
   const [mappingPreview, setMappingPreview] = useState<MappingPreview | null>(
     null,
   );
   const [mappingOverrides, setMappingOverrides] = useState<
     Record<string, string>
+  >({});
+  const [workbookPreview, setWorkbookPreview] =
+    useState<WorkbookPreview | null>(null);
+  const [workbookSheets, setWorkbookSheets] = useState<
+    Record<string, WorkbookSheetConfig>
   >({});
   const [dataSources, setDataSources] = useState<ExternalDataSource[]>([]);
   const [editingSourceId, setEditingSourceId] = useState<number | null>(null);
@@ -96,6 +118,37 @@ export function UploadPanel({
       )
     : [];
   const hasBlockingMappingErrors = missingRequiredFields.length > 0;
+  const workbookMode = Boolean(
+    uploadMode === "file" &&
+    workbookPreview &&
+    workbookPreview.sheets.length > 1,
+  );
+  const workbookBlockingSheets = workbookPreview
+    ? workbookPreview.sheets
+        .map((sheet) => {
+          const config = workbookSheets[sheet.sheet_name];
+          if (!config || config.file_type === "ignore") {
+            return null;
+          }
+          const preview = sheet.previews[config.file_type];
+          if (!preview) {
+            return sheet.sheet_name;
+          }
+          const mapped = new Set([
+            ...preview.mapped_required_fields,
+            ...Object.values(config.mapping_overrides).filter((field) =>
+              preview.required_fields.includes(field),
+            ),
+          ]);
+          if (config.file_type === "shipment") {
+            mapped.add("source_of_truth");
+          }
+          return preview.required_fields.some((field) => !mapped.has(field))
+            ? sheet.sheet_name
+            : null;
+        })
+        .filter((value): value is string => Boolean(value))
+    : [];
 
   useEffect(() => {
     void loadHistory();
@@ -172,6 +225,54 @@ export function UploadPanel({
           .map((item) => [item.source_header, item.suggested_field as string]),
       ),
     );
+    if (isWorkbookFile(selectedFile)) {
+      await previewWorkbook(selectedFile);
+    } else {
+      setWorkbookPreview(null);
+      setWorkbookSheets({});
+    }
+  }
+
+  async function previewWorkbook(selectedFile: File) {
+    const formData = new FormData();
+    formData.append("file", selectedFile);
+    const response = await fetch("/api/ingestion/workbook-preview", {
+      method: "POST",
+      body: formData,
+    });
+    if (!response.ok) {
+      setWorkbookPreview(null);
+      setWorkbookSheets({});
+      return;
+    }
+    const body = (await response.json()) as WorkbookPreview;
+    setWorkbookPreview(body);
+    setWorkbookSheets(
+      Object.fromEntries(
+        body.sheets.map((sheet) => {
+          const fileType = sheet.hidden
+            ? "ignore"
+            : (sheet.suggested_file_type ?? "ignore");
+          const preview = sheet.previews[fileType];
+          return [
+            sheet.sheet_name,
+            {
+              file_type: fileType,
+              mapping_overrides: preview
+                ? Object.fromEntries(
+                    preview.suggestions
+                      .filter((item) => item.suggested_field)
+                      .map((item) => [
+                        item.source_header,
+                        item.suggested_field as string,
+                      ]),
+                  )
+                : {},
+            },
+          ];
+        }),
+      ),
+    );
   }
 
   async function previewUrlMapping() {
@@ -192,6 +293,8 @@ export function UploadPanel({
     if (!response.ok) {
       setMappingPreview(null);
       setMappingOverrides({});
+      setWorkbookPreview(null);
+      setWorkbookSheets({});
       setError(
         typeof body.detail === "string"
           ? body.detail
@@ -201,6 +304,8 @@ export function UploadPanel({
     }
     const preview = body as MappingPreview;
     setMappingPreview(preview);
+    setWorkbookPreview(null);
+    setWorkbookSheets({});
     setMappingOverrides(
       Object.fromEntries(
         preview.suggestions
@@ -256,6 +361,10 @@ export function UploadPanel({
       setError("Choose a CSV or XLSX file first.");
       return;
     }
+    if (workbookMode) {
+      uploadWorkbook();
+      return;
+    }
     if (hasBlockingMappingErrors) {
       setError(
         `Map required continuity fields before loading: ${missingRequiredFields.map((field) => fieldLabels[field] ?? field).join(", ")}.`,
@@ -288,6 +397,65 @@ export function UploadPanel({
         }
       } else {
         setResult(body as UploadResult);
+      }
+      await loadHistory();
+    });
+  }
+
+  function uploadWorkbook() {
+    if (!file || !workbookPreview) {
+      setError("Choose an operational workbook first.");
+      return;
+    }
+    if (workbookBlockingSheets.length > 0) {
+      setError(
+        `Resolve required field mapping before processing: ${workbookBlockingSheets.join(", ")}.`,
+      );
+      return;
+    }
+    const selectedSheets = Object.entries(workbookSheets).filter(
+      ([, config]) => config.file_type !== "ignore",
+    );
+    if (selectedSheets.length === 0) {
+      setError(
+        "Assign at least one workbook sheet to a continuity signal type.",
+      );
+      return;
+    }
+
+    setError(null);
+    setResult(null);
+    startTransition(async () => {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append(
+        "sheet_configs",
+        JSON.stringify(
+          Object.entries(workbookSheets).map(([sheetName, config]) => ({
+            sheet_name: sheetName,
+            file_type: config.file_type,
+            mapping_overrides: config.mapping_overrides,
+          })),
+        ),
+      );
+
+      const response = await fetch("/api/ingestion/workbook-upload", {
+        method: "POST",
+        body: formData,
+      });
+      const body = await response.json();
+
+      if (!response.ok) {
+        setError(
+          typeof body.detail === "string"
+            ? body.detail
+            : "Operational workbook failed validation.",
+        );
+        if (body.detail?.sheet_results) {
+          setResult(body.detail as WorkbookUploadResult);
+        }
+      } else {
+        setResult(body as WorkbookUploadResult);
       }
       await loadHistory();
     });
@@ -345,6 +513,8 @@ export function UploadPanel({
     if (!nextFile) {
       setMappingPreview(null);
       setMappingOverrides({});
+      setWorkbookPreview(null);
+      setWorkbookSheets({});
       return;
     }
     void previewMapping(fileType, nextFile);
@@ -582,152 +752,325 @@ export function UploadPanel({
               </p>
             </div>
           )}
-          <div className="rounded-xl bg-slate-50 p-3 ring-1 ring-slate-900/5">
-            <p className="font-medium">Column mapping review</p>
-            <div className="mt-3 space-y-3">
-              <div className="rounded-xl bg-muted/50 p-3 text-sm">
-                <p className="font-medium">Required continuity signal fields</p>
-                <div className="mt-2 grid gap-2 md:grid-cols-2">
-                  {(mappingPreview?.required_fields ?? []).map((field) => (
-                    <div key={field} className="rounded-xl bg-card p-2 text-xs">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="font-medium">
-                          {fieldLabels[field] ?? field}
-                        </span>
-                        <span
-                          className={
-                            mappedRequiredFields.has(field)
-                              ? "text-emerald-700"
-                              : "text-primary"
+          {workbookMode && workbookPreview ? (
+            <div className="rounded-xl bg-slate-50 p-3 ring-1 ring-slate-900/5">
+              <p className="font-medium">Operational workbook detected</p>
+              <p className="mt-1 text-sm text-mutedForeground">
+                Assign each tab to a continuity signal type. Unknown or hidden
+                sheets stay ignored unless you choose otherwise.
+              </p>
+              <div className="mt-3 space-y-3">
+                {workbookPreview.sheets.map((sheet) => {
+                  const config = workbookSheets[sheet.sheet_name] ?? {
+                    file_type: "ignore",
+                    mapping_overrides: {},
+                  };
+                  const preview = sheet.previews[config.file_type];
+                  const mapped = preview
+                    ? new Set([
+                        ...preview.mapped_required_fields,
+                        ...Object.values(config.mapping_overrides).filter(
+                          (field) => preview.required_fields.includes(field),
+                        ),
+                      ])
+                    : new Set<string>();
+                  if (config.file_type === "shipment") {
+                    mapped.add("source_of_truth");
+                  }
+                  const missing = preview
+                    ? preview.required_fields.filter(
+                        (field) => !mapped.has(field),
+                      )
+                    : [];
+                  return (
+                    <div
+                      key={sheet.sheet_name}
+                      className="rounded-xl border bg-card p-3 text-sm"
+                    >
+                      <div className="grid gap-3 md:grid-cols-[1fr_220px]">
+                        <div>
+                          <p className="font-semibold">{sheet.sheet_name}</p>
+                          <p className="text-xs text-mutedForeground">
+                            {sheet.row_count} detected rows
+                            {sheet.hidden ? " · hidden sheet" : ""}
+                            {sheet.suggested_label
+                              ? ` · suggested ${sheet.suggested_label}`
+                              : " · no deterministic suggestion"}
+                          </p>
+                        </div>
+                        <select
+                          value={config.file_type}
+                          onChange={(event) =>
+                            setWorkbookSheets((current) => {
+                              const nextType = event.target.value;
+                              const nextPreview = sheet.previews[nextType];
+                              return {
+                                ...current,
+                                [sheet.sheet_name]: {
+                                  file_type: nextType,
+                                  mapping_overrides: nextPreview
+                                    ? Object.fromEntries(
+                                        nextPreview.suggestions
+                                          .filter(
+                                            (item) => item.suggested_field,
+                                          )
+                                          .map((item) => [
+                                            item.source_header,
+                                            item.suggested_field as string,
+                                          ]),
+                                      )
+                                    : {},
+                                },
+                              };
+                            })
                           }
+                          className="rounded-xl border bg-card px-3 py-2 text-sm"
                         >
-                          {mappedRequiredFields.has(field)
-                            ? "mapped"
-                            : "unmapped"}
-                        </span>
+                          {workbookFileTypes.map((type) => (
+                            <option key={type.value} value={type.value}>
+                              {type.label}
+                            </option>
+                          ))}
+                        </select>
                       </div>
-                      <p className="mt-1 text-mutedForeground">
-                        Uploaded column:{" "}
-                        {uploadedColumnForField(mappingOverrides, field) ??
-                          (field === "source_of_truth"
-                            ? "system-filled"
-                            : "not selected")}
-                      </p>
+                      {preview && config.file_type !== "ignore" ? (
+                        <div className="mt-3 space-y-2">
+                          {missing.length > 0 ? (
+                            <p className="rounded-lg bg-muted p-2 text-xs text-primary">
+                              Missing required mappings:{" "}
+                              {missing
+                                .map((field) => fieldLabels[field] ?? field)
+                                .join(", ")}
+                            </p>
+                          ) : (
+                            <p className="rounded-lg bg-muted p-2 text-xs text-emerald-700">
+                              Required mappings ready for this sheet.
+                            </p>
+                          )}
+                          <div className="grid gap-2 md:grid-cols-2">
+                            {preview.suggestions.map((item) => (
+                              <div
+                                key={item.source_header}
+                                className="rounded-lg border p-2"
+                              >
+                                <p className="text-xs text-mutedForeground">
+                                  Uploaded column
+                                </p>
+                                <p className="font-medium">
+                                  {item.source_header}
+                                </p>
+                                <select
+                                  value={
+                                    config.mapping_overrides[
+                                      item.source_header
+                                    ] ?? ""
+                                  }
+                                  onChange={(event) =>
+                                    setWorkbookSheets((current) => ({
+                                      ...current,
+                                      [sheet.sheet_name]: {
+                                        ...config,
+                                        mapping_overrides: {
+                                          ...config.mapping_overrides,
+                                          [item.source_header]:
+                                            event.target.value,
+                                        },
+                                      },
+                                    }))
+                                  }
+                                  className="mt-2 w-full rounded-xl border bg-card px-3 py-2 text-xs"
+                                >
+                                  <option value="">Ignore column</option>
+                                  {preview.required_fields.map((value) => (
+                                    <option key={value} value={value}>
+                                      Required: {fieldLabels[value] ?? value}
+                                    </option>
+                                  ))}
+                                  {preview.optional_fields.map((value) => (
+                                    <option key={value} value={value}>
+                                      Optional: {fieldLabels[value] ?? value}
+                                    </option>
+                                  ))}
+                                </select>
+                                <span
+                                  className={`mt-2 inline-flex rounded-full px-2 py-1 text-xs ${confidenceClass(item.confidence)}`}
+                                >
+                                  {item.confidence} confidence
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
                     </div>
-                  ))}
-                  {!mappingPreview ? (
-                    <span className="text-mutedForeground">
-                      Choose a file to see required columns.
-                    </span>
-                  ) : null}
-                </div>
-                {missingRequiredFields.length > 0 ? (
-                  <p className="mt-2 rounded-lg bg-card p-2 text-xs text-primary">
-                    Unmapped required fields:{" "}
-                    {missingRequiredFields
-                      .map((field) => fieldLabels[field] ?? field)
-                      .join(", ")}
-                  </p>
-                ) : null}
-                {mappingPreview?.file_type === "shipment" ? (
-                  <p className="mt-2 text-xs text-mutedForeground">
-                    Signal source is saved automatically as manual_upload for
-                    file loads and as the URL source type for automated sync.
+                  );
+                })}
+                {workbookPreview.ignored_empty_sheets.length > 0 ? (
+                  <p className="text-xs text-mutedForeground">
+                    Empty sheets ignored:{" "}
+                    {workbookPreview.ignored_empty_sheets.join(", ")}
                   </p>
                 ) : null}
               </div>
-              {mappingPreview ? (
+            </div>
+          ) : null}
+          {!workbookMode ? (
+            <div className="rounded-xl bg-slate-50 p-3 ring-1 ring-slate-900/5">
+              <p className="font-medium">Column mapping review</p>
+              <div className="mt-3 space-y-3">
                 <div className="rounded-xl bg-muted/50 p-3 text-sm">
-                  <p className="font-medium">Optional continuity details</p>
+                  <p className="font-medium">
+                    Required continuity signal fields
+                  </p>
                   <div className="mt-2 grid gap-2 md:grid-cols-2">
-                    {mappingPreview.optional_fields
-                      .slice(0, 12)
-                      .map((field) => (
-                        <div
-                          key={field}
-                          className="rounded-xl bg-card p-2 text-xs"
-                        >
+                    {(mappingPreview?.required_fields ?? []).map((field) => (
+                      <div
+                        key={field}
+                        className="rounded-xl bg-card p-2 text-xs"
+                      >
+                        <div className="flex items-center justify-between gap-2">
                           <span className="font-medium">
                             {fieldLabels[field] ?? field}
                           </span>
-                          <p className="mt-1 text-mutedForeground">
-                            Uploaded column:{" "}
-                            {uploadedColumnForField(mappingOverrides, field) ??
-                              "not selected"}
-                          </p>
+                          <span
+                            className={
+                              mappedRequiredFields.has(field)
+                                ? "text-emerald-700"
+                                : "text-primary"
+                            }
+                          >
+                            {mappedRequiredFields.has(field)
+                              ? "mapped"
+                              : "unmapped"}
+                          </span>
                         </div>
-                      ))}
-                  </div>
-                </div>
-              ) : null}
-              {mappingPreview ? (
-                <div className="rounded-xl bg-muted/50 p-3 text-sm">
-                  <p className="font-medium">
-                    Columns found in this signal feed
-                  </p>
-                  <p className="mt-1 break-words text-mutedForeground">
-                    {mappingPreview.headers.join(", ")}
-                  </p>
-                </div>
-              ) : null}
-              {!mappingPreview || mappingPreview.suggestions.length === 0 ? (
-                <p className="text-sm text-mutedForeground">
-                  Choose a file to preview header mapping.
-                </p>
-              ) : (
-                mappingPreview.suggestions.map((item) => (
-                  <div
-                    key={item.source_header}
-                    className="grid gap-2 rounded-xl border bg-card p-3 md:grid-cols-[1fr_1fr_auto]"
-                  >
-                    <div>
-                      <p className="text-xs text-mutedForeground">
-                        Incoming signal column
-                      </p>
-                      <p className="font-medium">{item.source_header}</p>
-                      {item.suggested_field ? (
-                        <p className="mt-1 text-xs text-mutedForeground">
-                          Detected match:{" "}
-                          {fieldLabels[item.suggested_field] ??
-                            item.suggested_field}
+                        <p className="mt-1 text-mutedForeground">
+                          Uploaded column:{" "}
+                          {uploadedColumnForField(mappingOverrides, field) ??
+                            (field === "source_of_truth"
+                              ? "system-filled"
+                              : "not selected")}
                         </p>
-                      ) : null}
-                    </div>
-                    <div>
-                      <p className="text-xs text-mutedForeground">Mapped to</p>
-                      <select
-                        value={mappingOverrides[item.source_header] ?? ""}
-                        onChange={(event) =>
-                          setMappingOverrides((current) => ({
-                            ...current,
-                            [item.source_header]: event.target.value,
-                          }))
-                        }
-                        className="w-full rounded-xl border bg-card px-4 py-2 text-sm"
-                      >
-                        <option value="">Ignore column</option>
-                        {mappingPreview.required_fields.map((value) => (
-                          <option key={value} value={value}>
-                            Required: {fieldLabels[value] ?? value}
-                          </option>
+                      </div>
+                    ))}
+                    {!mappingPreview ? (
+                      <span className="text-mutedForeground">
+                        Choose a file to see required columns.
+                      </span>
+                    ) : null}
+                  </div>
+                  {missingRequiredFields.length > 0 ? (
+                    <p className="mt-2 rounded-lg bg-card p-2 text-xs text-primary">
+                      Unmapped required fields:{" "}
+                      {missingRequiredFields
+                        .map((field) => fieldLabels[field] ?? field)
+                        .join(", ")}
+                    </p>
+                  ) : null}
+                  {mappingPreview?.file_type === "shipment" ? (
+                    <p className="mt-2 text-xs text-mutedForeground">
+                      Signal source is saved automatically as manual_upload for
+                      file loads and as the URL source type for automated sync.
+                    </p>
+                  ) : null}
+                </div>
+                {mappingPreview ? (
+                  <div className="rounded-xl bg-muted/50 p-3 text-sm">
+                    <p className="font-medium">Optional continuity details</p>
+                    <div className="mt-2 grid gap-2 md:grid-cols-2">
+                      {mappingPreview.optional_fields
+                        .slice(0, 12)
+                        .map((field) => (
+                          <div
+                            key={field}
+                            className="rounded-xl bg-card p-2 text-xs"
+                          >
+                            <span className="font-medium">
+                              {fieldLabels[field] ?? field}
+                            </span>
+                            <p className="mt-1 text-mutedForeground">
+                              Uploaded column:{" "}
+                              {uploadedColumnForField(
+                                mappingOverrides,
+                                field,
+                              ) ?? "not selected"}
+                            </p>
+                          </div>
                         ))}
-                        {mappingPreview.optional_fields.map((value) => (
-                          <option key={value} value={value}>
-                            Optional: {fieldLabels[value] ?? value}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div
-                      className={`self-end rounded-full px-3 py-1 text-xs ${confidenceClass(item.confidence)}`}
-                    >
-                      {item.confidence} confidence
                     </div>
                   </div>
-                ))
-              )}
+                ) : null}
+                {mappingPreview ? (
+                  <div className="rounded-xl bg-muted/50 p-3 text-sm">
+                    <p className="font-medium">
+                      Columns found in this signal feed
+                    </p>
+                    <p className="mt-1 break-words text-mutedForeground">
+                      {mappingPreview.headers.join(", ")}
+                    </p>
+                  </div>
+                ) : null}
+                {!mappingPreview || mappingPreview.suggestions.length === 0 ? (
+                  <p className="text-sm text-mutedForeground">
+                    Choose a file to preview header mapping.
+                  </p>
+                ) : (
+                  mappingPreview.suggestions.map((item) => (
+                    <div
+                      key={item.source_header}
+                      className="grid gap-2 rounded-xl border bg-card p-3 md:grid-cols-[1fr_1fr_auto]"
+                    >
+                      <div>
+                        <p className="text-xs text-mutedForeground">
+                          Incoming signal column
+                        </p>
+                        <p className="font-medium">{item.source_header}</p>
+                        {item.suggested_field ? (
+                          <p className="mt-1 text-xs text-mutedForeground">
+                            Detected match:{" "}
+                            {fieldLabels[item.suggested_field] ??
+                              item.suggested_field}
+                          </p>
+                        ) : null}
+                      </div>
+                      <div>
+                        <p className="text-xs text-mutedForeground">
+                          Mapped to
+                        </p>
+                        <select
+                          value={mappingOverrides[item.source_header] ?? ""}
+                          onChange={(event) =>
+                            setMappingOverrides((current) => ({
+                              ...current,
+                              [item.source_header]: event.target.value,
+                            }))
+                          }
+                          className="w-full rounded-xl border bg-card px-4 py-2 text-sm"
+                        >
+                          <option value="">Ignore column</option>
+                          {mappingPreview.required_fields.map((value) => (
+                            <option key={value} value={value}>
+                              Required: {fieldLabels[value] ?? value}
+                            </option>
+                          ))}
+                          {mappingPreview.optional_fields.map((value) => (
+                            <option key={value} value={value}>
+                              Optional: {fieldLabels[value] ?? value}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div
+                        className={`self-end rounded-full px-3 py-1 text-xs ${confidenceClass(item.confidence)}`}
+                      >
+                        {item.confidence} confidence
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
-          </div>
+          ) : null}
           {automatedSourcesEnabled ? (
             <div className="rounded-xl bg-slate-50 p-3 ring-1 ring-slate-900/5">
               <p className="font-medium">URL source for continuity signals</p>
@@ -885,14 +1228,20 @@ export function UploadPanel({
           <div className="flex flex-wrap gap-3">
             <button
               type="submit"
-              disabled={isPending || hasBlockingMappingErrors}
+              disabled={
+                isPending ||
+                (!workbookMode && hasBlockingMappingErrors) ||
+                (workbookMode && workbookBlockingSheets.length > 0)
+              }
               className="rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primaryForeground disabled:opacity-60"
             >
               {isPending
                 ? "Loading..."
-                : automatedSourcesEnabled && uploadMode === "url"
-                  ? "Load source URL"
-                  : "Load signal file"}
+                : workbookMode
+                  ? "Process operational workbook"
+                  : automatedSourcesEnabled && uploadMode === "url"
+                    ? "Load source URL"
+                    : "Load signal file"}
             </button>
             {fileTypes.map((type) => (
               <a
@@ -920,7 +1269,11 @@ export function UploadPanel({
         ) : null}
         {result ? (
           <div className="mt-5 rounded-xl bg-muted p-3 text-sm">
-            <p className="font-semibold">Signal load summary</p>
+            <p className="font-semibold">
+              {isWorkbookResult(result)
+                ? "Operational workbook processed"
+                : "Signal load summary"}
+            </p>
             <p>Rows received: {result.rows_received}</p>
             <p>Accepted: {result.rows_accepted}</p>
             <p>Rejected: {result.rows_rejected}</p>
@@ -929,6 +1282,41 @@ export function UploadPanel({
               {result.summary_counts.updated}, unchanged{" "}
               {result.summary_counts.unchanged}
             </p>
+            {isWorkbookResult(result) ? (
+              <div className="mt-3 rounded-xl bg-card p-3">
+                <p className="font-medium">Per-sheet continuity refresh</p>
+                <div className="mt-2 space-y-2">
+                  {result.sheet_results.map((sheet) => (
+                    <div
+                      key={sheet.sheet_name}
+                      className="rounded-lg border bg-background p-2"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="font-medium">{sheet.sheet_name}</p>
+                        <span className="rounded-full bg-muted px-2 py-1 text-xs">
+                          {sheet.status}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-mutedForeground">
+                        {sheet.file_type}: {sheet.rows_accepted}/
+                        {sheet.rows_received} accepted, {sheet.rows_rejected}{" "}
+                        rejected
+                      </p>
+                      {sheet.blocking_errors.length > 0 ? (
+                        <p className="mt-1 text-primary">
+                          {sheet.blocking_errors.join("; ")}
+                        </p>
+                      ) : null}
+                    </div>
+                  ))}
+                  {result.ignored_sheets.length > 0 ? (
+                    <p className="text-xs text-mutedForeground">
+                      Ignored sheets: {result.ignored_sheets.join(", ")}
+                    </p>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
             {(result.top_rejection_reasons ?? []).length > 0 ? (
               <div className="mt-3 rounded-xl bg-card p-3">
                 <p className="font-medium">Top rejection reasons</p>
@@ -1096,6 +1484,16 @@ function uploadedColumnForField(
       ([, mappedField]) => mappedField === field,
     )?.[0] ?? null
   );
+}
+
+function isWorkbookFile(file: File): boolean {
+  return /\.(xlsx|xlsm)$/i.test(file.name);
+}
+
+function isWorkbookResult(
+  result: UploadResult | WorkbookUploadResult,
+): result is WorkbookUploadResult {
+  return result.file_type === "workbook";
 }
 
 function confidenceClass(confidence: string): string {

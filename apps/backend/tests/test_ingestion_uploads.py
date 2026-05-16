@@ -143,6 +143,26 @@ def upload_xlsm(client: TestClient, headers: dict[str, str], file_type: str, con
     )
 
 
+def upload_workbook(
+    client: TestClient,
+    headers: dict[str, str],
+    content: bytes,
+    sheet_configs: list[dict[str, object]],
+):
+    return client.post(
+        "/api/v1/ingestion/workbook-upload",
+        headers=headers,
+        data={"sheet_configs": json.dumps(sheet_configs)},
+        files={
+            "file": (
+                "operations.xlsx",
+                content,
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+        },
+    )
+
+
 def test_valid_shipment_upload(
     client_and_session: tuple[TestClient, sessionmaker[Session]],
 ) -> None:
@@ -501,6 +521,214 @@ def test_common_date_formats_and_numeric_strings_with_commas_parse(
         assert snapshot is not None
         assert str(snapshot.on_hand_mt) == "10000.000"
         assert snapshot.snapshot_time.isoformat() == "2026-05-14T09:30:00"
+
+
+def test_workbook_with_inventory_and_inbound_sheets_ingests_successfully(
+    client_and_session: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, SessionLocal = client_and_session
+    workbook = Workbook()
+    stock_sheet = workbook.active
+    stock_sheet.title = "Current Stock"
+    stock_sheet.append(["Inventory workbook"])
+    stock_sheet.append(
+        [
+            "plant_code",
+            "material_code",
+            "on_hand_mt",
+            "quality_held_mt",
+            "available_to_consume_mt",
+            "daily_consumption_mt",
+            "snapshot_time",
+        ]
+    )
+    stock_sheet.append(["JAM", "COKING_COAL", "10,000 MT", 1000, 9000, 500, "15/05/2026"])
+    inbound_sheet = workbook.create_sheet("Inbound ETA")
+    inbound_sheet.append(
+        [
+            "shipment_id",
+            "plant_code",
+            "material_code",
+            "supplier_name",
+            "quantity_mt",
+            "planned_eta",
+            "current_eta",
+            "current_state",
+            "latest_update_at",
+        ]
+    )
+    inbound_sheet.append(
+        [
+            "WB-IN-1",
+            "JAM",
+            "COKING_COAL",
+            "Supplier A",
+            74000,
+            "15-05-2026",
+            "17-05-2026",
+            "in_transit",
+            "15-05-2026 09:00",
+        ]
+    )
+    workbook.create_sheet("Notes").append(["owner notes only"])
+    workbook.create_sheet("Empty Sheet")
+    output = io.BytesIO()
+    workbook.save(output)
+
+    headers = login(client)
+    preview_response = client.post(
+        "/api/v1/ingestion/workbook-preview",
+        headers=headers,
+        files={
+            "file": (
+                "operations.xlsx",
+                output.getvalue(),
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+        },
+    )
+    assert preview_response.status_code == 200, preview_response.json()
+    preview = preview_response.json()
+    suggestions = {sheet["sheet_name"]: sheet["suggested_file_type"] for sheet in preview["sheets"]}
+    assert suggestions["Current Stock"] == "stock"
+    assert suggestions["Inbound ETA"] == "shipment"
+    assert "Empty Sheet" in preview["ignored_empty_sheets"]
+
+    upload_response = upload_workbook(
+        client,
+        headers,
+        output.getvalue(),
+        [
+            {"sheet_name": "Current Stock", "file_type": "stock", "mapping_overrides": {}},
+            {"sheet_name": "Inbound ETA", "file_type": "shipment", "mapping_overrides": {}},
+            {"sheet_name": "Notes", "file_type": "ignore", "mapping_overrides": {}},
+        ],
+    )
+
+    assert upload_response.status_code == 200, upload_response.json()
+    body = upload_response.json()
+    assert body["file_type"] == "workbook"
+    assert body["rows_accepted"] == 2
+    assert {sheet["sheet_name"] for sheet in body["sheet_results"]} == {
+        "Current Stock",
+        "Inbound ETA",
+    }
+    assert "Notes" in body["ignored_sheets"]
+    with SessionLocal() as db:
+        assert db.scalar(select(func.count()).select_from(StockSnapshot)) == 1
+        assert db.scalar(select(func.count()).select_from(Shipment)) == 1
+
+
+def test_workbook_missing_required_mapping_blocks_only_affected_sheet(
+    client_and_session: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, SessionLocal = client_and_session
+    workbook = Workbook()
+    stock_sheet = workbook.active
+    stock_sheet.title = "Inventory"
+    stock_sheet.append(
+        [
+            "plant_code",
+            "material_code",
+            "on_hand_mt",
+            "quality_held_mt",
+            "daily_consumption_mt",
+            "snapshot_time",
+        ]
+    )
+    stock_sheet.append(["JAM", "COKING_COAL", 10000, 1000, 500, "15/05/2026"])
+    inbound_sheet = workbook.create_sheet("Inbound")
+    inbound_sheet.append(
+        [
+            "shipment_id",
+            "plant_code",
+            "material_code",
+            "supplier_name",
+            "quantity_mt",
+            "planned_eta",
+            "current_eta",
+            "current_state",
+            "latest_update_at",
+        ]
+    )
+    inbound_sheet.append(
+        [
+            "WB-IN-2",
+            "JAM",
+            "COKING_COAL",
+            "Supplier A",
+            100,
+            "15/05/2026",
+            "16/05/2026",
+            "in_transit",
+            "15/05/2026",
+        ]
+    )
+    output = io.BytesIO()
+    workbook.save(output)
+
+    response = upload_workbook(
+        client,
+        login(client),
+        output.getvalue(),
+        [
+            {"sheet_name": "Inventory", "file_type": "stock", "mapping_overrides": {}},
+            {"sheet_name": "Inbound", "file_type": "shipment", "mapping_overrides": {}},
+        ],
+    )
+
+    assert response.status_code == 200, response.json()
+    body = response.json()
+    results = {sheet["sheet_name"]: sheet for sheet in body["sheet_results"]}
+    assert results["Inventory"]["status"] == "failed"
+    assert "Available to consume MT" in results["Inventory"]["blocking_errors"][0]
+    assert results["Inbound"]["rows_accepted"] == 1
+    with SessionLocal() as db:
+        assert db.scalar(select(func.count()).select_from(StockSnapshot)) == 0
+        assert db.scalar(select(func.count()).select_from(Shipment)) == 1
+
+
+def test_workbook_consumption_sheet_updates_matching_inventory_snapshot(
+    client_and_session: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, SessionLocal = client_and_session
+    workbook = Workbook()
+    inventory = workbook.active
+    inventory.title = "Inventory"
+    inventory.append(
+        [
+            "plant_code",
+            "material_code",
+            "on_hand_mt",
+            "quality_held_mt",
+            "available_to_consume_mt",
+            "daily_consumption_mt",
+            "snapshot_time",
+        ]
+    )
+    inventory.append(["JAM", "COKING_COAL", 10000, 1000, 9000, 500, "15/05/2026"])
+    consumption = workbook.create_sheet("Consumption")
+    consumption.append(["plant_code", "material_code", "daily_consumption_mt", "snapshot_time"])
+    consumption.append(["JAM", "COKING_COAL", 650, "15/05/2026"])
+    output = io.BytesIO()
+    workbook.save(output)
+
+    response = upload_workbook(
+        client,
+        login(client),
+        output.getvalue(),
+        [
+            {"sheet_name": "Inventory", "file_type": "stock", "mapping_overrides": {}},
+            {"sheet_name": "Consumption", "file_type": "consumption", "mapping_overrides": {}},
+        ],
+    )
+
+    assert response.status_code == 200, response.json()
+    assert response.json()["rows_accepted"] == 2
+    with SessionLocal() as db:
+        snapshot = db.scalar(select(StockSnapshot))
+        assert snapshot is not None
+        assert str(snapshot.daily_consumption_mt) == "650.000"
 
 
 def test_upload_history_records_counts_and_rejection_summary(

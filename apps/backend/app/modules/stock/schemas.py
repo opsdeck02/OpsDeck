@@ -97,6 +97,13 @@ class InventoryContinuityResult(BaseModel):
     inbound_uncertain_quantity: Decimal
     daily_consumption_rate: Decimal | None
     days_of_cover: Decimal | None
+    raw_days_of_cover: Decimal | None = None
+    trusted_inbound_quantity: Decimal = Decimal("0")
+    uncertain_inbound_quantity: Decimal = Decimal("0")
+    trusted_days_of_cover: Decimal | None = None
     projected_exhaustion_date: datetime | None
+    cover_confidence_score: Decimal | None = None
+    freshness_status: str = "unknown"
+    trust_warnings: list[str] = []
     unit: str
     calculation_reasons: list[str]

@@ -436,6 +436,36 @@ export interface UploadResult {
   transformed_url: string | null;
 }
 
+export interface SheetUploadResult {
+  sheet_name: string;
+  file_type: string;
+  status: string;
+  rows_received: number;
+  rows_accepted: number;
+  rows_rejected: number;
+  validation_errors: RowValidationError[];
+  top_rejection_reasons: RejectionSummary[];
+  blocking_errors: string[];
+  summary_counts: IngestionSummary;
+}
+
+export interface WorkbookUploadResult {
+  upload_id: number;
+  ingestion_job_id: number;
+  file_type: "workbook";
+  rows_received: number;
+  rows_accepted: number;
+  rows_rejected: number;
+  validation_errors: RowValidationError[];
+  top_rejection_reasons: RejectionSummary[];
+  blocking_errors: string[];
+  summary_counts: IngestionSummary;
+  sheet_results: SheetUploadResult[];
+  ignored_sheets: string[];
+  platform_detected: string | null;
+  transformed_url: string | null;
+}
+
 export interface IngestionJob {
   id: number;
   upload_id: number | null;
@@ -549,6 +579,21 @@ export interface MappingPreview {
   blocking_errors: string[];
   platform_detected: string | null;
   transformed_url: string | null;
+}
+
+export interface WorkbookSheetPreview {
+  sheet_name: string;
+  hidden: boolean;
+  row_count: number;
+  suggested_file_type: string | null;
+  suggested_label: string | null;
+  previews: Record<string, MappingPreview>;
+}
+
+export interface WorkbookPreview {
+  file_name: string;
+  sheets: WorkbookSheetPreview[];
+  ignored_empty_sheets: string[];
 }
 
 export interface StockCoverBreakdown {

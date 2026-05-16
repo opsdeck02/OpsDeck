@@ -13,13 +13,21 @@ from app.api.dependencies import (
     require_operator_access,
 )
 from app.models import IngestionJob, UploadedFile, User
-from app.modules.ingestion.schemas import IngestionJobOut, MappingPreviewOut, UploadResult
+from app.modules.ingestion.schemas import (
+    IngestionJobOut,
+    MappingPreviewOut,
+    UploadResult,
+    WorkbookPreviewOut,
+    WorkbookUploadResult,
+)
 from app.modules.ingestion.service import (
     SUPPORTED_FILE_TYPES,
     delete_uploaded_data,
     preview_header_mapping,
+    preview_workbook_mapping,
     process_upload,
     process_upload_content,
+    process_workbook_upload,
 )
 from app.modules.ingestion.templates import TEMPLATES
 from app.modules.tenants.sync_service import fetch_remote_file_for_values
@@ -55,6 +63,28 @@ def upload_onboarding_file(
         file_type=file_type,
         upload=file,
         mapping_overrides=parsed_overrides,
+    )
+
+
+@router.post("/workbook-upload", response_model=WorkbookUploadResult)
+def upload_operational_workbook(
+    _: Annotated[RequestContext, Depends(require_operator_access)],
+    context: Annotated[RequestContext, Depends(get_request_context)],
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+    file: Annotated[UploadFile, File()],
+    sheet_configs: Annotated[str, Form()],
+) -> WorkbookUploadResult:
+    parsed_configs = parse_sheet_configs(sheet_configs)
+    content = file.file.read()
+    return process_workbook_upload(
+        db=db,
+        context=context,
+        current_user_id=current_user.id,
+        filename=file.filename or "operational_workbook.xlsx",
+        content=content,
+        content_type=file.content_type,
+        sheet_configs=parsed_configs,
     )
 
 
@@ -154,6 +184,18 @@ def preview_ingestion_mapping(
     )
 
 
+@router.post("/workbook-preview", response_model=WorkbookPreviewOut)
+def preview_operational_workbook(
+    _: Annotated[RequestContext, Depends(require_operator_access)],
+    file: Annotated[UploadFile, File()],
+) -> WorkbookPreviewOut:
+    content = file.file.read()
+    return preview_workbook_mapping(
+        filename=file.filename or "operational_workbook.xlsx",
+        content=content,
+    )
+
+
 @router.post("/url-mapping-preview", response_model=MappingPreviewOut)
 def preview_url_ingestion_mapping(
     _: Annotated[RequestContext, Depends(require_operator_access)],
@@ -200,6 +242,27 @@ def parse_mapping_overrides(mapping_overrides: str | None) -> dict[str, str] | N
     return {str(key): str(value) for key, value in parsed.items() if value}
 
 
+def parse_sheet_configs(sheet_configs: str | None) -> list[dict[str, object]]:
+    if not sheet_configs:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Operational workbook sheet configuration is required",
+        )
+    try:
+        parsed = json.loads(sheet_configs)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid workbook sheet configuration",
+        ) from exc
+    if not isinstance(parsed, list):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid workbook sheet configuration",
+        )
+    return [item for item in parsed if isinstance(item, dict)]
+
+
 def top_rejection_summary(raw: str | None) -> str | None:
     if not raw:
         return None
@@ -207,6 +270,8 @@ def top_rejection_summary(raw: str | None) -> str | None:
         parsed = json.loads(raw)
     except json.JSONDecodeError:
         return raw
+    if isinstance(parsed, dict):
+        parsed = parsed.get("validation_errors") or parsed.get("sheet_results") or []
     if not isinstance(parsed, list):
         return raw
     counts: dict[str, int] = {}

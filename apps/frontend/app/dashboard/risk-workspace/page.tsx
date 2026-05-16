@@ -588,14 +588,37 @@ function InventoryBlock({ item }: { item: SignalInventoryContinuity }) {
         label="Usable quantity"
         value={`${formatNumber(item.usable_quantity)} ${item.unit}`}
       />
+      <ContextPill label="Raw cover" value={displayDays(item.days_of_cover)} />
       <ContextPill
-        label="Available cover"
-        value={displayDays(item.days_of_cover)}
+        label="Trusted cover"
+        value={displayDays(item.trusted_days_of_cover ?? item.days_of_cover)}
+      />
+      <ContextPill
+        label="Uncertain inbound"
+        value={`${formatNumber(item.uncertain_inbound_quantity)} ${item.unit}`}
+      />
+      <ContextPill
+        label="Cover confidence"
+        value={
+          item.cover_confidence_score
+            ? `${formatNumber(item.cover_confidence_score)}`
+            : "unknown"
+        }
       />
       <ContextPill
         label="Daily consumption"
         value={`${formatNumber(item.daily_consumption_rate)} ${item.unit}`}
       />
+      {item.trust_warnings.length > 0 ? (
+        <div className="rounded-xl bg-amber-50 p-3 text-sm text-amber-900 ring-1 ring-amber-200 sm:col-span-3">
+          <p className="font-semibold">Visibility weak</p>
+          <ul className="mt-1 space-y-1">
+            {item.trust_warnings.slice(0, 2).map((warning) => (
+              <li key={warning}>{warning}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
     </>
   );
 }

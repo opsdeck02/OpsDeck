@@ -163,7 +163,14 @@ export interface SignalInventoryContinuity {
   inbound_uncertain_quantity: string;
   daily_consumption_rate: string | null;
   days_of_cover: string | null;
+  raw_days_of_cover: string | null;
+  trusted_inbound_quantity: string;
+  uncertain_inbound_quantity: string;
+  trusted_days_of_cover: string | null;
   projected_exhaustion_date: string | null;
+  cover_confidence_score: string | null;
+  freshness_status: string;
+  trust_warnings: string[];
   unit: string;
   calculation_reasons: string[];
 }

@@ -44,6 +44,8 @@ def test_days_of_cover_calculation() -> None:
     )
 
     assert result.days_of_cover == Decimal("7.08")
+    assert result.raw_days_of_cover == Decimal("7.08")
+    assert result.trusted_days_of_cover == Decimal("7.08")
 
 
 def test_projected_exhaustion_date_calculation() -> None:
@@ -71,7 +73,9 @@ def test_missing_consumption_rate_returns_unknown_days_of_cover() -> None:
     )
 
     assert result.days_of_cover is None
+    assert result.trusted_days_of_cover is None
     assert result.projected_exhaustion_date is None
+    assert "consumption rate is missing" in result.trust_warnings[0]
 
 
 def test_zero_and_negative_consumption_rate_do_not_crash() -> None:
@@ -151,9 +155,199 @@ def test_inventory_continuity_preserves_tenant_isolation() -> None:
             assert result_a.usable_quantity == Decimal("80.00")
             assert result_a.inbound_committed_quantity == Decimal("50.00")
             assert result_a.inbound_uncertain_quantity == Decimal("25.00")
+            assert result_a.trusted_inbound_quantity == Decimal("50.00")
+            assert result_a.uncertain_inbound_quantity == Decimal("25.00")
+            assert result_a.trusted_days_of_cover == Decimal("6.50")
             assert result_b is None
     finally:
         Base.metadata.drop_all(bind=engine)
+
+
+def test_trusted_inbound_increases_trusted_cover() -> None:
+    with inventory_test_session() as db:
+        tenant, plant, material = seed_single_inventory_context(db)
+        db.add(
+            Shipment(
+                tenant_id=tenant.id,
+                shipment_id="TRUSTED-IN",
+                material_id=material.id,
+                plant_id=plant.id,
+                supplier_name="Supplier A",
+                quantity_mt=Decimal("40"),
+                planned_eta=datetime(2026, 5, 10, tzinfo=UTC),
+                current_eta=datetime(2026, 5, 10, tzinfo=UTC),
+                current_state=ShipmentState.IN_TRANSIT,
+                source_of_truth="manual_upload",
+                latest_update_at=datetime(2026, 5, 9, 10, tzinfo=UTC),
+                eta_confidence=Decimal("0.90"),
+            )
+        )
+        db.commit()
+
+        result = calculate_inventory_continuity_for(
+            db,
+            RequestContext(
+                tenant_id=tenant.id,
+                tenant_slug=tenant.slug,
+                role="tenant_admin",
+                user_id=1,
+            ),
+            plant.id,
+            material.id,
+            now=datetime(2026, 5, 9, 12, tzinfo=UTC),
+        )
+
+        assert result is not None
+        assert result.days_of_cover == Decimal("4.00")
+        assert result.trusted_inbound_quantity == Decimal("40.00")
+        assert result.trusted_days_of_cover == Decimal("6.00")
+        assert result.projected_exhaustion_date == datetime(2026, 5, 15, 12, tzinfo=UTC)
+
+
+def test_degraded_or_stale_inbound_is_uncertain() -> None:
+    with inventory_test_session() as db:
+        tenant, plant, material = seed_single_inventory_context(db)
+        db.add_all(
+            [
+                Shipment(
+                    tenant_id=tenant.id,
+                    shipment_id="DEGRADED-IN",
+                    material_id=material.id,
+                    plant_id=plant.id,
+                    supplier_name="Supplier A",
+                    quantity_mt=Decimal("30"),
+                    planned_eta=datetime(2026, 5, 10, tzinfo=UTC),
+                    current_eta=datetime(2026, 5, 13, tzinfo=UTC),
+                    current_state=ShipmentState.DELAYED,
+                    source_of_truth="manual_upload",
+                    latest_update_at=datetime(2026, 5, 9, 10, tzinfo=UTC),
+                ),
+                Shipment(
+                    tenant_id=tenant.id,
+                    shipment_id="STALE-IN",
+                    material_id=material.id,
+                    plant_id=plant.id,
+                    supplier_name="Supplier A",
+                    quantity_mt=Decimal("20"),
+                    planned_eta=datetime(2026, 5, 10, tzinfo=UTC),
+                    current_eta=datetime(2026, 5, 10, tzinfo=UTC),
+                    current_state=ShipmentState.IN_TRANSIT,
+                    source_of_truth="manual_upload",
+                    latest_update_at=datetime(2026, 5, 1, tzinfo=UTC),
+                ),
+            ]
+        )
+        db.commit()
+
+        result = calculate_inventory_continuity_for(
+            db,
+            RequestContext(
+                tenant_id=tenant.id,
+                tenant_slug=tenant.slug,
+                role="tenant_admin",
+                user_id=1,
+            ),
+            plant.id,
+            material.id,
+            now=datetime(2026, 5, 9, 12, tzinfo=UTC),
+        )
+
+        assert result is not None
+        assert result.trusted_inbound_quantity == Decimal("0.00")
+        assert result.uncertain_inbound_quantity == Decimal("50.00")
+        assert result.trusted_days_of_cover == Decimal("4.00")
+        assert any("weak visibility" in warning for warning in result.trust_warnings)
+
+
+def test_low_confidence_inbound_creates_trust_warning() -> None:
+    with inventory_test_session() as db:
+        tenant, plant, material = seed_single_inventory_context(db)
+        db.add(
+            Shipment(
+                tenant_id=tenant.id,
+                shipment_id="LOW-CONF-IN",
+                material_id=material.id,
+                plant_id=plant.id,
+                supplier_name="Supplier A",
+                quantity_mt=Decimal("30"),
+                planned_eta=datetime(2026, 5, 10, tzinfo=UTC),
+                current_eta=datetime(2026, 5, 10, tzinfo=UTC),
+                current_state=ShipmentState.IN_TRANSIT,
+                source_of_truth="manual_upload",
+                latest_update_at=datetime(2026, 5, 9, 10, tzinfo=UTC),
+                eta_confidence=Decimal("0.40"),
+            )
+        )
+        db.commit()
+
+        result = calculate_inventory_continuity_for(
+            db,
+            RequestContext(
+                tenant_id=tenant.id,
+                tenant_slug=tenant.slug,
+                role="tenant_admin",
+                user_id=1,
+            ),
+            plant.id,
+            material.id,
+            now=datetime(2026, 5, 9, 12, tzinfo=UTC),
+        )
+
+        assert result is not None
+        assert result.trusted_inbound_quantity == Decimal("0.00")
+        assert result.uncertain_inbound_quantity == Decimal("30.00")
+        assert any("Low confidence inbound" in warning for warning in result.trust_warnings)
+
+
+def inventory_test_session():
+    engine = create_engine(
+        "sqlite+pysqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    Base.metadata.create_all(bind=engine)
+
+    class ManagedSession:
+        def __enter__(self) -> Session:
+            self.db = SessionLocal()
+            return self.db
+
+        def __exit__(self, exc_type, exc, tb) -> None:
+            self.db.close()
+            Base.metadata.drop_all(bind=engine)
+
+    return ManagedSession()
+
+
+def seed_single_inventory_context(db: Session) -> tuple[Tenant, Plant, Material]:
+    tenant = Tenant(name="Tenant A", slug="tenant-a")
+    db.add(tenant)
+    db.flush()
+    plant = Plant(tenant_id=tenant.id, code="P1", name="Plant 1", location=None)
+    material = Material(
+        tenant_id=tenant.id,
+        code="M1",
+        name="Material 1",
+        category="raw",
+        uom="MT",
+    )
+    db.add_all([plant, material])
+    db.flush()
+    db.add(
+        StockSnapshot(
+            tenant_id=tenant.id,
+            plant_id=plant.id,
+            material_id=material.id,
+            on_hand_mt=Decimal("100"),
+            quality_held_mt=Decimal("10"),
+            available_to_consume_mt=Decimal("80"),
+            daily_consumption_mt=Decimal("20"),
+            snapshot_time=datetime(2026, 5, 9, tzinfo=UTC),
+        )
+    )
+    db.commit()
+    return tenant, plant, material
 
 
 def seed_inventory_continuity_data(db: Session) -> tuple[Tenant, Tenant]:

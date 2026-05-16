@@ -41,7 +41,11 @@ from app.modules.ingestion.schemas import (
     MappingPreviewOut,
     RejectionSummary,
     RowValidationError,
+    SheetUploadResult,
     UploadResult,
+    WorkbookPreviewOut,
+    WorkbookSheetPreview,
+    WorkbookUploadResult,
 )
 from app.modules.operational_events.service import (
     emit_inventory_stock_updated,
@@ -52,7 +56,20 @@ from app.schemas.context import RequestContext
 
 logger = logging.getLogger(__name__)
 
-SUPPORTED_FILE_TYPES = {"shipment", "stock", "threshold"}
+SUPPORTED_FILE_TYPES = {"shipment", "stock", "threshold", "consumption"}
+WORKBOOK_FILE_TYPES = {"stock", "shipment", "threshold", "consumption"}
+WORKBOOK_TYPE_LABELS = {
+    "stock": "Inventory",
+    "shipment": "Inbound continuity",
+    "threshold": "Thresholds",
+    "consumption": "Consumption",
+}
+SHEET_TYPE_KEYWORDS = {
+    "stock": {"stock", "inventory", "inventry", "currentstock", "stores"},
+    "shipment": {"eta", "shipment", "shipments", "inbound", "dispatch", "tracking"},
+    "threshold": {"threshold", "thresholds", "criticalcover", "warningcover"},
+    "consumption": {"consumption", "usage", "consume", "consumed", "dailyusage"},
+}
 UPLOAD_DIR = Path("uploaded_files")
 
 ALIASES = {
@@ -106,6 +123,9 @@ ALIASES = {
         "dailyconsumption",
         "consumptionmt",
         "dailyconsumptiontons",
+        "usage",
+        "dailyusage",
+        "consumption",
     },
     "snapshot_time": {"snapshottime", "snapshotat", "asof", "asoftime", "lastupdatedat"},
     "in_transit_open_tons": {"intransitopentons"},
@@ -159,6 +179,7 @@ REQUIRED_FIELDS = {
         "snapshot_time",
     },
     "threshold": {"plant_code", "material_code", "threshold_days", "warning_days"},
+    "consumption": {"plant_code", "material_code", "daily_consumption_mt", "snapshot_time"},
 }
 
 HEADER_FIELDS_BY_FILE_TYPE = {
@@ -196,6 +217,12 @@ HEADER_FIELDS_BY_FILE_TYPE = {
         "next_inbound_eta_days",
     },
     "threshold": {"plant_code", "material_code", "threshold_days", "warning_days"},
+    "consumption": {
+        "plant_code",
+        "material_code",
+        "daily_consumption_mt",
+        "snapshot_time",
+    },
 }
 
 
@@ -368,6 +395,193 @@ def process_upload_content(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
+def process_workbook_upload(
+    db: Session,
+    context: RequestContext,
+    current_user_id: int | None,
+    filename: str,
+    content: bytes,
+    content_type: str | None = None,
+    sheet_configs: list[dict[str, Any]] | None = None,
+    source_of_truth: str | None = "manual_upload",
+) -> WorkbookUploadResult:
+    if not content:
+        raise HTTPException(status_code=400, detail="Uploaded workbook is empty")
+    if Path(filename).suffix.lower() not in {".xlsx", ".xlsm"}:
+        raise HTTPException(
+            status_code=400, detail="Operational workbook upload requires XLSX/XLSM"
+        )
+
+    checksum = hashlib.sha256(content).hexdigest()
+    uploaded_file = UploadedFile(
+        tenant_id=context.tenant_id,
+        original_filename=filename,
+        storage_uri=save_upload(content, filename, checksum),
+        content_type=content_type,
+        file_size_bytes=len(content),
+        checksum_sha256=checksum,
+        uploaded_by_user_id=current_user_id,
+        status="uploaded",
+    )
+    db.add(uploaded_file)
+    db.flush()
+
+    job = IngestionJob(
+        tenant_id=context.tenant_id,
+        uploaded_file_id=uploaded_file.id,
+        source_type="workbook",
+        status="running",
+        started_at=datetime.now(UTC),
+        records_total=0,
+        records_succeeded=0,
+        records_failed=0,
+    )
+    db.add(job)
+    db.flush()
+
+    create_audit_log(
+        db,
+        _audit_context(context, current_user_id),
+        action="ingestion.workbook_uploaded",
+        entity_type="uploaded_file",
+        entity_id=str(uploaded_file.id),
+        metadata={"filename": filename, "checksum_sha256": checksum},
+    )
+
+    try:
+        workbook = load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+        config_by_sheet = workbook_config_by_sheet(sheet_configs or [])
+        sheet_results: list[SheetUploadResult] = []
+        ignored_sheets: list[str] = []
+        all_validation_errors: list[RowValidationError] = []
+        total_summary = IngestionSummary()
+
+        for sheet in workbook.worksheets:
+            rows = sheet_rows(sheet)
+            if not rows:
+                ignored_sheets.append(sheet.title)
+                continue
+            config = config_by_sheet.get(sheet.title)
+            if not config or config["file_type"] == "ignore":
+                ignored_sheets.append(sheet.title)
+                continue
+
+            file_type = config["file_type"]
+            mapping_overrides = config.get("mapping_overrides") or {}
+            try:
+                parsed_rows = parse_xlsx_sheet_rows(
+                    file_type,
+                    rows,
+                    mapping_overrides=mapping_overrides,
+                    source_of_truth=source_of_truth,
+                )
+                if parsed_rows:
+                    result = normalize_rows(
+                        db,
+                        context,
+                        file_type,
+                        parsed_rows,
+                        event_source_id=job.id,
+                    )
+                else:
+                    result = empty_upload_result(file_type)
+                db.flush()
+            except ValueError as exc:
+                result = blocking_sheet_result(sheet.title, file_type, str(exc))
+
+            sheet_results.append(
+                SheetUploadResult(
+                    sheet_name=sheet.title,
+                    file_type=file_type,
+                    status=sheet_status(result),
+                    rows_received=result.rows_received,
+                    rows_accepted=result.rows_accepted,
+                    rows_rejected=result.rows_rejected,
+                    validation_errors=result.validation_errors,
+                    top_rejection_reasons=result.top_rejection_reasons,
+                    blocking_errors=result.blocking_errors,
+                    summary_counts=result.summary_counts,
+                )
+            )
+            all_validation_errors.extend(prefix_sheet_errors(sheet.title, result.validation_errors))
+            total_summary.created += result.summary_counts.created
+            total_summary.updated += result.summary_counts.updated
+            total_summary.unchanged += result.summary_counts.unchanged
+
+        rows_received = sum(sheet.rows_received for sheet in sheet_results)
+        rows_accepted = sum(sheet.rows_accepted for sheet in sheet_results)
+        rows_rejected = sum(sheet.rows_rejected for sheet in sheet_results)
+        blocking_errors = [
+            f"{sheet.sheet_name}: {error}"
+            for sheet in sheet_results
+            for error in sheet.blocking_errors
+        ]
+        top_rejections = top_rejection_reasons(all_validation_errors)
+        result = WorkbookUploadResult(
+            upload_id=uploaded_file.id,
+            ingestion_job_id=job.id,
+            rows_received=rows_received,
+            rows_accepted=rows_accepted,
+            rows_rejected=rows_rejected,
+            validation_errors=all_validation_errors,
+            top_rejection_reasons=top_rejections,
+            blocking_errors=blocking_errors,
+            summary_counts=total_summary,
+            sheet_results=sheet_results,
+            ignored_sheets=ignored_sheets,
+        )
+
+        job.status = (
+            "completed" if rows_rejected == 0 and not blocking_errors else "completed_with_errors"
+        )
+        if rows_accepted == 0:
+            job.status = "failed"
+        job.records_total = rows_received
+        job.records_succeeded = rows_accepted
+        job.records_failed = rows_rejected
+        if all_validation_errors or blocking_errors:
+            job.error_message = json.dumps(
+                {
+                    "blocking_errors": blocking_errors,
+                    "validation_errors": [error.model_dump() for error in all_validation_errors],
+                    "sheet_results": [sheet.model_dump() for sheet in sheet_results],
+                }
+            )
+        uploaded_file.status = "failed" if rows_accepted == 0 else "processed"
+        job.completed_at = datetime.now(UTC)
+        create_audit_log(
+            db,
+            _audit_context(context, current_user_id),
+            action="ingestion.workbook_processed",
+            entity_type="ingestion_job",
+            entity_id=str(job.id),
+            metadata={
+                "rows_received": rows_received,
+                "rows_accepted": rows_accepted,
+                "rows_rejected": rows_rejected,
+                "sheets": len(sheet_results),
+                "ignored_sheets": ignored_sheets,
+            },
+        )
+        db.commit()
+
+        if rows_accepted == 0:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=result.model_dump())
+        return result
+    except HTTPException:
+        raise
+    except Exception as exc:
+        db.rollback()
+        db.add(uploaded_file)
+        db.add(job)
+        uploaded_file.status = "failed"
+        job.status = "failed"
+        job.error_message = str(exc)
+        job.completed_at = datetime.now(UTC)
+        db.commit()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
 def _audit_context(context: RequestContext, current_user_id: int | None) -> RequestContext:
     return context.model_copy(update={"user_id": current_user_id})
 
@@ -380,6 +594,42 @@ def save_upload(content: bytes, filename: str, checksum: str) -> str:
     return str(path)
 
 
+def preview_workbook_mapping(filename: str, content: bytes) -> WorkbookPreviewOut:
+    if Path(filename).suffix.lower() not in {".xlsx", ".xlsm"}:
+        raise HTTPException(
+            status_code=400, detail="Operational workbook preview requires XLSX/XLSM"
+        )
+    workbook = load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+    sheets: list[WorkbookSheetPreview] = []
+    ignored_empty_sheets: list[str] = []
+    for sheet in workbook.worksheets:
+        rows = sheet_rows(sheet)
+        if not rows:
+            ignored_empty_sheets.append(sheet.title)
+            continue
+        suggested_file_type = suggest_sheet_file_type(sheet.title, rows)
+        previews = {
+            file_type: build_mapping_preview_from_rows(file_type, rows)
+            for file_type in sorted(WORKBOOK_FILE_TYPES)
+        }
+        row_count = detected_data_row_count(rows, suggested_file_type or "stock")
+        sheets.append(
+            WorkbookSheetPreview(
+                sheet_name=sheet.title,
+                hidden=sheet.sheet_state != "visible",
+                row_count=row_count,
+                suggested_file_type=suggested_file_type,
+                suggested_label=WORKBOOK_TYPE_LABELS.get(suggested_file_type or ""),
+                previews=previews,
+            )
+        )
+    return WorkbookPreviewOut(
+        file_name=filename,
+        sheets=sheets,
+        ignored_empty_sheets=ignored_empty_sheets,
+    )
+
+
 def preview_header_mapping(
     file_type: str,
     filename: str,
@@ -389,6 +639,18 @@ def preview_header_mapping(
     if file_type not in SUPPORTED_FILE_TYPES:
         raise HTTPException(status_code=400, detail="Unsupported file type")
     headers = extract_headers(file_type, filename, content)
+    return build_mapping_preview(file_type, headers)
+
+
+def build_mapping_preview_from_rows(
+    file_type: str, rows: list[tuple[Any, ...]]
+) -> MappingPreviewOut:
+    header_index = detect_header_row(file_type, rows)
+    headers = ["" if value is None else str(value) for value in rows[header_index]]
+    return build_mapping_preview(file_type, headers)
+
+
+def build_mapping_preview(file_type: str, headers: list[str]) -> MappingPreviewOut:
     suggestions = [build_header_mapping_suggestion(file_type, header) for header in headers]
     required_fields = sorted(REQUIRED_FIELDS[file_type])
     optional_fields = sorted(field for field in ALIASES if field not in REQUIRED_FIELDS[file_type])
@@ -582,6 +844,61 @@ def parse_xlsx(
         mapping_overrides=mapping_overrides,
         source_of_truth=source_of_truth,
     )
+
+
+def parse_xlsx_sheet_rows(
+    file_type: str,
+    rows: list[tuple[Any, ...]],
+    mapping_overrides: dict[str, str] | None = None,
+    source_of_truth: str | None = None,
+) -> list[ParsedRow]:
+    header_index = detect_header_row(file_type, rows)
+    headers = ["" if value is None else str(value) for value in rows[header_index]]
+    log_missing_required_headers(file_type, headers, header_index)
+    records = (dict(zip(headers, row, strict=False)) for row in rows[header_index + 1 :])
+    return normalize_records(
+        file_type,
+        headers,
+        records,
+        start_row=header_index + 2,
+        mapping_overrides=mapping_overrides,
+        source_of_truth=source_of_truth,
+    )
+
+
+def sheet_rows(sheet: Any) -> list[tuple[Any, ...]]:
+    rows: list[tuple[Any, ...]] = []
+    for row in sheet.iter_rows(values_only=True):
+        if any(cell is not None and str(cell).strip() for cell in row):
+            rows.append(tuple(row))
+    return rows
+
+
+def detected_data_row_count(rows: list[tuple[Any, ...]], file_type: str) -> int:
+    if not rows:
+        return 0
+    header_index = detect_header_row(file_type, rows)
+    return sum(
+        1
+        for row in rows[header_index + 1 :]
+        if any(cell is not None and str(cell).strip() for cell in row)
+    )
+
+
+def suggest_sheet_file_type(sheet_name: str, rows: list[tuple[Any, ...]]) -> str | None:
+    normalized_name = normalize_header_token(sheet_name)
+    for file_type, keywords in SHEET_TYPE_KEYWORDS.items():
+        if any(keyword in normalized_name for keyword in keywords):
+            return file_type
+
+    scores = {
+        file_type: header_row_score(file_type, rows[detect_header_row(file_type, rows)])
+        for file_type in WORKBOOK_FILE_TYPES
+    }
+    best_type, best_score = max(scores.items(), key=lambda item: item[1])
+    if best_score >= 4:
+        return best_type
+    return None
 
 
 def detect_header_row(file_type: str, rows: list[Iterable[Any]]) -> int:
@@ -790,6 +1107,13 @@ def normalize_rows(
                     row.data,
                     event_source_id=event_source_id,
                 )
+            elif file_type == "consumption":
+                outcome = upsert_consumption(
+                    db,
+                    context,
+                    row.data,
+                    event_source_id=event_source_id,
+                )
             else:
                 outcome = upsert_threshold(db, context, row.data)
         except FieldValueError as exc:
@@ -825,6 +1149,89 @@ def normalize_rows(
         top_rejection_reasons=top_rejection_reasons(validation_errors),
         summary_counts=summary,
     )
+
+
+def empty_upload_result(file_type: str) -> UploadResult:
+    return UploadResult(
+        upload_id=0,
+        ingestion_job_id=0,
+        file_type=file_type,
+        rows_received=0,
+        rows_accepted=0,
+        rows_rejected=0,
+        validation_errors=[],
+        summary_counts=IngestionSummary(),
+    )
+
+
+def blocking_sheet_result(sheet_name: str, file_type: str, error: str) -> UploadResult:
+    return UploadResult(
+        upload_id=0,
+        ingestion_job_id=0,
+        file_type=file_type,
+        rows_received=0,
+        rows_accepted=0,
+        rows_rejected=1,
+        validation_errors=[],
+        blocking_errors=[error],
+        top_rejection_reasons=[RejectionSummary(reason=error, count=1)],
+        summary_counts=IngestionSummary(),
+    )
+
+
+def sheet_status(result: UploadResult) -> str:
+    if result.blocking_errors or result.rows_accepted == 0 and result.rows_rejected > 0:
+        return "failed"
+    if result.rows_rejected > 0:
+        return "completed_with_errors"
+    return "completed"
+
+
+def prefix_sheet_errors(
+    sheet_name: str, errors: list[RowValidationError]
+) -> list[RowValidationError]:
+    prefixed: list[RowValidationError] = []
+    for error in errors:
+        field_errors = [
+            FieldValidationError(
+                field=field_error.field,
+                reason=f"{sheet_name}: {field_error.reason}",
+                suggested_fix=field_error.suggested_fix,
+            )
+            for field_error in error.field_errors
+        ]
+        prefixed.append(
+            RowValidationError(
+                row_number=error.row_number,
+                errors=[field_error.reason for field_error in field_errors] or error.errors,
+                field_errors=field_errors,
+            )
+        )
+    return prefixed
+
+
+def workbook_config_by_sheet(configs: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    parsed: dict[str, dict[str, Any]] = {}
+    for config in configs:
+        sheet_name = str(config.get("sheet_name") or "").strip()
+        file_type = str(config.get("file_type") or "ignore").strip().lower()
+        if not sheet_name:
+            continue
+        if file_type == "ignore":
+            parsed[sheet_name] = {"file_type": "ignore", "mapping_overrides": {}}
+            continue
+        if file_type not in WORKBOOK_FILE_TYPES:
+            raise ValueError(f"Unsupported workbook sheet type: {file_type}")
+        mapping_overrides = config.get("mapping_overrides") or {}
+        if not isinstance(mapping_overrides, dict):
+            raise ValueError(f"Mapping overrides for {sheet_name} must be an object")
+        parsed[sheet_name] = {
+            "file_type": file_type,
+            "mapping_overrides": {
+                str(key): str(value) for key, value in mapping_overrides.items() if value
+            },
+        }
+    return parsed
 
 
 def missing_required_field_errors(
@@ -1319,6 +1726,16 @@ def upsert_stock_snapshot(
         )
     )
     if snapshot is None:
+        snapshot = db.scalar(
+            select(StockSnapshot)
+            .where(
+                StockSnapshot.tenant_id == context.tenant_id,
+                StockSnapshot.plant_id == plant.id,
+                StockSnapshot.material_id == material.id,
+            )
+            .order_by(StockSnapshot.snapshot_time.desc())
+        )
+    if snapshot is None:
         snapshot = StockSnapshot(
             tenant_id=context.tenant_id,
             plant_id=plant.id,
@@ -1367,6 +1784,73 @@ def upsert_stock_snapshot(
         new_value=stock_event_value(attrs, snapshot_time),
         source_id=event_source_id,
         metadata={"ingestion_file_type": "stock", "change_type": "updated"},
+    )
+    return "updated"
+
+
+def upsert_consumption(
+    db: Session,
+    context: RequestContext,
+    data: dict[str, str],
+    event_source_id: int | None = None,
+) -> str:
+    plant = resolve_plant(db, context.tenant_id, data["plant_code"])
+    material = resolve_material(db, context.tenant_id, data["material_code"])
+    snapshot_time = parse_datetime(data["snapshot_time"], "snapshot_time")
+    daily_consumption = parse_decimal(
+        data["daily_consumption_mt"],
+        "daily_consumption_mt",
+        positive=True,
+    )
+    snapshot = db.scalar(
+        select(StockSnapshot).where(
+            StockSnapshot.tenant_id == context.tenant_id,
+            StockSnapshot.plant_id == plant.id,
+            StockSnapshot.material_id == material.id,
+            StockSnapshot.snapshot_time == snapshot_time,
+        )
+    )
+    if snapshot is None:
+        raise FieldValueError(
+            "snapshot_time",
+            "Consumption could not be linked to an inventory snapshot for this "
+            "plant/material/time.",
+            "Load the matching inventory sheet in the same workbook or upload inventory first.",
+        )
+    if values_equal(snapshot.daily_consumption_mt, daily_consumption):
+        return "unchanged"
+    previous_value = stock_event_value(
+        {
+            "on_hand_mt": snapshot.on_hand_mt,
+            "quality_held_mt": snapshot.quality_held_mt,
+            "available_to_consume_mt": snapshot.available_to_consume_mt,
+            "daily_consumption_mt": snapshot.daily_consumption_mt,
+        },
+        snapshot.snapshot_time,
+    )
+    snapshot.daily_consumption_mt = daily_consumption
+    emit_inventory_stock_updated(
+        db,
+        tenant_id=context.tenant_id,
+        occurred_at=snapshot_time,
+        source_reference=data.get("source_of_truth"),
+        plant_id=plant.id,
+        plant_reference=plant.code,
+        material_id=material.id,
+        material_reference=material.code,
+        quantity_value=snapshot.available_to_consume_mt,
+        previous_value=previous_value,
+        new_value=stock_event_value(
+            {
+                "on_hand_mt": snapshot.on_hand_mt,
+                "quality_held_mt": snapshot.quality_held_mt,
+                "available_to_consume_mt": snapshot.available_to_consume_mt,
+                "daily_consumption_mt": daily_consumption,
+            },
+            snapshot_time,
+        ),
+        source_id=event_source_id,
+        metadata={"ingestion_file_type": "consumption", "change_type": "updated"},
     )
     return "updated"
 

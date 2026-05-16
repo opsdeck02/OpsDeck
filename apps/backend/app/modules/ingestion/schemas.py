@@ -39,6 +39,36 @@ class UploadResult(BaseModel):
     transformed_url: str | None = None
 
 
+class SheetUploadResult(BaseModel):
+    sheet_name: str
+    file_type: str
+    status: str
+    rows_received: int
+    rows_accepted: int
+    rows_rejected: int
+    validation_errors: list[RowValidationError]
+    top_rejection_reasons: list[RejectionSummary] = []
+    blocking_errors: list[str] = []
+    summary_counts: IngestionSummary
+
+
+class WorkbookUploadResult(BaseModel):
+    upload_id: int
+    ingestion_job_id: int
+    file_type: str = "workbook"
+    rows_received: int
+    rows_accepted: int
+    rows_rejected: int
+    validation_errors: list[RowValidationError]
+    top_rejection_reasons: list[RejectionSummary] = []
+    blocking_errors: list[str] = []
+    summary_counts: IngestionSummary
+    sheet_results: list[SheetUploadResult]
+    ignored_sheets: list[str] = []
+    platform_detected: str | None = None
+    transformed_url: str | None = None
+
+
 class IngestionJobOut(BaseModel):
     id: int
     upload_id: int | None
@@ -73,3 +103,18 @@ class MappingPreviewOut(BaseModel):
     blocking_errors: list[str] = []
     platform_detected: str | None = None
     transformed_url: str | None = None
+
+
+class WorkbookSheetPreview(BaseModel):
+    sheet_name: str
+    hidden: bool = False
+    row_count: int
+    suggested_file_type: str | None = None
+    suggested_label: str | None = None
+    previews: dict[str, MappingPreviewOut] = {}
+
+
+class WorkbookPreviewOut(BaseModel):
+    file_name: str
+    sheets: list[WorkbookSheetPreview]
+    ignored_empty_sheets: list[str] = []
