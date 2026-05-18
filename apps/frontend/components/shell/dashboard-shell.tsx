@@ -78,7 +78,7 @@ const navItems: Array<{ href: string; label: string; roles: RoleName[] }> = [
     roles: ["tenant_admin", "buyer_user", "logistics_user", "planner_user"],
   },
   {
-    href: "/dashboard/users",
+    href: "/dashboard/admin",
     label: "Admin",
     roles: ["tenant_admin"],
   },
@@ -86,7 +86,7 @@ const navItems: Array<{ href: string; label: string; roles: RoleName[] }> = [
 
 const superadminNavItems = [
   { href: "/dashboard/superadmin", label: "Continuity" },
-  { href: "/dashboard/users", label: "Admin" },
+  { href: "/dashboard/admin", label: "Admin" },
 ];
 
 export function DashboardShell({

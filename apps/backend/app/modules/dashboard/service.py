@@ -11,6 +11,8 @@ from app.modules.shipments.confidence import assess_freshness, ensure_utc
 from app.modules.shipments.movement import list_inland_monitoring, list_port_monitoring
 from app.modules.shipments.service import list_shipments
 from app.modules.stock.service import calculate_stock_cover_summary
+from app.modules.suppliers.service import performance_summary
+from app.modules.tenants.service import classify_data_freshness
 from app.schemas.context import RequestContext
 from app.schemas.dashboard import (
     AttentionItem,
@@ -20,17 +22,15 @@ from app.schemas.dashboard import (
     ExecutiveExceptionItem,
     ExecutiveKpis,
     ExecutiveMovementItem,
+    ExecutiveRiskItem,
     ExecutiveSupplierPerformanceSummary,
     ExecutiveSupplierSummaryItem,
     LastSyncSummary,
-    ExecutiveRiskItem,
     PilotReadinessCheck,
     PilotReadinessCounts,
     PilotReadinessResponse,
     SupplierPerformanceItem,
 )
-from app.modules.tenants.service import classify_data_freshness
-from app.modules.suppliers.service import performance_summary
 
 
 def build_executive_dashboard(
@@ -101,8 +101,7 @@ def build_executive_dashboard(
         supplier_performance=supplier_performance[:10],
         supplier_performance_summary=ExecutiveSupplierPerformanceSummary(
             top_suppliers=[
-                executive_supplier_summary_item(item)
-                for item in supplier_summary.top_suppliers[:3]
+                executive_supplier_summary_item(item) for item in supplier_summary.top_suppliers[:3]
             ],
             bottom_suppliers=[
                 executive_supplier_summary_item(item)
@@ -121,8 +120,7 @@ def build_automated_data_freshness(
 ) -> AutomatedDataFreshness | None:
     external_sources = list(
         db.scalars(
-            select(ExternalDataSource)
-            .where(
+            select(ExternalDataSource).where(
                 ExternalDataSource.tenant_id == context.tenant_id,
                 ExternalDataSource.is_active.is_(True),
             )
@@ -312,11 +310,7 @@ def build_pilot_readiness(
 
 
 def build_top_risks(rows: list, shipments: list) -> list[ExecutiveRiskItem]:
-    filtered = [
-        row
-        for row in rows
-        if row.calculation.status in {"critical", "warning"}
-    ]
+    filtered = [row for row in rows if row.calculation.status in {"critical", "warning"}]
     filtered.sort(
         key=lambda row: (
             0 if row.calculation.status == "critical" else 1,
@@ -353,6 +347,7 @@ def build_top_risks(rows: list, shipments: list) -> list[ExecutiveRiskItem]:
             risk_hours_remaining=row.calculation.risk_hours_remaining,
             estimated_production_exposure_mt=row.calculation.estimated_production_exposure_mt,
             estimated_value_at_risk=row.calculation.estimated_value_at_risk,
+            operational_interruption_impact=row.calculation.operational_interruption_impact,
             value_per_mt_used=row.calculation.value_per_mt_used,
             criticality_multiplier_used=row.calculation.criticality_multiplier_used,
             urgency_band=row.calculation.urgency_band,
@@ -369,7 +364,9 @@ def build_top_risks(rows: list, shipments: list) -> list[ExecutiveRiskItem]:
     ]
 
 
-def blocked_stock_for(current_stock: Decimal | None, usable_stock: Decimal | None) -> Decimal | None:
+def blocked_stock_for(
+    current_stock: Decimal | None, usable_stock: Decimal | None
+) -> Decimal | None:
     if current_stock is None or usable_stock is None:
         return None
     return max(current_stock - usable_stock, Decimal("0"))
@@ -499,21 +496,9 @@ def build_supplier_performance(
     inland_items: list,
 ) -> list[SupplierPerformanceItem]:
     supplier_rows: dict[str, dict[str, Decimal | int | set[str]]] = {}
-    stale_ids = {
-        item.shipment_id
-        for item in [*port_items, *inland_items]
-        if item.stale_record
-    }
-    delayed_ids = {
-        item.shipment_id
-        for item in port_items
-        if item.likely_port_delay
-    }
-    delayed_ids.update(
-        item.shipment_id
-        for item in inland_items
-        if item.inland_delay_flag
-    )
+    stale_ids = {item.shipment_id for item in [*port_items, *inland_items] if item.stale_record}
+    delayed_ids = {item.shipment_id for item in port_items if item.likely_port_delay}
+    delayed_ids.update(item.shipment_id for item in inland_items if item.inland_delay_flag)
 
     for item in shipment_items:
         supplier = getattr(item, "supplier_name", None) or "Unknown supplier"
@@ -601,20 +586,19 @@ def build_needs_attention(
             AttentionItem(
                 kind="exception",
                 description=item["title"],
-                linked_label=item["linked_shipment"]["label"] if item["linked_shipment"] else (
-                    f'{item["linked_plant"]["label"]} / {item["linked_material"]["label"]}'
+                linked_label=item["linked_shipment"]["label"]
+                if item["linked_shipment"]
+                else (
+                    f"{item['linked_plant']['label']} / {item['linked_material']['label']}"
                     if item["linked_plant"] and item["linked_material"]
                     else "Exception"
                 ),
-                href=f'/dashboard/exceptions/{item["id"]}',
+                href=f"/dashboard/exceptions/{item['id']}",
                 current_owner=(
-                    item["current_owner"]["full_name"]
-                    if item["current_owner"]
-                    else "Unassigned"
+                    item["current_owner"]["full_name"] if item["current_owner"] else "Unassigned"
                 ),
                 recommended_next_step=(
-                    item["recommended_next_step"]
-                    or "Review the exception and assign an owner."
+                    item["recommended_next_step"] or "Review the exception and assign an owner."
                 ),
                 owner_role_recommended=(
                     item["current_owner"]["role"]
@@ -629,7 +613,11 @@ def build_needs_attention(
             )
         )
 
-    for risk in [item for item in top_risks if item.status == "critical" and item.action_status != "completed"][:2]:
+    for risk in [
+        item
+        for item in top_risks
+        if item.status == "critical" and item.action_status != "completed"
+    ][:2]:
         matched_exception = matching_exception_for_risk(risk, exceptions)
         items.append(
             AttentionItem(
@@ -758,9 +746,7 @@ def format_decimal(value: Decimal | None) -> str:
 def percentage(numerator: int, denominator: int) -> Decimal:
     if denominator <= 0:
         return Decimal("0.00")
-    return ((Decimal(numerator) / Decimal(denominator)) * Decimal("100")).quantize(
-        Decimal("0.01")
-    )
+    return ((Decimal(numerator) / Decimal(denominator)) * Decimal("100")).quantize(Decimal("0.01"))
 
 
 def latest_dashboard_timestamp(executive: ExecutiveDashboardResponse):

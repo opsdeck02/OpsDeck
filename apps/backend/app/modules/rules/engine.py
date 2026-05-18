@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import OperationalEvent, Shipment, StockSnapshot
+from app.modules.impact.schemas import OperationalInterruptionImpact
 from app.modules.shipments.continuity import calculate_shipment_continuity_for
 from app.modules.shipments.schemas import ShipmentContinuityResult
 from app.modules.stock.continuity import calculate_inventory_continuity_for
@@ -81,6 +82,7 @@ class RiskCandidate(BaseModel):
     current_severity: str | None = None
     prior_exposure_level: str | None = None
     current_exposure_level: str | None = None
+    operational_interruption_impact: OperationalInterruptionImpact | None = None
 
 
 def evaluate_rule_based_risks(
@@ -408,8 +410,7 @@ def summary_for(candidate: RiskCandidate) -> str:
         )
     if candidate.risk_type == "stale_signal_risk":
         return (
-            "A source signal is stale/critical, reducing trust in current "
-            "operational visibility."
+            "A source signal is stale/critical, reducing trust in current operational visibility."
         )
     if candidate.risk_type == "low_confidence_signal_risk":
         return (
@@ -457,9 +458,7 @@ def trust_context_for(
     source_events: list[OperationalEvent],
 ) -> TrustContext:
     confidence_values = [
-        event.confidence_score
-        for event in source_events
-        if event.confidence_score is not None
+        event.confidence_score for event in source_events if event.confidence_score is not None
     ]
     if candidate.confidence_score is not None:
         confidence_values.append(candidate.confidence_score)
@@ -509,11 +508,7 @@ def matching_source_events(
     if candidate.source_event_ids:
         ids = set(candidate.source_event_ids)
         return sorted((event for event in events if event.id in ids), key=lambda event: event.id)
-    matches = [
-        event
-        for event in events
-        if event_matches_candidate_context(event, candidate)
-    ]
+    matches = [event for event in events if event_matches_candidate_context(event, candidate)]
     return sorted(matches, key=lambda event: event.id)
 
 

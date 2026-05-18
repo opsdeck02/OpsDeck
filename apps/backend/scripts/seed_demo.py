@@ -18,6 +18,7 @@ from app.models import (
     Plant,
     PlantMaterialThreshold,
     PortEvent,
+    ProductionInterruptionImpactConfig,
     Role,
     Shipment,
     StockSnapshot,
@@ -185,6 +186,42 @@ def ensure_threshold(
     )
 
 
+def ensure_interruption_impact_config(
+    db: Session,
+    tenant_id: int,
+    plant_id: int,
+    material_id: int,
+) -> None:
+    config = db.scalar(
+        select(ProductionInterruptionImpactConfig).where(
+            ProductionInterruptionImpactConfig.tenant_id == tenant_id,
+            ProductionInterruptionImpactConfig.plant_id == plant_id,
+            ProductionInterruptionImpactConfig.material_id == material_id,
+            ProductionInterruptionImpactConfig.production_line_id.is_(None),
+        )
+    )
+    if config is None:
+        config = ProductionInterruptionImpactConfig(
+            tenant_id=tenant_id,
+            plant_id=plant_id,
+            material_id=material_id,
+            production_line_id=None,
+        )
+        db.add(config)
+    config.production_rate_mt_per_hour = Decimal("320")
+    config.finished_goods_value_per_mt = Decimal("56000")
+    config.survivable_hours_without_material = Decimal("8")
+    config.line_dependency_ratio = Decimal("0.85")
+    config.downtime_cost_per_hour = Decimal("1500000")
+    config.restart_cost = Decimal("12000000")
+    config.restart_time_hours = Decimal("6")
+    config.substitution_factor = Decimal("0.05")
+    config.cascading_impact_factor = Decimal("1.20")
+    config.interruption_probability_override = None
+    config.currency = "INR"
+    config.is_active = True
+
+
 def get_or_create_supplier(
     db: Session,
     tenant_id: int,
@@ -200,7 +237,9 @@ def get_or_create_supplier(
     contact_email: str,
 ) -> Supplier:
     known_codes = [code, *(legacy_codes or [])]
-    supplier = db.scalar(select(Supplier).where(Supplier.tenant_id == tenant_id, Supplier.code.in_(known_codes)))
+    supplier = db.scalar(
+        select(Supplier).where(Supplier.tenant_id == tenant_id, Supplier.code.in_(known_codes))
+    )
     if supplier is None:
         supplier = Supplier(tenant_id=tenant_id, name=name, code=code)
         db.add(supplier)
@@ -273,7 +312,9 @@ def upsert_shipment(
 ) -> Shipment:
     known_shipment_ids = [shipment_id, *(legacy_shipment_ids or [])]
     shipment = db.scalar(
-        select(Shipment).where(Shipment.tenant_id == tenant_id, Shipment.shipment_id.in_(known_shipment_ids))
+        select(Shipment).where(
+            Shipment.tenant_id == tenant_id, Shipment.shipment_id.in_(known_shipment_ids)
+        )
     )
     if shipment is None:
         shipment = Shipment(
@@ -320,11 +361,17 @@ def upsert_shipment(
 
 
 def replace_port_event(db: Session, tenant_id: int, shipment: Shipment, **values: object) -> None:
-    db.execute(delete(PortEvent).where(PortEvent.tenant_id == tenant_id, PortEvent.shipment_id == shipment.id))
+    db.execute(
+        delete(PortEvent).where(
+            PortEvent.tenant_id == tenant_id, PortEvent.shipment_id == shipment.id
+        )
+    )
     db.add(PortEvent(tenant_id=tenant_id, shipment_id=shipment.id, **values))
 
 
-def replace_inland_movement(db: Session, tenant_id: int, shipment: Shipment, **values: object) -> None:
+def replace_inland_movement(
+    db: Session, tenant_id: int, shipment: Shipment, **values: object
+) -> None:
     db.execute(
         delete(InlandMovement).where(
             InlandMovement.tenant_id == tenant_id,
@@ -351,9 +398,15 @@ def seed_exception(
     next_action: str,
     action_status: str,
 ) -> None:
-    existing = db.scalar(select(ExceptionCase).where(ExceptionCase.tenant_id == tenant_id, ExceptionCase.title == title))
+    existing = db.scalar(
+        select(ExceptionCase).where(
+            ExceptionCase.tenant_id == tenant_id, ExceptionCase.title == title
+        )
+    )
     if existing is not None:
-        db.execute(delete(ExceptionComment).where(ExceptionComment.exception_case_id == existing.id))
+        db.execute(
+            delete(ExceptionComment).where(ExceptionComment.exception_case_id == existing.id)
+        )
         db.delete(existing)
         db.flush()
     case = ExceptionCase(
@@ -472,6 +525,7 @@ def seed() -> None:
         ensure_threshold(db, tenant.id, kalinga.id, pellets.id, Decimal("5"), Decimal("8"))
         ensure_threshold(db, tenant.id, kalinga.id, limestone.id, Decimal("4"), Decimal("7"))
         ensure_threshold(db, tenant.id, kalinga.id, dolomite.id, Decimal("6"), Decimal("9"))
+        ensure_interruption_impact_config(db, tenant.id, jamshedpur.id, coking_coal.id)
 
         now = datetime.now(UTC)
         users = {
@@ -963,7 +1017,9 @@ def seed() -> None:
         )
 
         db.commit()
-        print("Seeded OpsDeck continuity scenario tenant with stock, suppliers, inbound signals, movement degradation, line stops, and sync freshness.")
+        print(
+            "Seeded OpsDeck continuity scenario tenant with stock, suppliers, inbound signals, movement degradation, line stops, and sync freshness."
+        )
         print("Demo password for tenant users: Password123!")
         print("Superadmin login: superadmin@opsdeck.local / SuperAdmin123! (no tenant membership)")
     finally:

@@ -4,6 +4,8 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
+from app.modules.impact.schemas import OperationalInterruptionImpact
+
 
 class DashboardMetric(BaseModel):
     label: str
@@ -67,6 +69,7 @@ class ExecutiveRiskItem(BaseModel):
     risk_hours_remaining: Decimal | None
     estimated_production_exposure_mt: Decimal | None
     estimated_value_at_risk: Decimal | None
+    operational_interruption_impact: OperationalInterruptionImpact | None = None
     value_per_mt_used: Decimal | None
     criticality_multiplier_used: Decimal | None
     urgency_band: str

@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal
 
 from app.modules.impact.config import get_impact_config
+from app.modules.impact.schemas import OperationalInterruptionImpact
 
 CONFIDENCE_IMPACT_FACTORS = {
     "high": Decimal("1.00"),
@@ -21,6 +22,7 @@ class ImpactEstimate:
     criticality_multiplier_used: Decimal | None
     urgency_band: str
     explanation: list[str]
+    operational_interruption_impact: OperationalInterruptionImpact | None = None
 
 
 def calculate_impact(
@@ -71,10 +73,7 @@ def calculate_impact(
         warning_days,
     )
     estimated_production_exposure_mt = quantize_decimal(
-        daily_consumption_mt
-        * severity_days
-        * config["criticality_multiplier"]
-        * confidence_factor
+        daily_consumption_mt * severity_days * config["criticality_multiplier"] * confidence_factor
     )
     estimated_value_at_risk = quantize_decimal(
         estimated_production_exposure_mt * config["value_per_mt"]
@@ -93,7 +92,10 @@ def calculate_impact(
             f"Value at risk = exposed MT x configured value/MT "
             f"({quantize_decimal(config['value_per_mt'])})."
         ),
-        f"Effective inbound visibility shown: {quantize_decimal(effective_inbound_pipeline_mt)} MT.",
+        (
+            "Effective inbound visibility shown: "
+            f"{quantize_decimal(effective_inbound_pipeline_mt)} MT."
+        ),
     ]
 
     return ImpactEstimate(

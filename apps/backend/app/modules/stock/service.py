@@ -18,9 +18,14 @@ from app.models import (
     User,
 )
 from app.models.enums import ExceptionSeverity, ExceptionStatus, ExceptionType, ShipmentState
-from app.modules.shipments.confidence import assess_freshness, ensure_utc
 from app.modules.impact.engine import calculate_impact
+from app.modules.impact.production_interruption import (
+    ProductionInterruptionInputs,
+    calculate_production_interruption_impact,
+    get_active_interruption_config,
+)
 from app.modules.recommendations.engine import RecommendationSignal, recommend_action
+from app.modules.shipments.confidence import assess_freshness, ensure_utc
 from app.modules.shipments.movement import (
     build_context as build_movement_context,
 )
@@ -239,7 +244,9 @@ def update_stock_risk_action(
         exception_case.action_started_at = exception_case.action_started_at or now
         exception_case.action_completed_at = None
     elif action_status == "completed":
-        exception_case.action_started_at = exception_case.action_started_at or exception_case.triggered_at
+        exception_case.action_started_at = (
+            exception_case.action_started_at or exception_case.triggered_at
+        )
         exception_case.action_completed_at = now
     else:
         raise ValueError("Unsupported action status")
@@ -346,9 +353,7 @@ def weigh_shipment(db: Session, shipment: Shipment) -> WeightedShipment | None:
         f"Freshness factor {freshness_factor} from {freshness_source} data.",
     ]
     if port_summary and item.shipment_state in {"at_port", "discharging"}:
-        explanation_parts.append(
-            f"Port view is {port_summary.port_status.replace('_', ' ')}."
-        )
+        explanation_parts.append(f"Port view is {port_summary.port_status.replace('_', ' ')}.")
     if inland_summary and item.shipment_state == "in_transit":
         explanation_parts.append(
             f"Inland view is {inland_summary.dispatch_status.replace('_', ' ')}."
@@ -407,10 +412,12 @@ def build_row(
             insufficient_data_reason="No stock snapshot available",
             data_freshness_hours=None,
             linked_shipment_count=len(shipments),
-            weighted_shipment_count=quantize_decimal(sum(
-                (shipment.contribution_factor for shipment in shipments),
-                start=Decimal("0"),
-            )),
+            weighted_shipment_count=quantize_decimal(
+                sum(
+                    (shipment.contribution_factor for shipment in shipments),
+                    start=Decimal("0"),
+                )
+            ),
             risk_hours_remaining=None,
             estimated_production_exposure_mt=None,
             estimated_value_at_risk=None,
@@ -446,10 +453,12 @@ def build_row(
             insufficient_data_reason="Daily consumption is missing, zero or negative",
             data_freshness_hours=freshness_hours,
             linked_shipment_count=len(shipments),
-            weighted_shipment_count=quantize_decimal(sum(
-                (shipment.contribution_factor for shipment in shipments),
-                start=Decimal("0"),
-            )),
+            weighted_shipment_count=quantize_decimal(
+                sum(
+                    (shipment.contribution_factor for shipment in shipments),
+                    start=Decimal("0"),
+                )
+            ),
             risk_hours_remaining=None,
             estimated_production_exposure_mt=None,
             estimated_value_at_risk=None,
@@ -495,6 +504,32 @@ def build_row(
         confidence_level=confidence_level,
         elapsed_hours_since_snapshot=freshness_hours,
     )
+    operational_impact = calculate_production_interruption_impact(
+        ProductionInterruptionInputs(
+            tenant_id=plant.tenant_id,
+            plant_id=plant.id,
+            material_id=material.id,
+            material_exposure_value=impact.estimated_value_at_risk,
+            days_of_cover=days_of_cover,
+            risk_hours_remaining=impact.risk_hours_remaining,
+            urgency_band=impact.urgency_band,
+            continuity_severity=status,
+            projected_exhaustion_date=estimated_breach_date,
+            next_trusted_inbound_eta=next_trusted_inbound_eta(shipments),
+            trusted_inbound_ratio=inbound_visibility_ratio(
+                quantize_decimal(raw_inbound_pipeline_mt),
+                quantize_decimal(effective_inbound_pipeline_mt),
+            ),
+            shipment_confidence_low=any(item.confidence == "low" for item in shipments),
+            freshness_status=worst_freshness_label(shipments),
+        ),
+        get_active_interruption_config(
+            db,
+            tenant_id=plant.tenant_id,
+            plant_id=plant.id,
+            material_id=material.id,
+        ),
+    )
     recommendation = recommend_action(
         status=status,
         urgency_band=impact.urgency_band,
@@ -539,44 +574,41 @@ def build_row(
         insufficient_data_reason=insufficient_reason,
         data_freshness_hours=freshness_hours,
         linked_shipment_count=len(shipments),
-        weighted_shipment_count=quantize_decimal(sum(
-            (shipment.contribution_factor for shipment in shipments),
-            start=Decimal("0"),
-        )),
+        weighted_shipment_count=quantize_decimal(
+            sum(
+                (shipment.contribution_factor for shipment in shipments),
+                start=Decimal("0"),
+            )
+        ),
         risk_hours_remaining=impact.risk_hours_remaining,
         estimated_production_exposure_mt=impact.estimated_production_exposure_mt,
         estimated_value_at_risk=impact.estimated_value_at_risk,
+        operational_interruption_impact=operational_impact,
         value_per_mt_used=impact.value_per_mt_used,
         criticality_multiplier_used=impact.criticality_multiplier_used,
         urgency_band=impact.urgency_band,
         recommended_action_code=(
-            recommendation.recommended_action_code
-            if status in {"critical", "warning"}
-            else None
+            recommendation.recommended_action_code if status in {"critical", "warning"} else None
         ),
         recommended_action_text=(
-            recommendation.recommended_action_text
-            if status in {"critical", "warning"}
-            else None
+            recommendation.recommended_action_text if status in {"critical", "warning"} else None
         ),
         owner_role_recommended=(
-            recommendation.owner_role_recommended
-            if status in {"critical", "warning"}
-            else None
+            recommendation.owner_role_recommended if status in {"critical", "warning"} else None
         ),
         action_deadline_hours=(
-            recommendation.action_deadline_hours
-            if status in {"critical", "warning"}
-            else None
+            recommendation.action_deadline_hours if status in {"critical", "warning"} else None
         ),
         action_priority=(
-            recommendation.action_priority
-            if status in {"critical", "warning"}
-            else None
+            recommendation.action_priority if status in {"critical", "warning"} else None
         ),
         action_status=action_state.action_status if status in {"critical", "warning"} else None,
-        action_sla_breach=action_state.action_sla_breach if status in {"critical", "warning"} else False,
-        action_age_hours=action_state.action_age_hours if status in {"critical", "warning"} else None,
+        action_sla_breach=action_state.action_sla_breach
+        if status in {"critical", "warning"}
+        else False,
+        action_age_hours=action_state.action_age_hours
+        if status in {"critical", "warning"}
+        else None,
     )
     return stock_cover_row(plant, material, snapshot_time, calculation)
 
@@ -622,16 +654,11 @@ def confidence_level_for(
     if snapshot_age > timedelta(hours=72):
         return "low"
     if not shipments:
-        return (
-            "high"
-            if threshold is not None and snapshot_age <= timedelta(hours=24)
-            else "medium"
-        )
+        return "high" if threshold is not None and snapshot_age <= timedelta(hours=24) else "medium"
 
-    avg_factor = (
-        sum((shipment.contribution_factor for shipment in shipments), start=Decimal("0"))
-        / Decimal(len(shipments))
-    )
+    avg_factor = sum(
+        (shipment.contribution_factor for shipment in shipments), start=Decimal("0")
+    ) / Decimal(len(shipments))
     if (
         snapshot_age <= timedelta(hours=24)
         and threshold is not None
@@ -665,10 +692,13 @@ def confidence_reasons(row: StockCoverRow, shipments: list[WeightedShipment]) ->
         low_confidence = [shipment for shipment in shipments if shipment.confidence == "low"]
         stale = [shipment for shipment in shipments if shipment.freshness_label == "stale"]
         if low_confidence or stale:
-            reasons.append("Low-confidence or stale shipment signals reduced effective inbound visibility.")
+            reasons.append(
+                "Low-confidence or stale shipment signals reduced effective inbound visibility."
+            )
         reasons.append(
             f"Raw inbound visibility is {row.calculation.raw_inbound_pipeline_mt} MT; effective "
-            f"inbound visibility is {row.calculation.effective_inbound_pipeline_mt} MT after weighting."
+            f"inbound visibility is {row.calculation.effective_inbound_pipeline_mt} MT "
+            "after weighting."
         )
     else:
         reasons.append("No inbound shipments contribute to the pipeline estimate.")
@@ -680,9 +710,14 @@ def confidence_reasons(row: StockCoverRow, shipments: list[WeightedShipment]) ->
 
 def impact_explanation_for(calculation: StockCoverBreakdown) -> list[str]:
     if calculation.estimated_production_exposure_mt is None:
-        return ["Impact could not be calculated because usable cover or consumption data is missing."]
-    return [
-        f"Urgency band is {calculation.urgency_band.replace('_', ' ')} from the current risk horizon.",
+        return [
+            "Impact could not be calculated because usable cover or consumption data is missing."
+        ]
+    reasons = [
+        (
+            f"Urgency band is {calculation.urgency_band.replace('_', ' ')} "
+            "from the current risk horizon."
+        ),
         (
             f"Production exposure is {calculation.estimated_production_exposure_mt} MT based on "
             "daily consumption and breach severity."
@@ -692,20 +727,33 @@ def impact_explanation_for(calculation: StockCoverBreakdown) -> list[str]:
             f"{calculation.value_per_mt_used} per MT and a multiplier of "
             f"{calculation.criticality_multiplier_used}."
         ),
-        "This estimate is based on configured value per MT and a severity multiplier derived from threshold breach.",
+        (
+            "This estimate is based on configured value per MT and a severity multiplier "
+            "derived from threshold breach."
+        ),
     ]
+    if calculation.operational_interruption_impact is not None:
+        reasons.extend(calculation.operational_interruption_impact.reason_chain)
+    return reasons
 
 
 def recommendation_why_for(calculation: StockCoverBreakdown) -> list[str]:
     if not calculation.recommended_action_text:
         return ["No action recommendation is generated for safe or insufficient-data combinations."]
     reasons = [
-        f"Urgency is {calculation.urgency_band.replace('_', ' ')} with status {calculation.status.replace('_', ' ')}.",
+        (
+            f"Urgency is {calculation.urgency_band.replace('_', ' ')} with status "
+            f"{calculation.status.replace('_', ' ')}."
+        ),
     ]
     if calculation.confidence_level == "low":
-        reasons.append("Confidence is low, so the recommendation favors immediate operational validation.")
+        reasons.append(
+            "Confidence is low, so the recommendation favors immediate operational validation."
+        )
     if calculation.effective_inbound_pipeline_mt < calculation.raw_inbound_pipeline_mt:
-        reasons.append("Effective inbound visibility is lower than the raw pipeline after shipment weighting.")
+        reasons.append(
+            "Effective inbound visibility is lower than the raw pipeline after shipment weighting."
+        )
     return reasons
 
 
@@ -718,6 +766,33 @@ def protection_indicator(raw_inbound: Decimal, effective_inbound: Decimal) -> st
     if ratio >= Decimal("0.40"):
         return "reduced"
     return "weak"
+
+
+def inbound_visibility_ratio(raw_inbound: Decimal, effective_inbound: Decimal) -> Decimal | None:
+    if raw_inbound <= 0:
+        return None
+    return quantize_decimal(effective_inbound / raw_inbound)
+
+
+def next_trusted_inbound_eta(shipments: list[WeightedShipment]) -> datetime | None:
+    trusted = [
+        ensure_utc(item.shipment.current_eta)
+        for item in shipments
+        if item.confidence != "low"
+        and item.freshness_label not in {"stale", "critical", "unknown"}
+        and item.shipment.current_eta is not None
+    ]
+    return min(trusted) if trusted else None
+
+
+def worst_freshness_label(shipments: list[WeightedShipment]) -> str | None:
+    if not shipments:
+        return None
+    order = {"fresh": 0, "aging": 1, "delayed": 2, "unknown": 3, "stale": 4, "critical": 5}
+    return max(
+        (item.freshness_label for item in shipments),
+        key=lambda label: order.get(label, order["unknown"]),
+    )
 
 
 def current_owner_for_combo(
@@ -788,7 +863,8 @@ def resolve_action_state(
     action_age_hours = None
     if started_at is not None:
         action_age_hours = quantize_decimal(
-            Decimal(str((ensure_utc(end_at) - ensure_utc(started_at)).total_seconds())) / Decimal("3600")
+            Decimal(str((ensure_utc(end_at) - ensure_utc(started_at)).total_seconds()))
+            / Decimal("3600")
         )
     action_sla_breach = False
     if action_status != "completed" and case.due_at is not None:

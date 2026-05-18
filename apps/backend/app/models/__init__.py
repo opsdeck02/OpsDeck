@@ -1,4 +1,5 @@
 from app.models.data_source import ExternalDataSource
+from app.models.impact import ProductionInterruptionImpactConfig, ProductionLine
 from app.models.ingestion import IngestionJob, UploadedFile
 from app.models.material import Material
 from app.models.membership import TenantMembership
@@ -16,8 +17,8 @@ from app.models.operations import (
     StockSnapshot,
 )
 from app.models.plant import Plant
-from app.models.role import Role
 from app.models.risk_snapshot import ContinuityRiskSnapshot
+from app.models.role import Role
 from app.models.shipment import Shipment, ShipmentUpdate
 from app.models.supplier import Supplier
 from app.models.tenant import Tenant
@@ -43,6 +44,8 @@ __all__ = [
     "Plant",
     "PlantMaterialThreshold",
     "PortEvent",
+    "ProductionInterruptionImpactConfig",
+    "ProductionLine",
     "Role",
     "Shipment",
     "ShipmentContainer",

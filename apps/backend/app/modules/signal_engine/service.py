@@ -14,6 +14,12 @@ from app.modules.exposure.mapping import (
     OperationalExposureMapping,
     build_exposure_mapping,
 )
+from app.modules.impact.engine import determine_urgency_band
+from app.modules.impact.production_interruption import (
+    ProductionInterruptionInputs,
+    calculate_production_interruption_impact,
+    get_active_interruption_config,
+)
 from app.modules.operational_events.timeline import (
     ContinuityTimelineEntry,
     ContinuityTimelineFilters,
@@ -241,7 +247,13 @@ def evaluate_and_record_risk_escalation(
             shipment_continuity=shipment,
         )
         comparison = classify_snapshot_escalation(db, snapshot, update_snapshot=True)
-        enriched.append(apply_escalation(candidate, comparison))
+        enriched.append(
+            apply_operational_interruption_impact(
+                db,
+                context,
+                apply_escalation(candidate, comparison),
+            )
+        )
     db.commit()
     return EscalationEvaluationResponse(
         risks=enriched,
@@ -277,9 +289,7 @@ def select_highest_priority_risk(candidates: list[RiskCandidate]) -> RiskCandida
 
 def risk_priority_key(candidate: RiskCandidate) -> tuple:
     projected = candidate.projected_exhaustion_date
-    projected_sort = (
-        projected.timestamp() if projected is not None else float("inf")
-    )
+    projected_sort = projected.timestamp() if projected is not None else float("inf")
     confidence = candidate.confidence_score
     confidence_sort = confidence if confidence is not None else Decimal("101")
     return (
@@ -339,9 +349,7 @@ def list_signal_exposures(
     ]
     if exposure_level:
         exposures = [
-            exposure
-            for exposure in exposures
-            if exposure.exposure_level == exposure_level
+            exposure for exposure in exposures if exposure.exposure_level == exposure_level
         ]
     return exposures
 
@@ -435,9 +443,7 @@ def list_shipment_continuity(
     now: datetime | None = None,
 ) -> list[ShipmentContinuityResult]:
     items = []
-    shipments = db.scalars(
-        select(Shipment).where(Shipment.tenant_id == context.tenant_id)
-    )
+    shipments = db.scalars(select(Shipment).where(Shipment.tenant_id == context.tenant_id))
     for shipment in shipments:
         if shipment_reference and shipment.shipment_id != shipment_reference:
             continue
@@ -463,11 +469,15 @@ def enrich_candidates_with_latest_escalation(
     candidates: list[RiskCandidate],
 ) -> list[RiskCandidate]:
     return [
-        apply_snapshot_escalation(
-            candidate,
-            escalation_for_snapshot(
-                db,
-                latest_snapshot_for_candidate(db, context, candidate),
+        apply_operational_interruption_impact(
+            db,
+            context,
+            apply_snapshot_escalation(
+                candidate,
+                escalation_for_snapshot(
+                    db,
+                    latest_snapshot_for_candidate(db, context, candidate),
+                ),
             ),
         )
         for candidate in candidates
@@ -504,6 +514,58 @@ def apply_snapshot_escalation(
     if comparison is None:
         return candidate
     return apply_escalation(candidate, comparison)
+
+
+def apply_operational_interruption_impact(
+    db: Session,
+    context: RequestContext,
+    candidate: RiskCandidate,
+) -> RiskCandidate:
+    if candidate.plant_reference is None or candidate.material_reference is None:
+        return candidate
+    plant = db.scalar(
+        select(Plant).where(
+            Plant.tenant_id == context.tenant_id,
+            Plant.code == candidate.plant_reference,
+        )
+    )
+    material = db.scalar(
+        select(Material).where(
+            Material.tenant_id == context.tenant_id,
+            Material.code == candidate.material_reference,
+        )
+    )
+    if plant is None or material is None:
+        return candidate
+    risk_hours = (
+        candidate.days_of_cover * Decimal("24") if candidate.days_of_cover is not None else None
+    )
+    urgency = determine_urgency_band(
+        candidate.continuity_status or candidate.severity,
+        candidate.days_of_cover,
+        risk_hours,
+    )
+    operational_impact = calculate_production_interruption_impact(
+        ProductionInterruptionInputs(
+            tenant_id=context.tenant_id,
+            plant_id=plant.id,
+            material_id=material.id,
+            material_exposure_value=None,
+            days_of_cover=candidate.days_of_cover,
+            risk_hours_remaining=risk_hours,
+            urgency_band=urgency,
+            continuity_severity=candidate.severity,
+            projected_exhaustion_date=candidate.projected_exhaustion_date,
+            freshness_status=candidate.freshness_status,
+        ),
+        get_active_interruption_config(
+            db,
+            tenant_id=context.tenant_id,
+            plant_id=plant.id,
+            material_id=material.id,
+        ),
+    )
+    return candidate.model_copy(update={"operational_interruption_impact": operational_impact})
 
 
 def escalation_for_snapshot(
