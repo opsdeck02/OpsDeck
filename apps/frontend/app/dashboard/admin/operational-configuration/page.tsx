@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ArrowRight, Gauge } from "lucide-react";
+import { AlertTriangle, ArrowRight, Gauge } from "lucide-react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getCurrentUser } from "@/lib/api";
@@ -43,6 +43,26 @@ export default async function OperationalConfigurationPage() {
             <p className="text-sm leading-5 text-mutedForeground">
               Configure production interruption impact assumptions used in
               operational risk calculations.
+            </p>
+          </CardContent>
+        </Link>
+        <Link
+          href="/dashboard/admin/operational-configuration/continuity-thresholds"
+          className="group rounded-2xl bg-card/90 shadow-panel ring-1 ring-slate-900/5 transition hover:-translate-y-0.5 hover:ring-primary/30"
+        >
+          <CardHeader className="flex flex-row items-start justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <span className="rounded-lg bg-slate-100 p-2 text-slate-700">
+                <AlertTriangle className="h-4 w-4" />
+              </span>
+              <CardTitle>Continuity Thresholds</CardTitle>
+            </div>
+            <ArrowRight className="mt-1 h-4 w-4 text-mutedForeground transition group-hover:translate-x-0.5 group-hover:text-primary" />
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm leading-5 text-mutedForeground">
+              Configure when materials should move from safe to warning,
+              critical, or projected stockout risk.
             </p>
           </CardContent>
         </Link>

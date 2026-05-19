@@ -1,7 +1,7 @@
 from datetime import datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class ProductionInterruptionImpactConfigPayload(BaseModel):
@@ -41,6 +41,37 @@ class ProductionInterruptionImpactConfigRead(BaseModel):
     interruption_probability_override: Decimal | None = Field(default=None, ge=0, le=1)
     currency: str = "INR"
     is_active: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class ContinuityThresholdPayload(BaseModel):
+    plant_id: int
+    material_id: int
+    warning_days: Decimal = Field(ge=0)
+    threshold_days: Decimal = Field(ge=0)
+    minimum_buffer_stock_days: Decimal | None = Field(default=None, ge=0)
+    minimum_buffer_stock_mt: Decimal | None = Field(default=None, ge=0)
+    stockout_alert_horizon_days: Decimal | None = Field(default=None, ge=0)
+
+    @model_validator(mode="after")
+    def warning_must_not_be_less_than_critical(self):
+        if self.warning_days < self.threshold_days:
+            raise ValueError("warning_days must be greater than or equal to threshold_days")
+        return self
+
+
+class ContinuityThresholdRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    plant_id: int
+    material_id: int
+    warning_days: Decimal = Field(ge=0)
+    threshold_days: Decimal = Field(ge=0)
+    minimum_buffer_stock_days: Decimal | None = Field(default=None, ge=0)
+    minimum_buffer_stock_mt: Decimal | None = Field(default=None, ge=0)
+    stockout_alert_horizon_days: Decimal | None = Field(default=None, ge=0)
     created_at: datetime
     updated_at: datetime
 

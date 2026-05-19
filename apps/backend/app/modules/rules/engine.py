@@ -16,6 +16,7 @@ from app.modules.stock.schemas import InventoryContinuityResult
 from app.schemas.context import RequestContext
 
 FRESHNESS_ORDER = {"fresh": 0, "delayed": 1, "unknown": 2, "stale": 3, "critical": 4}
+DEFAULT_STOCKOUT_ALERT_HOURS = Decimal("48")
 
 
 class ContributingSignal(BaseModel):
@@ -127,6 +128,7 @@ def evaluate_inventory_rules(
     candidates: list[RiskCandidate] = []
     days = continuity.days_of_cover
     if days is None:
+        reserve_reasons = protected_reserve_reasons(continuity)
         if continuity.usable_quantity <= 0:
             candidates.append(
                 with_explainability(
@@ -138,14 +140,28 @@ def evaluate_inventory_rules(
                         rule_reasons=[
                             "Days of cover is unknown because consumption rate is unavailable",
                             "Usable quantity is zero or negative",
+                            *reserve_reasons,
                         ],
                         recommended_owner_role="materials_planner",
                     )
                 )
             )
+        elif reserve_reasons:
+            candidates.append(protected_reserve_candidate(continuity, reserve_reasons))
         return candidates
 
-    severity = severity_for_days_of_cover(days)
+    severity = severity_for_days_of_cover(
+        days,
+        threshold_days=continuity.threshold_days,
+        warning_days=continuity.warning_days,
+    )
+    rule_reasons = [
+        threshold_reason(days, severity, continuity.threshold_days, continuity.warning_days)
+    ]
+    reserve_reasons = protected_reserve_reasons(continuity)
+    if reserve_reasons:
+        severity = max_severity(severity, "medium")
+        rule_reasons.extend(reserve_reasons)
     candidates.append(
         with_explainability(
             RiskCandidate(
@@ -155,18 +171,23 @@ def evaluate_inventory_rules(
                 material_reference=continuity.material_reference,
                 days_of_cover=days,
                 projected_exhaustion_date=continuity.projected_exhaustion_date,
-                rule_reasons=[f"Days of cover is {days}, mapped to {severity} by threshold"],
+                rule_reasons=rule_reasons,
                 recommended_owner_role="materials_planner",
             )
         )
     )
 
+    stockout_horizon = stockout_alert_horizon(continuity)
     if (
         continuity.projected_exhaustion_date is not None
         and now is not None
         and ensure_utc(continuity.projected_exhaustion_date)
-        <= ensure_utc(now) + timedelta(hours=48)
+        <= ensure_utc(now) + timedelta(hours=float(stockout_horizon))
     ):
+        horizon_reason = (
+            f"Projected exhaustion date is within {stockout_horizon_days_label(stockout_horizon)} "
+            "stockout alert horizon"
+        )
         candidates.append(
             with_explainability(
                 RiskCandidate(
@@ -176,7 +197,10 @@ def evaluate_inventory_rules(
                     material_reference=continuity.material_reference,
                     days_of_cover=days,
                     projected_exhaustion_date=continuity.projected_exhaustion_date,
-                    rule_reasons=["Projected exhaustion date is within 48 hours"],
+                    rule_reasons=[
+                        horizon_reason,
+                        stockout_horizon_source_reason(continuity),
+                    ],
                     recommended_owner_role="materials_planner",
                 )
             )
@@ -398,6 +422,11 @@ def summary_for(candidate: RiskCandidate) -> str:
             f"Material {material} at plant {plant} is projected to exhaust on "
             f"{candidate.projected_exhaustion_date}."
         )
+    if candidate.risk_type == "protected_reserve_breach":
+        return (
+            f"Material {material} at plant {plant} has breached a protected reserve "
+            "continuity threshold."
+        )
     if candidate.risk_type == "inbound_delay_against_cover":
         return (
             f"Inbound shipment {shipment} is degraded while available cover is only "
@@ -426,7 +455,11 @@ def summary_for(candidate: RiskCandidate) -> str:
 
 
 def primary_driver_for(candidate: RiskCandidate) -> str:
-    if candidate.risk_type in {"days_of_cover_breach", "projected_stockout"}:
+    if candidate.risk_type in {
+        "days_of_cover_breach",
+        "projected_stockout",
+        "protected_reserve_breach",
+    }:
         return "inventory_continuity"
     if candidate.risk_type in {"shipment_degraded", "inbound_delay_against_cover"}:
         return "shipment_continuity"
@@ -525,7 +558,17 @@ def event_matches_candidate_context(event: OperationalEvent, candidate: RiskCand
     return False
 
 
-def severity_for_days_of_cover(days_of_cover: Decimal) -> str:
+def severity_for_days_of_cover(
+    days_of_cover: Decimal,
+    threshold_days: Decimal | None = None,
+    warning_days: Decimal | None = None,
+) -> str:
+    if threshold_days is not None:
+        if days_of_cover <= threshold_days:
+            return "critical"
+        if warning_days is not None and days_of_cover <= warning_days:
+            return "medium"
+        return "low"
     if days_of_cover <= Decimal("2"):
         return "critical"
     if days_of_cover <= Decimal("5"):
@@ -533,6 +576,96 @@ def severity_for_days_of_cover(days_of_cover: Decimal) -> str:
     if days_of_cover <= Decimal("10"):
         return "medium"
     return "low"
+
+
+def threshold_reason(
+    days_of_cover: Decimal,
+    severity: str,
+    threshold_days: Decimal | None,
+    warning_days: Decimal | None,
+) -> str:
+    if threshold_days is None:
+        return f"Days of cover is {days_of_cover}, mapped to {severity} by default thresholds"
+    if days_of_cover <= threshold_days:
+        return (
+            f"Days of cover is {days_of_cover}, at or below configured critical threshold "
+            f"of {threshold_days} days"
+        )
+    if warning_days is not None and days_of_cover <= warning_days:
+        return (
+            f"Days of cover is {days_of_cover}, at or below configured warning threshold "
+            f"of {warning_days} days"
+        )
+    return f"Days of cover is {days_of_cover}, above configured warning and critical thresholds"
+
+
+def protected_reserve_reasons(continuity: InventoryContinuityResult) -> list[str]:
+    reasons: list[str] = []
+    if (
+        continuity.minimum_buffer_stock_days is not None
+        and continuity.days_of_cover is not None
+        and continuity.days_of_cover <= continuity.minimum_buffer_stock_days
+    ):
+        reasons.append(
+            "Protected reserve days threshold was breached: "
+            f"{continuity.days_of_cover} days of cover is at or below "
+            f"{continuity.minimum_buffer_stock_days} days."
+        )
+    if (
+        continuity.minimum_buffer_stock_mt is not None
+        and continuity.usable_quantity <= continuity.minimum_buffer_stock_mt
+    ):
+        reasons.append(
+            "Protected reserve quantity threshold was breached: "
+            f"{continuity.usable_quantity} {continuity.unit} usable is at or below "
+            f"{continuity.minimum_buffer_stock_mt} {continuity.unit}."
+        )
+    return reasons
+
+
+def protected_reserve_candidate(
+    continuity: InventoryContinuityResult,
+    reserve_reasons: list[str],
+) -> RiskCandidate:
+    return with_explainability(
+        RiskCandidate(
+            risk_type="protected_reserve_breach",
+            severity="medium",
+            plant_reference=continuity.plant_reference,
+            material_reference=continuity.material_reference,
+            days_of_cover=continuity.days_of_cover,
+            projected_exhaustion_date=continuity.projected_exhaustion_date,
+            rule_reasons=reserve_reasons,
+            recommended_owner_role="materials_planner",
+        )
+    )
+
+
+def stockout_alert_horizon(continuity: InventoryContinuityResult) -> Decimal:
+    if continuity.stockout_alert_horizon_days is None:
+        return DEFAULT_STOCKOUT_ALERT_HOURS
+    return continuity.stockout_alert_horizon_days * Decimal("24")
+
+
+def stockout_horizon_days_label(horizon_hours: Decimal) -> str:
+    if horizon_hours == DEFAULT_STOCKOUT_ALERT_HOURS:
+        return "48 hours"
+    days = horizon_hours / Decimal("24")
+    return f"{days.quantize(Decimal('0.01'))} days"
+
+
+def stockout_horizon_source_reason(continuity: InventoryContinuityResult) -> str:
+    if continuity.stockout_alert_horizon_days is None:
+        return "Using fallback projected stockout alert horizon of 48 hours."
+    return (
+        "Using configured projected stockout alert horizon of "
+        f"{continuity.stockout_alert_horizon_days.quantize(Decimal('0.01'))} days."
+    )
+
+
+def max_severity(current: str, minimum: str) -> str:
+    order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+    return current if order.get(current, 3) <= order.get(minimum, 3) else minimum
 
 
 def inventory_continuity_items(

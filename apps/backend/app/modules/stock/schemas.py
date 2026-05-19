@@ -101,6 +101,11 @@ class InventoryContinuityResult(BaseModel):
     daily_consumption_rate: Decimal | None
     days_of_cover: Decimal | None
     raw_days_of_cover: Decimal | None = None
+    threshold_days: Decimal | None = None
+    warning_days: Decimal | None = None
+    minimum_buffer_stock_days: Decimal | None = None
+    minimum_buffer_stock_mt: Decimal | None = None
+    stockout_alert_horizon_days: Decimal | None = None
     trusted_inbound_quantity: Decimal = Decimal("0")
     uncertain_inbound_quantity: Decimal = Decimal("0")
     trusted_days_of_cover: Decimal | None = None

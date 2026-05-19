@@ -5,9 +5,17 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_db, require_admin_access
-from app.models import Material, Plant, ProductionInterruptionImpactConfig, ProductionLine
+from app.models import (
+    Material,
+    Plant,
+    PlantMaterialThreshold,
+    ProductionInterruptionImpactConfig,
+    ProductionLine,
+)
 from app.modules.impact.production_interruption import get_active_interruption_config
 from app.modules.impact.schemas import (
+    ContinuityThresholdPayload,
+    ContinuityThresholdRead,
     ProductionInterruptionImpactConfigPayload,
     ProductionInterruptionImpactConfigRead,
 )
@@ -90,6 +98,64 @@ def upsert_interruption_config(
     db.commit()
     db.refresh(config)
     return ProductionInterruptionImpactConfigRead.model_validate(config)
+
+
+@router.get(
+    "/continuity-thresholds",
+    response_model=ContinuityThresholdRead | None,
+)
+def get_continuity_threshold(
+    context: Annotated[RequestContext, Depends(require_admin_access)],
+    db: Annotated[Session, Depends(get_db)],
+    plant_id: Annotated[int, Query()],
+    material_id: Annotated[int, Query()],
+) -> ContinuityThresholdRead | None:
+    ensure_context(db, context, plant_id, material_id, None)
+    threshold = db.scalar(
+        select(PlantMaterialThreshold).where(
+            PlantMaterialThreshold.tenant_id == context.tenant_id,
+            PlantMaterialThreshold.plant_id == plant_id,
+            PlantMaterialThreshold.material_id == material_id,
+        )
+    )
+    return ContinuityThresholdRead.model_validate(threshold) if threshold is not None else None
+
+
+@router.put(
+    "/continuity-thresholds",
+    response_model=ContinuityThresholdRead,
+)
+def upsert_continuity_threshold(
+    payload: ContinuityThresholdPayload,
+    context: Annotated[RequestContext, Depends(require_admin_access)],
+    db: Annotated[Session, Depends(get_db)],
+) -> ContinuityThresholdRead:
+    ensure_context(db, context, payload.plant_id, payload.material_id, None)
+    threshold = db.scalar(
+        select(PlantMaterialThreshold).where(
+            PlantMaterialThreshold.tenant_id == context.tenant_id,
+            PlantMaterialThreshold.plant_id == payload.plant_id,
+            PlantMaterialThreshold.material_id == payload.material_id,
+        )
+    )
+    if threshold is None:
+        threshold = PlantMaterialThreshold(
+            tenant_id=context.tenant_id,
+            plant_id=payload.plant_id,
+            material_id=payload.material_id,
+            threshold_days=payload.threshold_days,
+            warning_days=payload.warning_days,
+        )
+        db.add(threshold)
+
+    threshold.threshold_days = payload.threshold_days
+    threshold.warning_days = payload.warning_days
+    threshold.minimum_buffer_stock_days = payload.minimum_buffer_stock_days
+    threshold.minimum_buffer_stock_mt = payload.minimum_buffer_stock_mt
+    threshold.stockout_alert_horizon_days = payload.stockout_alert_horizon_days
+    db.commit()
+    db.refresh(threshold)
+    return ContinuityThresholdRead.model_validate(threshold)
 
 
 def ensure_context(

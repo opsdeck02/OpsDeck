@@ -6,7 +6,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import Material, Plant, Shipment, StockSnapshot
+from app.models import Material, Plant, PlantMaterialThreshold, Shipment, StockSnapshot
 from app.models.enums import OperationalEventSourceType, ShipmentState
 from app.modules.operational_events.freshness import classify_event_freshness
 from app.modules.stock.schemas import InventoryContinuityResult
@@ -39,6 +39,11 @@ def calculate_inventory_continuity(
     inbound_uncertain_quantity: Decimal | None = None,
     trusted_inbound_quantity: Decimal | None = None,
     uncertain_inbound_quantity: Decimal | None = None,
+    threshold_days: Decimal | None = None,
+    warning_days: Decimal | None = None,
+    minimum_buffer_stock_days: Decimal | None = None,
+    minimum_buffer_stock_mt: Decimal | None = None,
+    stockout_alert_horizon_days: Decimal | None = None,
     cover_confidence_score: Decimal | None = None,
     freshness_status: str = "unknown",
     trust_warnings: list[str] | None = None,
@@ -101,6 +106,23 @@ def calculate_inventory_continuity(
         inbound_committed_quantity=quantize_decimal(inbound_committed),
         inbound_uncertain_quantity=quantize_decimal(inbound_uncertain),
         raw_days_of_cover=days_of_cover,
+        threshold_days=quantize_decimal(threshold_days) if threshold_days is not None else None,
+        warning_days=quantize_decimal(warning_days) if warning_days is not None else None,
+        minimum_buffer_stock_days=(
+            quantize_decimal(minimum_buffer_stock_days)
+            if minimum_buffer_stock_days is not None
+            else None
+        ),
+        minimum_buffer_stock_mt=(
+            quantize_decimal(minimum_buffer_stock_mt)
+            if minimum_buffer_stock_mt is not None
+            else None
+        ),
+        stockout_alert_horizon_days=(
+            quantize_decimal(stockout_alert_horizon_days)
+            if stockout_alert_horizon_days is not None
+            else None
+        ),
         trusted_inbound_quantity=quantize_decimal(trusted_inbound),
         uncertain_inbound_quantity=quantize_decimal(uncertain_inbound),
         trusted_days_of_cover=trusted_days_of_cover,
@@ -143,6 +165,13 @@ def calculate_inventory_continuity_for(
     snapshot = latest_snapshot(db, context.tenant_id, plant_id, material_id)
     if snapshot is None:
         return None
+    threshold = db.scalar(
+        select(PlantMaterialThreshold).where(
+            PlantMaterialThreshold.tenant_id == context.tenant_id,
+            PlantMaterialThreshold.plant_id == plant_id,
+            PlantMaterialThreshold.material_id == material_id,
+        )
+    )
 
     trusted_inbound, uncertain_inbound, freshness_status, trust_warnings, cover_confidence_score = (
         trusted_inbound_quantities(
@@ -172,6 +201,11 @@ def calculate_inventory_continuity_for(
         inbound_uncertain_quantity=inbound_uncertain,
         trusted_inbound_quantity=trusted_inbound,
         uncertain_inbound_quantity=uncertain_inbound,
+        threshold_days=threshold.threshold_days if threshold else None,
+        warning_days=threshold.warning_days if threshold else None,
+        minimum_buffer_stock_days=threshold.minimum_buffer_stock_days if threshold else None,
+        minimum_buffer_stock_mt=threshold.minimum_buffer_stock_mt if threshold else None,
+        stockout_alert_horizon_days=threshold.stockout_alert_horizon_days if threshold else None,
         cover_confidence_score=cover_confidence_score,
         freshness_status=freshness_status,
         trust_warnings=trust_warnings,

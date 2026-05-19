@@ -25,3 +25,15 @@ class PlantMaterialThreshold(TenantScopedMixin, TimestampMixin, Base):
     material_id: Mapped[int] = mapped_column(ForeignKey("materials.id", ondelete="CASCADE"))
     threshold_days: Mapped[Decimal] = mapped_column(Numeric(8, 2), nullable=False)
     warning_days: Mapped[Decimal] = mapped_column(Numeric(8, 2), nullable=False)
+    minimum_buffer_stock_days: Mapped[Decimal | None] = mapped_column(
+        Numeric(8, 2),
+        nullable=True,
+    )
+    minimum_buffer_stock_mt: Mapped[Decimal | None] = mapped_column(
+        Numeric(14, 2),
+        nullable=True,
+    )
+    stockout_alert_horizon_days: Mapped[Decimal | None] = mapped_column(
+        Numeric(8, 2),
+        nullable=True,
+    )
