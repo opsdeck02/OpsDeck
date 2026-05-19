@@ -1,6 +1,6 @@
 """Add optional continuity threshold fields.
 
-Revision ID: 0016_continuity_threshold_optional_fields
+Revision ID: 0016
 Revises: 0015
 Create Date: 2026-05-19 00:00:00.000000
 """
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 from alembic import op
 
-revision: str = "0016_continuity_threshold_optional_fields"
+revision: str = "0016"
 down_revision: str | None = "0015"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
