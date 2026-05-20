@@ -109,6 +109,7 @@ export function ProductProcessDependencyConfig({
   );
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const hasActiveProcesses = lines.some((line) => line.is_active);
 
   useEffect(() => {
     const nextMaterial = contexts.find(
@@ -140,6 +141,12 @@ export function ProductProcessDependencyConfig({
       lines.some((line) => line.id === current) ? current : (lines[0]?.id ?? 0),
     );
   }, [lines]);
+
+  useEffect(() => {
+    if (!hasActiveProcesses && tab !== "processes") {
+      setTab("processes");
+    }
+  }, [hasActiveProcesses, tab]);
 
   useEffect(() => {
     if (!selectedProcessId) {
@@ -207,16 +214,27 @@ export function ProductProcessDependencyConfig({
           <TabButton active={tab === "processes"} onClick={() => setTab("processes")}>
             Processes / Lines
           </TabButton>
-          <TabButton active={tab === "product-mix"} onClick={() => setTab("product-mix")}>
+          <TabButton
+            active={tab === "product-mix"}
+            disabled={!hasActiveProcesses}
+            onClick={() => setTab("product-mix")}
+          >
             Product Mix
           </TabButton>
           <TabButton
             active={tab === "material-dependency"}
+            disabled={!hasActiveProcesses}
             onClick={() => setTab("material-dependency")}
           >
             Material Dependency
           </TabButton>
         </div>
+        {!hasActiveProcesses ? (
+          <p className="text-xs leading-4 text-mutedForeground">
+            Product mix and material dependency require at least one
+            process/line.
+          </p>
+        ) : null}
       </CardHeader>
       <CardContent className="space-y-5">
         <ContextSelectors
@@ -440,7 +458,7 @@ function ProcessesSection({
         onSave={save}
         onCancel={editing ? reset : undefined}
       />
-      <CompactTable empty="No processes configured for this plant yet.">
+      <CompactTable empty="No operational processes or lines are configured for this plant yet. Add the first process/line to enable product mix and material dependency configuration.">
         {lines.map((line) => (
           <Row key={line.id}>
             <div>
@@ -881,10 +899,12 @@ function ChoiceGroup({
 
 function TabButton({
   active,
+  disabled = false,
   onClick,
   children,
 }: {
   active: boolean;
+  disabled?: boolean;
   onClick: () => void;
   children: ReactNode;
 }) {
@@ -892,10 +912,13 @@ function TabButton({
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
       className={`rounded-lg px-3 py-2 text-sm font-medium transition ${
         active
           ? "bg-slate-950 text-white"
-          : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+          : disabled
+            ? "cursor-not-allowed bg-slate-100 text-slate-400"
+            : "bg-slate-100 text-slate-700 hover:bg-slate-200"
       }`}
     >
       {children}

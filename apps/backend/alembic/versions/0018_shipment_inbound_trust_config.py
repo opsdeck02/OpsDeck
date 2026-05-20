@@ -1,7 +1,7 @@
 """shipment inbound trust config
 
 Revision ID: 0018_shipment_inbound_trust_config
-Revises: 0017_product_process_dependencies
+Revises: 0017
 Create Date: 2026-05-20
 """
 
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "0018_shipment_inbound_trust_config"
-down_revision: str | None = "0017_product_process_dependencies"
+down_revision: str | None = "0017"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

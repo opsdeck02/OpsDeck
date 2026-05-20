@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { ContinuityThresholdsConfigForm } from "@/components/admin/continuity-thresholds-config-form";
@@ -28,6 +29,12 @@ export default async function ContinuityThresholdsPage() {
     <div className="grid gap-4">
       <Card className="bg-card/90 shadow-panel">
         <CardHeader>
+          <Link
+            href="/dashboard/admin/operational-configuration"
+            className="text-xs font-semibold text-mutedForeground transition hover:text-foreground"
+          >
+            &larr; Back to Operational Configuration
+          </Link>
           <CardTitle>Continuity Thresholds</CardTitle>
           <p className="max-w-3xl text-sm leading-5 text-mutedForeground">
             Define when a material becomes a warning, critical, or projected

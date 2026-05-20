@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { ShipmentInboundTrustConfigForm } from "@/components/admin/shipment-inbound-trust-config-form";
@@ -28,6 +29,12 @@ export default async function ShipmentInboundTrustPage() {
     <div className="grid gap-4">
       <Card className="bg-card/90 shadow-panel">
         <CardHeader>
+          <Link
+            href="/dashboard/admin/operational-configuration"
+            className="text-xs font-semibold text-mutedForeground transition hover:text-foreground"
+          >
+            &larr; Back to Operational Configuration
+          </Link>
           <CardTitle>Shipment & Inbound Trust</CardTitle>
           <p className="max-w-3xl text-sm leading-5 text-mutedForeground">
             Configure expected visibility and ETA behavior so OpsDeck does not

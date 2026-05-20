@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { ProductProcessDependencyConfig } from "@/components/admin/product-process-dependency-config";
@@ -28,6 +29,12 @@ export default async function ProductProcessDependencyPage() {
     <div className="grid gap-4">
       <Card className="bg-card/90 shadow-panel">
         <CardHeader>
+          <Link
+            href="/dashboard/admin/operational-configuration"
+            className="text-xs font-semibold text-mutedForeground transition hover:text-foreground"
+          >
+            &larr; Back to Operational Configuration
+          </Link>
           <CardTitle>Product & Process Dependency</CardTitle>
           <p className="max-w-3xl text-sm leading-5 text-mutedForeground">
             Define how materials support production processes and how

@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { InterruptionImpactConfigForm } from "@/components/admin/interruption-impact-config-form";
@@ -28,6 +29,12 @@ export default async function InterruptionImpactPage() {
     <div className="grid gap-4">
       <Card className="bg-card/90 shadow-panel">
         <CardHeader>
+          <Link
+            href="/dashboard/admin/operational-configuration"
+            className="text-xs font-semibold text-mutedForeground transition hover:text-foreground"
+          >
+            &larr; Back to Operational Configuration
+          </Link>
           <CardTitle>Risk Value / Interruption Impact</CardTitle>
           <p className="max-w-3xl text-sm leading-5 text-mutedForeground">
             Configure production economics and continuity behavior assumptions
