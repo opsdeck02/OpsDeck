@@ -98,6 +98,10 @@ class InventoryContinuityResult(BaseModel):
     usable_quantity: Decimal
     inbound_committed_quantity: Decimal
     inbound_uncertain_quantity: Decimal
+    physical_inbound_quantity_mt: Decimal = Decimal("0")
+    trusted_inbound_protection_mt: Decimal = Decimal("0")
+    visibility_uncertain_quantity_mt: Decimal = Decimal("0")
+    visibility_confidence: Decimal | None = None
     daily_consumption_rate: Decimal | None
     days_of_cover: Decimal | None
     raw_days_of_cover: Decimal | None = None
@@ -113,5 +117,6 @@ class InventoryContinuityResult(BaseModel):
     cover_confidence_score: Decimal | None = None
     freshness_status: str = "unknown"
     trust_warnings: list[str] = []
+    visibility_reason_chain: list[str] = []
     unit: str
     calculation_reasons: list[str]

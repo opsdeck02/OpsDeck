@@ -7,9 +7,19 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import Material, Plant, PlantMaterialThreshold, Shipment, StockSnapshot
-from app.models.enums import OperationalEventSourceType, ShipmentState
-from app.modules.operational_events.freshness import classify_event_freshness
+from app.models.enums import ShipmentState
+from app.modules.shipments.visibility_confidence import (
+    calculate_visibility_confidence,
+    is_physical_inbound_candidate,
+)
+from app.modules.shipments.visibility_confidence import (
+    quantize_decimal as quantize_visibility_decimal,
+)
 from app.modules.stock.schemas import InventoryContinuityResult
+from app.modules.suppliers.reliability_context import (
+    calculate_supplier_reliability_context,
+    supplier_reliability_modifier,
+)
 from app.schemas.context import RequestContext
 
 COMMITTED_INBOUND_STATES = {
@@ -39,6 +49,10 @@ def calculate_inventory_continuity(
     inbound_uncertain_quantity: Decimal | None = None,
     trusted_inbound_quantity: Decimal | None = None,
     uncertain_inbound_quantity: Decimal | None = None,
+    physical_inbound_quantity_mt: Decimal | None = None,
+    trusted_inbound_protection_mt: Decimal | None = None,
+    visibility_uncertain_quantity_mt: Decimal | None = None,
+    visibility_reason_chain: list[str] | None = None,
     threshold_days: Decimal | None = None,
     warning_days: Decimal | None = None,
     minimum_buffer_stock_days: Decimal | None = None,
@@ -62,6 +76,21 @@ def calculate_inventory_continuity(
     )
     usable_quantity = on_hand_quantity - reserved - blocked - quality_hold
     trusted_cover_quantity = usable_quantity + trusted_inbound
+    physical_inbound = (
+        physical_inbound_quantity_mt
+        if physical_inbound_quantity_mt is not None
+        else inbound_committed + inbound_uncertain
+    )
+    trusted_protection = (
+        trusted_inbound_protection_mt
+        if trusted_inbound_protection_mt is not None
+        else trusted_inbound
+    )
+    visibility_uncertain = (
+        visibility_uncertain_quantity_mt
+        if visibility_uncertain_quantity_mt is not None
+        else uncertain_inbound
+    )
     calculation_reasons = [
         (
             "Usable stock calculated from on-hand minus reserved, blocked, "
@@ -105,6 +134,9 @@ def calculate_inventory_continuity(
         usable_quantity=quantize_decimal(usable_quantity),
         inbound_committed_quantity=quantize_decimal(inbound_committed),
         inbound_uncertain_quantity=quantize_decimal(inbound_uncertain),
+        physical_inbound_quantity_mt=quantize_decimal(physical_inbound),
+        trusted_inbound_protection_mt=quantize_decimal(trusted_protection),
+        visibility_uncertain_quantity_mt=quantize_decimal(visibility_uncertain),
         raw_days_of_cover=days_of_cover,
         threshold_days=quantize_decimal(threshold_days) if threshold_days is not None else None,
         warning_days=quantize_decimal(warning_days) if warning_days is not None else None,
@@ -132,8 +164,10 @@ def calculate_inventory_continuity(
         days_of_cover=days_of_cover,
         projected_exhaustion_date=projected_exhaustion_date,
         cover_confidence_score=quantize_decimal(cover_confidence_score),
+        visibility_confidence=quantize_decimal(cover_confidence_score),
         freshness_status=freshness_status,
         trust_warnings=dedupe(warnings),
+        visibility_reason_chain=dedupe(visibility_reason_chain or []),
         unit=unit,
         calculation_reasons=calculation_reasons,
     )
@@ -173,14 +207,20 @@ def calculate_inventory_continuity_for(
         )
     )
 
-    trusted_inbound, uncertain_inbound, freshness_status, trust_warnings, cover_confidence_score = (
-        trusted_inbound_quantities(
-            db,
-            context.tenant_id,
-            plant_id,
-            material_id,
-            now=now,
-        )
+    (
+        trusted_inbound,
+        uncertain_inbound,
+        physical_inbound,
+        freshness_status,
+        trust_warnings,
+        cover_confidence_score,
+        visibility_reasons,
+    ) = trusted_inbound_quantities(
+        db,
+        context.tenant_id,
+        plant_id,
+        material_id,
+        now=now,
     )
     inbound_committed, inbound_uncertain = inbound_quantities(
         db,
@@ -201,6 +241,10 @@ def calculate_inventory_continuity_for(
         inbound_uncertain_quantity=inbound_uncertain,
         trusted_inbound_quantity=trusted_inbound,
         uncertain_inbound_quantity=uncertain_inbound,
+        physical_inbound_quantity_mt=physical_inbound,
+        trusted_inbound_protection_mt=trusted_inbound,
+        visibility_uncertain_quantity_mt=uncertain_inbound,
+        visibility_reason_chain=visibility_reasons,
         threshold_days=threshold.threshold_days if threshold else None,
         warning_days=threshold.warning_days if threshold else None,
         minimum_buffer_stock_days=threshold.minimum_buffer_stock_days if threshold else None,
@@ -262,22 +306,15 @@ def trusted_inbound_quantities(
     material_id: int,
     *,
     now: datetime | None = None,
-) -> tuple[Decimal, Decimal, str, list[str], Decimal]:
+) -> tuple[Decimal, Decimal, Decimal, str, list[str], Decimal, list[str]]:
     evaluated_at = ensure_utc(now or datetime.now(UTC))
     trusted = Decimal("0")
     uncertain = Decimal("0")
+    physical = Decimal("0")
     warnings: list[str] = []
-    freshness_rank = {
-        "fresh": 0,
-        "delayed": 1,
-        "aging": 2,
-        "unknown": 3,
-        "stale": 4,
-        "critical": 5,
-    }
-    worst_freshness = "fresh"
-    trusted_count = 0
+    reason_chain: list[str] = []
     total_count = 0
+    confidence_sum = Decimal("0")
     shipments = db.scalars(
         select(Shipment).where(
             Shipment.tenant_id == tenant_id,
@@ -286,74 +323,78 @@ def trusted_inbound_quantities(
         )
     )
     for shipment in shipments:
+        if not is_physical_inbound_candidate(shipment):
+            continue
         total_count += 1
-        trusted_shipment, reason, freshness = trusted_shipment_inbound(shipment, evaluated_at)
-        if (
-            freshness_rank.get(freshness, freshness_rank["unknown"])
-            > freshness_rank[worst_freshness]
-        ):
-            worst_freshness = freshness
-        if trusted_shipment:
-            trusted += shipment.quantity_mt
-            trusted_count += 1
-        else:
-            uncertain += shipment.quantity_mt
-            if reason:
-                warnings.append(reason)
+        result = calculate_visibility_confidence(shipment, now=evaluated_at)
+        reliability = calculate_supplier_reliability_context(
+            db,
+            tenant_id=tenant_id,
+            shipment=shipment,
+            visibility_result=result,
+            now=evaluated_at,
+        )
+        modifier = supplier_reliability_modifier(reliability.reliability_band)
+        adjusted_confidence = max(
+            Decimal("0.00"),
+            min(Decimal("1.00"), result.visibility_confidence + modifier),
+        )
+        trusted_protection = quantize_visibility_decimal(
+            result.physical_inbound_quantity_mt * adjusted_confidence
+        )
+        visibility_uncertainty = quantize_visibility_decimal(
+            result.physical_inbound_quantity_mt - trusted_protection
+        )
+        physical += result.physical_inbound_quantity_mt
+        trusted += trusted_protection
+        uncertain += visibility_uncertainty
+        confidence_sum += adjusted_confidence
+        reason_chain.extend(
+            f"Shipment {shipment.shipment_id}: {reason}" for reason in result.reason_chain
+        )
+        reason_chain.extend(
+            f"Shipment {shipment.shipment_id}: {reason}" for reason in reliability.reason_chain
+        )
+        if modifier:
+            reason_chain.append(
+                f"Shipment {shipment.shipment_id}: Supplier reliability band "
+                f"{reliability.reliability_band} adjusted trusted inbound protection "
+                f"confidence by {modifier}."
+            )
+        if visibility_uncertainty > 0:
+            warnings.append(
+                "Inbound protection includes visibility uncertainty; physical inbound quantity "
+                "has not disappeared."
+            )
 
     if total_count == 0:
-        return Decimal("0"), Decimal("0"), "unknown", [], Decimal("1.00")
-    confidence = Decimal(str(trusted_count)) / Decimal(str(total_count))
+        return Decimal("0"), Decimal("0"), Decimal("0"), "unknown", [], Decimal("1.00"), []
+    confidence = confidence_sum / Decimal(str(total_count))
     if uncertain > 0:
-        warnings.append("Inbound contribution excluded from trusted cover due to weak visibility.")
-    return trusted, uncertain, worst_freshness, dedupe(warnings), quantize_decimal(confidence)
-
-
-def trusted_shipment_inbound(
-    shipment: Shipment, evaluated_at: datetime
-) -> tuple[bool, str | None, str]:
-    if shipment.plant_id is None or shipment.material_id is None:
-        return (
-            False,
-            "Inbound contribution excluded because plant/material context is missing.",
-            "unknown",
+        warnings.append(
+            "Visibility uncertainty moved part of physical inbound quantity out of trusted "
+            "inbound protection."
         )
-    if shipment.current_eta is None:
-        return False, "Inbound contribution excluded because ETA is missing.", "unknown"
-    freshness = shipment_freshness(shipment, evaluated_at)
-    if shipment.current_state not in COMMITTED_INBOUND_STATES:
-        return (
-            False,
-            "Inbound contribution excluded because shipment condition is degraded.",
-            freshness,
-        )
-    if freshness in {"stale", "critical", "unknown"}:
-        return (
-            False,
-            "Inbound contribution excluded from trusted cover due to weak visibility.",
-            freshness,
-        )
-    if shipment.eta_confidence is not None and shipment.eta_confidence < Decimal("0.60"):
-        return False, "Low confidence inbound creates weak visibility for trusted cover.", freshness
-    return True, None, freshness
-
-
-def shipment_freshness(shipment: Shipment, evaluated_at: datetime) -> str:
-    tracked_at = (
-        shipment.last_tracking_update_at or shipment.latest_update_at or shipment.updated_at
+    freshness = visibility_freshness_label(quantize_decimal(confidence))
+    return (
+        quantize_decimal(trusted),
+        quantize_decimal(uncertain),
+        quantize_decimal(physical),
+        freshness,
+        dedupe(warnings),
+        quantize_decimal(confidence),
+        dedupe(reason_chain),
     )
-    result = classify_event_freshness(
-        occurred_at=tracked_at,
-        detected_at=evaluated_at,
-        source_type=tracking_source_type_for(shipment),
-    )
-    return result.status.value
 
 
-def tracking_source_type_for(shipment: Shipment) -> OperationalEventSourceType:
-    if shipment.imo_number or shipment.mmsi or shipment.vessel_name:
-        return OperationalEventSourceType.AIS
-    return OperationalEventSourceType.MANUAL_UPLOAD
+def visibility_freshness_label(confidence: Decimal) -> str:
+    if confidence >= Decimal("0.80"):
+        return "fresh"
+    if confidence >= Decimal("0.60"):
+        return "delayed"
+    if confidence >= Decimal("0.40"):
+        return "stale"
+    return "critical"
 
 
 def implied_blocked_quantity(snapshot: StockSnapshot) -> Decimal:

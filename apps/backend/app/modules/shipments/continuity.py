@@ -10,6 +10,7 @@ from app.models import Material, Plant, Shipment
 from app.models.enums import OperationalEventSourceType, ShipmentState
 from app.modules.operational_events.freshness import classify_event_freshness
 from app.modules.shipments.schemas import ShipmentContinuityResult
+from app.modules.shipments.visibility_confidence import calculate_visibility_confidence
 from app.schemas.context import RequestContext
 
 WATCH_STATUSES = {"watch"}
@@ -139,11 +140,9 @@ def calculate_shipment_continuity_for(
         )
     )
     tracking_updated_at = (
-        shipment.last_tracking_update_at
-        or shipment.latest_update_at
-        or shipment.updated_at
+        shipment.last_tracking_update_at or shipment.latest_update_at or shipment.updated_at
     )
-    return calculate_shipment_continuity(
+    result = calculate_shipment_continuity(
         shipment_reference=shipment.shipment_id,
         eta=shipment.current_eta,
         previous_eta=shipment.latest_eta,
@@ -157,6 +156,16 @@ def calculate_shipment_continuity_for(
         current_state=shipment.current_state,
         now=now,
     )
+    visibility = calculate_visibility_confidence(shipment, now=now)
+    result.continuity_reasons.extend(
+        reason
+        for reason in visibility.reason_chain
+        if reason.startswith("Shipment classified")
+        or reason.startswith("ETA drift")
+        or "ETA" in reason
+        or "Confidence partially restored" in reason
+    )
+    return result
 
 
 def calculate_eta_slip_days(

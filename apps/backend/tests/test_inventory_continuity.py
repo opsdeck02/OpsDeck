@@ -155,9 +155,10 @@ def test_inventory_continuity_preserves_tenant_isolation() -> None:
             assert result_a.usable_quantity == Decimal("80.00")
             assert result_a.inbound_committed_quantity == Decimal("50.00")
             assert result_a.inbound_uncertain_quantity == Decimal("25.00")
-            assert result_a.trusted_inbound_quantity == Decimal("50.00")
-            assert result_a.uncertain_inbound_quantity == Decimal("25.00")
-            assert result_a.trusted_days_of_cover == Decimal("6.50")
+            assert result_a.physical_inbound_quantity_mt == Decimal("75.00")
+            assert result_a.trusted_inbound_quantity == Decimal("45.00")
+            assert result_a.uncertain_inbound_quantity == Decimal("30.00")
+            assert result_a.trusted_days_of_cover == Decimal("6.25")
             assert result_b is None
     finally:
         Base.metadata.drop_all(bind=engine)
@@ -199,9 +200,11 @@ def test_trusted_inbound_increases_trusted_cover() -> None:
 
         assert result is not None
         assert result.days_of_cover == Decimal("4.00")
-        assert result.trusted_inbound_quantity == Decimal("40.00")
-        assert result.trusted_days_of_cover == Decimal("6.00")
-        assert result.projected_exhaustion_date == datetime(2026, 5, 15, 12, tzinfo=UTC)
+        assert result.physical_inbound_quantity_mt == Decimal("40.00")
+        assert result.trusted_inbound_quantity == Decimal("24.00")
+        assert result.uncertain_inbound_quantity == Decimal("16.00")
+        assert result.trusted_days_of_cover == Decimal("5.20")
+        assert result.projected_exhaustion_date == datetime(2026, 5, 14, 16, 48, tzinfo=UTC)
 
 
 def test_degraded_or_stale_inbound_is_uncertain() -> None:
@@ -253,10 +256,11 @@ def test_degraded_or_stale_inbound_is_uncertain() -> None:
         )
 
         assert result is not None
-        assert result.trusted_inbound_quantity == Decimal("0.00")
-        assert result.uncertain_inbound_quantity == Decimal("50.00")
-        assert result.trusted_days_of_cover == Decimal("4.00")
-        assert any("weak visibility" in warning for warning in result.trust_warnings)
+        assert result.physical_inbound_quantity_mt == Decimal("50.00")
+        assert result.trusted_inbound_quantity == Decimal("6.50")
+        assert result.uncertain_inbound_quantity == Decimal("43.50")
+        assert result.trusted_days_of_cover == Decimal("4.33")
+        assert any("Visibility uncertainty" in warning for warning in result.trust_warnings)
 
 
 def test_low_confidence_inbound_creates_trust_warning() -> None:
@@ -294,9 +298,10 @@ def test_low_confidence_inbound_creates_trust_warning() -> None:
         )
 
         assert result is not None
-        assert result.trusted_inbound_quantity == Decimal("0.00")
-        assert result.uncertain_inbound_quantity == Decimal("30.00")
-        assert any("Low confidence inbound" in warning for warning in result.trust_warnings)
+        assert result.physical_inbound_quantity_mt == Decimal("30.00")
+        assert result.trusted_inbound_quantity == Decimal("18.00")
+        assert result.uncertain_inbound_quantity == Decimal("12.00")
+        assert any("Visibility uncertainty" in warning for warning in result.trust_warnings)
 
 
 def inventory_test_session():
