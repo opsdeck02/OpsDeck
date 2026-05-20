@@ -5,7 +5,7 @@ from decimal import Decimal
 
 from pydantic import BaseModel
 
-from app.models import Shipment
+from app.models import Shipment, ShipmentInboundTrustConfig
 from app.models.enums import ShipmentState
 
 PROFILE_CADENCE_HOURS = {
@@ -102,14 +102,23 @@ def calculate_visibility_confidence(
     shipment: Shipment,
     *,
     now: datetime | None = None,
+    trust_config: ShipmentInboundTrustConfig | None = None,
 ) -> VisibilityConfidenceResult:
     evaluated_at = ensure_utc(now or datetime.now(UTC))
     physical_quantity = shipment.quantity_mt
-    profile = infer_visibility_profile(shipment)
-    cadence = PROFILE_CADENCE_HOURS[profile]
+    profile = trust_config.visibility_profile if trust_config is not None else infer_visibility_profile(shipment)
+    cadence = (
+        trust_config.expected_visibility_cadence_hours
+        if trust_config is not None
+        else PROFILE_CADENCE_HOURS[profile]
+    )
     confidence = PROFILE_BASE_CONFIDENCE[profile]
     reasons = [
-        f"Visibility profile inferred as {profile}.",
+        (
+            f"Configured visibility profile used as {profile}."
+            if trust_config is not None
+            else f"Visibility profile inferred as {profile}."
+        ),
         f"Expected visibility cadence is {cadence} hours.",
         f"Physical inbound quantity is {physical_quantity} MT.",
     ]
@@ -132,6 +141,9 @@ def calculate_visibility_confidence(
         hours_since_update=hours_since_update,
         expected_visibility_cadence_hours=cadence,
         abnormal_visibility=abnormal,
+        eta_drift_tolerance_hours=(
+            trust_config.eta_drift_tolerance_hours if trust_config is not None else None
+        ),
     )
     eta_status = eta_stability_status_from_behavior(eta_behavior.eta_behavior_status)
     reasons.extend(eta_behavior.eta_reason_chain)
@@ -181,6 +193,16 @@ def calculate_visibility_confidence(
     if shipment.current_eta is None and tracked_at is None:
         confidence -= Decimal("0.20")
         reasons.append("Missing ETA and update timestamp applied 0.20 confidence penalty.")
+
+    if trust_config is not None and not trust_config.allow_unverified_inbound_protection:
+        unverified = shipment.current_eta is None or tracked_at is None
+        if unverified and confidence > trust_config.weak_visibility_threshold:
+            confidence = trust_config.weak_visibility_threshold
+            reasons.append(
+                "Configured unverified inbound handling capped trusted protection at "
+                f"weak visibility threshold {trust_config.weak_visibility_threshold}; "
+                "physical inbound quantity remains unchanged."
+            )
 
     confidence = clamp(confidence)
     trusted_quantity = quantize_decimal(physical_quantity * confidence)
@@ -236,9 +258,10 @@ def calculate_eta_behavior(
     hours_since_update: Decimal | None,
     expected_visibility_cadence_hours: Decimal,
     abnormal_visibility: bool,
+    eta_drift_tolerance_hours: Decimal | None = None,
 ) -> EtaBehaviorResult:
     tolerance_profile = eta_context_tolerance_profile(shipment, visibility_profile)
-    tolerance_hours = ETA_DRIFT_TOLERANCE_HOURS[tolerance_profile]
+    tolerance_hours = eta_drift_tolerance_hours or ETA_DRIFT_TOLERANCE_HOURS[tolerance_profile]
     current_eta = shipment.current_eta
     planned_eta = shipment.planned_eta
     latest_eta = shipment.latest_eta
@@ -247,7 +270,11 @@ def calculate_eta_behavior(
             f"Shipment classified as {visibility_profile} profile with "
             f"{tolerance_profile} ETA expectations."
         ),
-        f"ETA drift tolerance is {tolerance_hours} hours.",
+        (
+            f"Configured ETA drift tolerance is {tolerance_hours} hours."
+            if eta_drift_tolerance_hours is not None
+            else f"ETA drift tolerance is {tolerance_hours} hours."
+        ),
     ]
     if current_eta is None or planned_eta is None:
         reasons.append("ETA behavior is unknown because current or planned ETA is missing.")

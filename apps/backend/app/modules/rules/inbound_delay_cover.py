@@ -7,6 +7,9 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.models import Shipment
+from app.modules.impact.shipment_inbound_trust import (
+    get_active_shipment_inbound_trust_config,
+)
 from app.modules.shipments.schemas import ShipmentContinuityResult
 from app.modules.shipments.visibility_confidence import (
     VisibilityConfidenceResult,
@@ -72,8 +75,20 @@ def evaluate_inbound_delay_cover_intelligence(
     eta_delay_hours = eta_delay_hours_for(shipment_continuity, shipment)
     visibility: VisibilityConfidenceResult | None = None
     supplier: SupplierReliabilityContextResult | None = None
+    trust_config = None
     if shipment is not None:
-        visibility = calculate_visibility_confidence(shipment, now=now)
+        if db is not None and tenant_id is not None:
+            trust_config = get_active_shipment_inbound_trust_config(
+                db,
+                tenant_id=tenant_id,
+                plant_id=shipment.plant_id,
+                material_id=shipment.material_id,
+            )
+        visibility = calculate_visibility_confidence(
+            shipment,
+            now=now,
+            trust_config=trust_config,
+        )
         if db is not None and tenant_id is not None:
             supplier = calculate_supplier_reliability_context(
                 db,
@@ -95,7 +110,19 @@ def evaluate_inbound_delay_cover_intelligence(
         supplier,
     )
     trusted_ratio = trusted / physical if physical > 0 else Decimal("0")
-    trusted_weak = trusted_ratio < Decimal("0.50")
+    weak_threshold = (
+        trust_config.weak_visibility_threshold
+        if trust_config is not None
+        else Decimal("0.50")
+    )
+    minimum_trusted_ratio = (
+        trust_config.minimum_trusted_inbound_ratio
+        if trust_config is not None
+        else None
+    )
+    trusted_weak = trusted_ratio < weak_threshold or (
+        minimum_trusted_ratio is not None and trusted_ratio < minimum_trusted_ratio
+    )
     cover_pressure = cover_pressure_for(days, threshold_days, warning_days)
     delay_exceeds_cover = bool(days is not None and eta_delay_hours / Decimal("24") >= days)
     delay_exceeds_threshold_window = bool(
@@ -115,6 +142,13 @@ def evaluate_inbound_delay_cover_intelligence(
         ),
         f"Trusted inbound protection ratio is {quantize_decimal(trusted_ratio)}.",
     ]
+    if trust_config is not None:
+        reasons.append(f"Configured weak visibility threshold used: {weak_threshold}.")
+        if minimum_trusted_ratio is not None:
+            reasons.append(
+                "Configured minimum trusted inbound ratio used: "
+                f"{minimum_trusted_ratio}."
+            )
     if visibility is not None:
         reasons.append(f"Visibility confidence is {visibility.visibility_confidence}.")
     if supplier is not None:

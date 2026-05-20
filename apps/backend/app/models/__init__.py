@@ -4,6 +4,7 @@ from app.models.impact import (
     ProcessProductDependency,
     ProductionInterruptionImpactConfig,
     ProductionLine,
+    ShipmentInboundTrustConfig,
 )
 from app.models.ingestion import IngestionJob, UploadedFile
 from app.models.material import Material
@@ -53,6 +54,7 @@ __all__ = [
     "ProcessProductDependency",
     "ProductionInterruptionImpactConfig",
     "ProductionLine",
+    "ShipmentInboundTrustConfig",
     "Role",
     "Shipment",
     "ShipmentContainer",

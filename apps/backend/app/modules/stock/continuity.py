@@ -12,6 +12,9 @@ from app.modules.shipments.visibility_confidence import (
     calculate_visibility_confidence,
     is_physical_inbound_candidate,
 )
+from app.modules.impact.shipment_inbound_trust import (
+    get_active_shipment_inbound_trust_config,
+)
 from app.modules.shipments.visibility_confidence import (
     quantize_decimal as quantize_visibility_decimal,
 )
@@ -322,11 +325,21 @@ def trusted_inbound_quantities(
             Shipment.material_id == material_id,
         )
     )
+    trust_config = get_active_shipment_inbound_trust_config(
+        db,
+        tenant_id=tenant_id,
+        plant_id=plant_id,
+        material_id=material_id,
+    )
     for shipment in shipments:
         if not is_physical_inbound_candidate(shipment):
             continue
         total_count += 1
-        result = calculate_visibility_confidence(shipment, now=evaluated_at)
+        result = calculate_visibility_confidence(
+            shipment,
+            now=evaluated_at,
+            trust_config=trust_config,
+        )
         reliability = calculate_supplier_reliability_context(
             db,
             tenant_id=tenant_id,

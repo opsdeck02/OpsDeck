@@ -86,6 +86,29 @@ finished_goods_value_per_mt
 
 No existing interruption impact configuration is broken.
 
+## Admin Configuration
+
+Tenant admins configure V1 at:
+
+```text
+Admin -> Operational Configuration -> Product & Process Dependency
+```
+
+The page has three compact sections:
+
+- **Processes / Lines** configures active production processes using the existing `production_lines` table.
+- **Product Mix** configures process output exposure through `ProcessProductDependency`.
+- **Material Dependency** configures which materials affect which process through `MaterialProcessDependency`.
+
+The UI keeps operational labels in front of backend ratios:
+
+- `Output share %` is submitted as `output_share_ratio = percentage / 100`.
+- Product criticality choices map to `operational_criticality_factor`.
+- Material dependency choices map to `dependency_ratio`.
+- Substitution and survivability can be left as fallback values, which submit `null` and let the interruption config continue to provide the baseline assumption.
+
+If no product/process dependency is configured for a material, OpsDeck uses the existing weighted output value fallback. The page describes the result as an operational exposure estimate, not exact financial loss.
+
 ## Explainability
 
 Impact reason chains now include:

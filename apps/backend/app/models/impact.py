@@ -152,3 +152,48 @@ class MaterialProcessDependency(TenantScopedMixin, TimestampMixin, Base):
     substitution_factor: Mapped[Decimal | None] = mapped_column(Numeric(5, 4))
     survivability_hours: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
+class ShipmentInboundTrustConfig(TenantScopedMixin, TimestampMixin, Base):
+    __tablename__ = "shipment_inbound_trust_configs"
+    __table_args__ = (
+        CheckConstraint(
+            "expected_visibility_cadence_hours >= 0",
+            name="ck_shipment_trust_cadence_gte_0",
+        ),
+        CheckConstraint(
+            "eta_drift_tolerance_hours >= 0",
+            name="ck_shipment_trust_eta_tolerance_gte_0",
+        ),
+        CheckConstraint(
+            "weak_visibility_threshold >= 0 AND weak_visibility_threshold <= 1",
+            name="ck_shipment_trust_weak_threshold_range",
+        ),
+        CheckConstraint(
+            "minimum_trusted_inbound_ratio IS NULL OR "
+            "(minimum_trusted_inbound_ratio >= 0 AND minimum_trusted_inbound_ratio <= 1)",
+            name="ck_shipment_trust_min_ratio_range",
+        ),
+        Index(
+            "ix_shipment_trust_tenant_plant_material_active",
+            "tenant_id",
+            "plant_id",
+            "material_id",
+            "is_active",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    plant_id: Mapped[int] = mapped_column(ForeignKey("plants.id", ondelete="CASCADE"))
+    material_id: Mapped[int] = mapped_column(ForeignKey("materials.id", ondelete="CASCADE"))
+    visibility_profile: Mapped[str] = mapped_column(String(20), nullable=False)
+    expected_visibility_cadence_hours: Mapped[Decimal] = mapped_column(
+        Numeric(10, 2), nullable=False
+    )
+    eta_drift_tolerance_hours: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+    weak_visibility_threshold: Mapped[Decimal] = mapped_column(Numeric(5, 4), nullable=False)
+    minimum_trusted_inbound_ratio: Mapped[Decimal | None] = mapped_column(Numeric(5, 4))
+    allow_unverified_inbound_protection: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
