@@ -1,5 +1,10 @@
 from app.models.data_source import ExternalDataSource
-from app.models.impact import ProductionInterruptionImpactConfig, ProductionLine
+from app.models.impact import (
+    MaterialProcessDependency,
+    ProcessProductDependency,
+    ProductionInterruptionImpactConfig,
+    ProductionLine,
+)
 from app.models.ingestion import IngestionJob, UploadedFile
 from app.models.material import Material
 from app.models.membership import TenantMembership
@@ -40,10 +45,12 @@ __all__ = [
     "MicrosoftConnection",
     "MicrosoftDataSource",
     "MicrosoftOAuthState",
+    "MaterialProcessDependency",
     "OperationalEvent",
     "Plant",
     "PlantMaterialThreshold",
     "PortEvent",
+    "ProcessProductDependency",
     "ProductionInterruptionImpactConfig",
     "ProductionLine",
     "Role",

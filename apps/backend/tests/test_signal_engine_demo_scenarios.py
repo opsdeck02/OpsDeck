@@ -127,7 +127,7 @@ def test_demo_scenario_delayed_inbound_generates_delay_against_cover() -> None:
             db,
             context_for(tenant),
             shipment_reference=shipment.shipment_id,
-            severity="critical",
+            severity="high",
             now=NOW,
         )
 

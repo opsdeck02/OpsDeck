@@ -7,7 +7,12 @@ from decimal import ROUND_HALF_UP, Decimal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import ProductionInterruptionImpactConfig
+from app.models import (
+    MaterialProcessDependency,
+    ProcessProductDependency,
+    ProductionInterruptionImpactConfig,
+    ProductionLine,
+)
 from app.modules.impact.schemas import OperationalInterruptionImpact
 
 FORMULA_VERSION = "production_interruption_impact_v1"
@@ -51,6 +56,26 @@ class ProductionInterruptionInputs:
     trusted_inbound_ratio: Decimal | None = None
     shipment_confidence_low: bool = False
     freshness_status: str | None = None
+
+
+@dataclass(frozen=True)
+class ProcessExposureLine:
+    process_id: int
+    process_name: str
+    dependency_ratio: Decimal
+    effective_dependency_ratio: Decimal
+    substitution_factor: Decimal
+    survivability_hours: Decimal
+    weighted_process_output_value: Decimal
+    process_production_impact: Decimal
+    products: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class DependencyExposureResult:
+    weighted_output_value_per_mt: Decimal
+    gross_production_impact: Decimal
+    process_lines: tuple[ProcessExposureLine, ...]
 
 
 def get_active_interruption_config(
@@ -98,6 +123,7 @@ def get_active_interruption_config(
 def calculate_production_interruption_impact(
     inputs: ProductionInterruptionInputs,
     config: ProductionInterruptionImpactConfig | None,
+    db: Session | None = None,
 ) -> OperationalInterruptionImpact:
     if inputs.risk_hours_remaining is None:
         if inputs.days_of_cover is None:
@@ -150,16 +176,17 @@ def calculate_production_interruption_impact(
         Decimal("0"),
         config.restart_time_hours - config.survivable_hours_without_material,
     )
+    base_gap_hours = max(supply_gap_hours, raw_gap_hours)
+    dependency_exposure = dependency_exposure_for(
+        db,
+        inputs=inputs,
+        config=config,
+        base_gap_hours=base_gap_hours,
+    )
     estimated_interruption_hours = quantize_decimal(
-        max(supply_gap_hours, raw_gap_hours)
-        * config.line_dependency_ratio
-        * (Decimal("1") - config.substitution_factor)
+        base_gap_hours * config.line_dependency_ratio * (Decimal("1") - config.substitution_factor)
     )
-    gross_production_impact = quantize_decimal(
-        config.production_rate_mt_per_hour
-        * config.finished_goods_value_per_mt
-        * estimated_interruption_hours
-    )
+    gross_production_impact = dependency_exposure.gross_production_impact
     downtime_impact = quantize_decimal(config.downtime_cost_per_hour * estimated_interruption_hours)
     restart_impact = (
         quantize_decimal(config.restart_cost)
@@ -203,6 +230,7 @@ def calculate_production_interruption_impact(
                 "Gross production impact = production rate x finished goods value x "
                 "estimated interruption hours."
             ),
+            *dependency_exposure_reasons(dependency_exposure, config),
             (
                 "Gross operational impact adds downtime and restart impact, then applies "
                 "cascading impact factor."
@@ -213,6 +241,172 @@ def calculate_production_interruption_impact(
             ),
         ],
     )
+
+
+def dependency_exposure_for(
+    db: Session | None,
+    *,
+    inputs: ProductionInterruptionInputs,
+    config: ProductionInterruptionImpactConfig,
+    base_gap_hours: Decimal,
+) -> DependencyExposureResult:
+    fallback_interruption_hours = quantize_decimal(
+        base_gap_hours * config.line_dependency_ratio * (Decimal("1") - config.substitution_factor)
+    )
+    fallback_gross_production_impact = quantize_decimal(
+        config.production_rate_mt_per_hour
+        * config.finished_goods_value_per_mt
+        * fallback_interruption_hours
+    )
+    fallback = DependencyExposureResult(
+        weighted_output_value_per_mt=quantize_decimal(config.finished_goods_value_per_mt),
+        gross_production_impact=fallback_gross_production_impact,
+        process_lines=(),
+    )
+    if db is None:
+        return fallback
+
+    dependencies = list(
+        db.scalars(
+            select(MaterialProcessDependency).where(
+                MaterialProcessDependency.tenant_id == inputs.tenant_id,
+                MaterialProcessDependency.material_id == inputs.material_id,
+                MaterialProcessDependency.is_active.is_(True),
+            )
+        )
+    )
+    if not dependencies:
+        return fallback
+
+    lines: list[ProcessExposureLine] = []
+    gross_production_impact = Decimal("0")
+    weighted_output_total = Decimal("0")
+    for dependency in dependencies:
+        process = db.scalar(
+            select(ProductionLine).where(
+                ProductionLine.tenant_id == inputs.tenant_id,
+                ProductionLine.id == dependency.process_id,
+                ProductionLine.plant_id == inputs.plant_id,
+                ProductionLine.is_active.is_(True),
+            )
+        )
+        if process is None:
+            continue
+        products = list(
+            db.scalars(
+                select(ProcessProductDependency).where(
+                    ProcessProductDependency.tenant_id == inputs.tenant_id,
+                    ProcessProductDependency.process_id == process.id,
+                    ProcessProductDependency.is_active.is_(True),
+                )
+            )
+        )
+        if not products:
+            continue
+        weighted_process_output_value = quantize_decimal(
+            sum(
+                (
+                    safe_ratio(product.output_share_ratio)
+                    * product.product_value_per_mt
+                    * safe_criticality(product.operational_criticality_factor)
+                    for product in products
+                ),
+                start=Decimal("0"),
+            )
+        )
+        dependency_ratio = safe_ratio(dependency.dependency_ratio)
+        substitution_factor = safe_ratio(
+            dependency.substitution_factor
+            if dependency.substitution_factor is not None
+            else config.substitution_factor
+        )
+        survivability_hours = (
+            max(Decimal("0"), dependency.survivability_hours)
+            if dependency.survivability_hours is not None
+            else config.survivable_hours_without_material
+        )
+        process_gap_hours = max(
+            base_gap_hours,
+            max(Decimal("0"), config.restart_time_hours - survivability_hours),
+        )
+        effective_dependency = quantize_probability(
+            dependency_ratio * config.line_dependency_ratio * (Decimal("1") - substitution_factor)
+        )
+        process_interruption_hours = quantize_decimal(process_gap_hours * effective_dependency)
+        process_impact = quantize_decimal(
+            config.production_rate_mt_per_hour
+            * weighted_process_output_value
+            * process_interruption_hours
+        )
+        gross_production_impact += process_impact
+        weighted_output_total += weighted_process_output_value * dependency_ratio
+        lines.append(
+            ProcessExposureLine(
+                process_id=process.id,
+                process_name=process.name,
+                dependency_ratio=quantize_probability(dependency_ratio),
+                effective_dependency_ratio=effective_dependency,
+                substitution_factor=quantize_probability(substitution_factor),
+                survivability_hours=quantize_decimal(survivability_hours),
+                weighted_process_output_value=weighted_process_output_value,
+                process_production_impact=process_impact,
+                products=tuple(
+                    (
+                        f"{product.product_name} "
+                        f"{quantize_probability(safe_ratio(product.output_share_ratio))} share "
+                        f"x {quantize_decimal(product.product_value_per_mt)} per MT "
+                        "x criticality "
+                        f"{quantize_probability(safe_criticality(product.operational_criticality_factor))}"
+                    )
+                    for product in products
+                ),
+            )
+        )
+    if not lines:
+        return fallback
+    return DependencyExposureResult(
+        weighted_output_value_per_mt=quantize_decimal(weighted_output_total),
+        gross_production_impact=quantize_decimal(gross_production_impact),
+        process_lines=tuple(lines),
+    )
+
+
+def dependency_exposure_reasons(
+    exposure: DependencyExposureResult,
+    config: ProductionInterruptionImpactConfig,
+) -> list[str]:
+    if not exposure.process_lines:
+        return [
+            (
+                "No active material-process-product dependency data was available; "
+                "fallback weighted output value per MT "
+                f"{quantize_decimal(config.finished_goods_value_per_mt)} "
+                "was used."
+            )
+        ]
+    reasons = [
+        (
+            "Product and process dependency model used weighted process/product exposure "
+            f"value per MT {exposure.weighted_output_value_per_mt}."
+        )
+    ]
+    for line in exposure.process_lines:
+        reasons.append(
+            (
+                f"Material affects {line.process_name} operations with dependency ratio "
+                f"{line.dependency_ratio}; effective process dependency after line/substitution "
+                f"weighting is {line.effective_dependency_ratio}."
+            )
+        )
+        reasons.append(
+            (
+                f"{line.process_name} weighted product exposure value is "
+                f"{line.weighted_process_output_value} per MT; production impact contribution "
+                f"is {line.process_production_impact}."
+            )
+        )
+        reasons.append(f"{line.process_name} output mix: {'; '.join(line.products)}.")
+    return reasons
 
 
 def supply_gap(
@@ -278,6 +472,14 @@ def unavailable_result(
 
 def quantize_optional(value: Decimal | None) -> Decimal | None:
     return quantize_decimal(value) if value is not None else None
+
+
+def safe_ratio(value: Decimal) -> Decimal:
+    return max(Decimal("0"), min(value, Decimal("1")))
+
+
+def safe_criticality(value: Decimal) -> Decimal:
+    return max(Decimal("0"), min(value, Decimal("2")))
 
 
 def quantize_decimal(value: Decimal) -> Decimal:

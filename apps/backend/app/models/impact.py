@@ -80,3 +80,75 @@ class ProductionInterruptionImpactConfig(TenantScopedMixin, TimestampMixin, Base
     interruption_probability_override: Mapped[Decimal | None] = mapped_column(Numeric(5, 4))
     currency: Mapped[str] = mapped_column(String(3), nullable=False, default="INR")
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
+class ProcessProductDependency(TenantScopedMixin, TimestampMixin, Base):
+    __tablename__ = "process_product_dependencies"
+    __table_args__ = (
+        CheckConstraint(
+            "output_share_ratio >= 0 AND output_share_ratio <= 1",
+            name="ck_process_product_output_share_range",
+        ),
+        CheckConstraint(
+            "product_value_per_mt >= 0",
+            name="ck_process_product_value_gte_0",
+        ),
+        CheckConstraint(
+            "operational_criticality_factor >= 0 AND operational_criticality_factor <= 2",
+            name="ck_process_product_criticality_range",
+        ),
+        Index(
+            "ix_process_products_tenant_process_active",
+            "tenant_id",
+            "process_id",
+            "is_active",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    process_id: Mapped[int] = mapped_column(ForeignKey("production_lines.id", ondelete="CASCADE"))
+    product_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    output_share_ratio: Mapped[Decimal] = mapped_column(Numeric(5, 4), nullable=False)
+    product_value_per_mt: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    operational_criticality_factor: Mapped[Decimal] = mapped_column(
+        Numeric(5, 4), nullable=False, default=Decimal("1.0")
+    )
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
+class MaterialProcessDependency(TenantScopedMixin, TimestampMixin, Base):
+    __tablename__ = "material_process_dependencies"
+    __table_args__ = (
+        CheckConstraint(
+            "dependency_ratio >= 0 AND dependency_ratio <= 1",
+            name="ck_material_process_dependency_ratio_range",
+        ),
+        CheckConstraint(
+            "substitution_factor IS NULL OR "
+            "(substitution_factor >= 0 AND substitution_factor <= 1)",
+            name="ck_material_process_substitution_range",
+        ),
+        CheckConstraint(
+            "survivability_hours IS NULL OR survivability_hours >= 0",
+            name="ck_material_process_survivability_gte_0",
+        ),
+        Index(
+            "ix_material_process_tenant_material_active",
+            "tenant_id",
+            "material_id",
+            "is_active",
+        ),
+        Index(
+            "ix_material_process_tenant_process",
+            "tenant_id",
+            "process_id",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    material_id: Mapped[int] = mapped_column(ForeignKey("materials.id", ondelete="CASCADE"))
+    process_id: Mapped[int] = mapped_column(ForeignKey("production_lines.id", ondelete="CASCADE"))
+    dependency_ratio: Mapped[Decimal] = mapped_column(Numeric(5, 4), nullable=False)
+    substitution_factor: Mapped[Decimal | None] = mapped_column(Numeric(5, 4))
+    survivability_hours: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)

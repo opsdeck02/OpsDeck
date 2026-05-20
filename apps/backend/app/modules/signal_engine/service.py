@@ -26,6 +26,7 @@ from app.modules.operational_events.timeline import (
     build_continuity_timeline,
     build_timeline_for_risk_candidate,
 )
+from app.modules.recommendations.operational_actions import recommend_operational_actions
 from app.modules.relationships.graph import (
     OperationalRelationshipGraph,
     build_operational_relationship_graph,
@@ -248,10 +249,16 @@ def evaluate_and_record_risk_escalation(
         )
         comparison = classify_snapshot_escalation(db, snapshot, update_snapshot=True)
         enriched.append(
-            apply_operational_interruption_impact(
+            apply_operational_recommendations(
                 db,
                 context,
-                apply_escalation(candidate, comparison),
+                apply_operational_interruption_impact(
+                    db,
+                    context,
+                    apply_escalation(candidate, comparison),
+                ),
+                inventory=inventory,
+                shipment=shipment,
             )
         )
     db.commit()
@@ -469,14 +476,18 @@ def enrich_candidates_with_latest_escalation(
     candidates: list[RiskCandidate],
 ) -> list[RiskCandidate]:
     return [
-        apply_operational_interruption_impact(
+        apply_operational_recommendations(
             db,
             context,
-            apply_snapshot_escalation(
-                candidate,
-                escalation_for_snapshot(
-                    db,
-                    latest_snapshot_for_candidate(db, context, candidate),
+            apply_operational_interruption_impact(
+                db,
+                context,
+                apply_snapshot_escalation(
+                    candidate,
+                    escalation_for_snapshot(
+                        db,
+                        latest_snapshot_for_candidate(db, context, candidate),
+                    ),
                 ),
             ),
         )
@@ -564,8 +575,45 @@ def apply_operational_interruption_impact(
             plant_id=plant.id,
             material_id=material.id,
         ),
+        db=db,
     )
     return candidate.model_copy(update={"operational_interruption_impact": operational_impact})
+
+
+def apply_operational_recommendations(
+    db: Session,
+    context: RequestContext,
+    candidate: RiskCandidate,
+    *,
+    inventory: InventoryContinuityResult | None = None,
+    shipment: ShipmentContinuityResult | None = None,
+) -> RiskCandidate:
+    resolved_inventory = inventory or first_or_none(
+        list_inventory_continuity(
+            db,
+            context,
+            plant_reference=candidate.plant_reference,
+            material_reference=candidate.material_reference,
+        )
+    )
+    resolved_shipment = shipment or first_or_none(
+        list_shipment_continuity(
+            db,
+            context,
+            plant_reference=candidate.plant_reference,
+            material_reference=candidate.material_reference,
+            shipment_reference=candidate.shipment_reference,
+        )
+    )
+    return candidate.model_copy(
+        update={
+            "operational_recommendations": recommend_operational_actions(
+                candidate,
+                inventory=resolved_inventory,
+                shipment=resolved_shipment,
+            )
+        }
+    )
 
 
 def escalation_for_snapshot(

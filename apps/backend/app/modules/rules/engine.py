@@ -9,6 +9,8 @@ from sqlalchemy.orm import Session
 
 from app.models import OperationalEvent, Shipment, StockSnapshot
 from app.modules.impact.schemas import OperationalInterruptionImpact
+from app.modules.recommendations.operational_actions import OperationalActionRecommendation
+from app.modules.rules.inbound_delay_cover import evaluate_inbound_delay_cover_intelligence
 from app.modules.shipments.continuity import calculate_shipment_continuity_for
 from app.modules.shipments.schemas import ShipmentContinuityResult
 from app.modules.stock.continuity import calculate_inventory_continuity_for
@@ -84,6 +86,7 @@ class RiskCandidate(BaseModel):
     prior_exposure_level: str | None = None
     current_exposure_level: str | None = None
     operational_interruption_impact: OperationalInterruptionImpact | None = None
+    operational_recommendations: list[OperationalActionRecommendation] = []
 
 
 def evaluate_rule_based_risks(
@@ -106,13 +109,26 @@ def evaluate_rule_based_risks(
     inventory_by_context = {
         (item.plant_reference, item.material_reference): item for item in inventory_items
     }
+    shipment_models_by_reference = {
+        item.shipment_id: item
+        for item in db.scalars(select(Shipment).where(Shipment.tenant_id == context.tenant_id))
+    }
     for shipment in shipment_items:
         candidates.extend(evaluate_shipment_rules(shipment))
         inventory = inventory_by_context.get(
             (shipment.linked_plant_reference, shipment.linked_material_reference)
         )
         if inventory is not None:
-            candidates.extend(evaluate_inbound_delay_against_cover(shipment, inventory))
+            candidates.extend(
+                evaluate_inbound_delay_against_cover(
+                    shipment,
+                    inventory,
+                    db=db,
+                    tenant_id=context.tenant_id,
+                    shipment_model=shipment_models_by_reference.get(shipment.shipment_reference),
+                    now=evaluated_at,
+                )
+            )
 
     for event in events:
         candidates.extend(evaluate_event_trust_rules(event))
@@ -270,34 +286,41 @@ def evaluate_shipment_rules(continuity: ShipmentContinuityResult) -> list[RiskCa
 def evaluate_inbound_delay_against_cover(
     shipment: ShipmentContinuityResult,
     inventory: InventoryContinuityResult,
+    *,
+    db: Session | None = None,
+    tenant_id: int | None = None,
+    shipment_model: Shipment | None = None,
+    now: datetime | None = None,
 ) -> list[RiskCandidate]:
-    if shipment.status != "degraded" or inventory.days_of_cover is None:
+    if inventory.days_of_cover is None:
         return []
-    eta_slip_days = shipment.eta_slip_days or Decimal("0")
-    if inventory.days_of_cover <= eta_slip_days or inventory.days_of_cover <= Decimal("5"):
-        severity = "critical" if inventory.days_of_cover <= Decimal("2") else "high"
-        return [
-            with_explainability(
-                RiskCandidate(
-                    risk_type="inbound_delay_against_cover",
-                    severity=severity,
-                    plant_reference=inventory.plant_reference,
-                    material_reference=inventory.material_reference,
-                    shipment_reference=shipment.shipment_reference,
-                    days_of_cover=inventory.days_of_cover,
-                    projected_exhaustion_date=inventory.projected_exhaustion_date,
-                    continuity_status=shipment.status,
-                    freshness_status=shipment.tracking_freshness_status,
-                    rule_reasons=[
-                        "Shipment continuity is degraded",
-                        f"Inventory days of cover is {inventory.days_of_cover}",
-                        f"ETA slip is {eta_slip_days} days",
-                    ],
-                    recommended_owner_role="logistics_planner",
-                )
+    result = evaluate_inbound_delay_cover_intelligence(
+        shipment,
+        inventory,
+        db=db,
+        tenant_id=tenant_id,
+        shipment=shipment_model,
+        now=now,
+    )
+    if not result.applies:
+        return []
+    return [
+        with_explainability(
+            RiskCandidate(
+                risk_type=result.risk_type,
+                severity=result.severity,
+                plant_reference=inventory.plant_reference,
+                material_reference=inventory.material_reference,
+                shipment_reference=shipment.shipment_reference,
+                days_of_cover=inventory.days_of_cover,
+                projected_exhaustion_date=inventory.projected_exhaustion_date,
+                continuity_status=shipment.status,
+                freshness_status=shipment.tracking_freshness_status,
+                rule_reasons=result.reason_chain,
+                recommended_owner_role="logistics_planner",
             )
-        ]
-    return []
+        )
+    ]
 
 
 def evaluate_event_trust_rules(event: OperationalEvent) -> list[RiskCandidate]:

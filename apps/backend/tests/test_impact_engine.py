@@ -7,7 +7,9 @@ from sqlalchemy.pool import StaticPool
 from app.db.base import Base
 from app.models import (
     Material,
+    MaterialProcessDependency,
     Plant,
+    ProcessProductDependency,
     ProductionInterruptionImpactConfig,
     ProductionLine,
     Tenant,
@@ -330,6 +332,225 @@ def test_interruption_config_lookup_falls_back_to_unlined_plant_material_config(
         Base.metadata.drop_all(bind=engine)
 
 
+def test_dependency_model_fallback_preserves_existing_blended_value_behavior() -> None:
+    result = calculate_production_interruption_impact(
+        interruption_inputs(days_of_cover=Decimal("1"), risk_hours_remaining=Decimal("24")),
+        interruption_config(),
+    )
+
+    assert result.gross_production_impact == Decimal("2400000.00")
+    assert any("fallback weighted output value" in reason for reason in result.reason_chain)
+
+
+def test_material_linked_to_one_process_affects_interruption_impact() -> None:
+    with impact_test_session() as db:
+        tenant, plant, material = seed_context(db, "Tenant A", "tenant-a")
+        process = seed_process_dependency(
+            db,
+            tenant_id=tenant.id,
+            plant_id=plant.id,
+            material_id=material.id,
+            process_name="Blast Furnace",
+            products=[("HRC Coil", Decimal("1.0"), Decimal("2000"), Decimal("1.0"))],
+        )
+
+        result = calculate_production_interruption_impact(
+            interruption_inputs(tenant_id=tenant.id, plant_id=plant.id, material_id=material.id),
+            interruption_config(tenant_id=tenant.id, plant_id=plant.id, material_id=material.id),
+            db=db,
+        )
+
+        assert process.name == "Blast Furnace"
+        assert result.gross_production_impact == Decimal("4800000.00")
+        assert any("Blast Furnace" in reason for reason in result.reason_chain)
+
+
+def test_material_linked_to_multiple_processes_aggregates_exposure() -> None:
+    with impact_test_session() as db:
+        tenant, plant, material = seed_context(db, "Tenant A", "tenant-a")
+        seed_process_dependency(
+            db,
+            tenant_id=tenant.id,
+            plant_id=plant.id,
+            material_id=material.id,
+            process_name="Blast Furnace",
+            products=[("HRC Coil", Decimal("1.0"), Decimal("2000"), Decimal("1.0"))],
+        )
+        seed_process_dependency(
+            db,
+            tenant_id=tenant.id,
+            plant_id=plant.id,
+            material_id=material.id,
+            process_name="Sinter Plant",
+            dependency_ratio=Decimal("0.50"),
+            products=[("Sinter", Decimal("1.0"), Decimal("1000"), Decimal("1.0"))],
+        )
+
+        result = calculate_production_interruption_impact(
+            interruption_inputs(tenant_id=tenant.id, plant_id=plant.id, material_id=material.id),
+            interruption_config(tenant_id=tenant.id, plant_id=plant.id, material_id=material.id),
+            db=db,
+        )
+
+        assert result.gross_production_impact == Decimal("6000000.00")
+        assert any("Sinter Plant" in reason for reason in result.reason_chain)
+
+
+def test_product_mix_weighting_changes_exposure_value() -> None:
+    with impact_test_session() as db:
+        tenant, plant, material = seed_context(db, "Tenant A", "tenant-a")
+        seed_process_dependency(
+            db,
+            tenant_id=tenant.id,
+            plant_id=plant.id,
+            material_id=material.id,
+            process_name="Blast Furnace",
+            products=[
+                ("HRC Coil", Decimal("0.60"), Decimal("3000"), Decimal("1.0")),
+                ("Billets", Decimal("0.40"), Decimal("1000"), Decimal("1.0")),
+            ],
+        )
+
+        result = calculate_production_interruption_impact(
+            interruption_inputs(tenant_id=tenant.id, plant_id=plant.id, material_id=material.id),
+            interruption_config(tenant_id=tenant.id, plant_id=plant.id, material_id=material.id),
+            db=db,
+        )
+
+        assert result.gross_production_impact == Decimal("5280000.00")
+        assert any("HRC Coil" in reason and "Billets" in reason for reason in result.reason_chain)
+
+
+def test_operational_criticality_factor_affects_weighted_exposure() -> None:
+    with impact_test_session() as db:
+        tenant, plant, material = seed_context(db, "Tenant A", "tenant-a")
+        seed_process_dependency(
+            db,
+            tenant_id=tenant.id,
+            plant_id=plant.id,
+            material_id=material.id,
+            process_name="Blast Furnace",
+            products=[("HRC Coil", Decimal("1.0"), Decimal("1000"), Decimal("2.0"))],
+        )
+
+        result = calculate_production_interruption_impact(
+            interruption_inputs(tenant_id=tenant.id, plant_id=plant.id, material_id=material.id),
+            interruption_config(tenant_id=tenant.id, plant_id=plant.id, material_id=material.id),
+            db=db,
+        )
+
+        assert result.gross_production_impact == Decimal("4800000.00")
+        assert any("criticality 2.0000" in reason for reason in result.reason_chain)
+
+
+def test_dependency_ratio_affects_process_exposure() -> None:
+    with impact_test_session() as db:
+        tenant, plant, material = seed_context(db, "Tenant A", "tenant-a")
+        seed_process_dependency(
+            db,
+            tenant_id=tenant.id,
+            plant_id=plant.id,
+            material_id=material.id,
+            process_name="Blast Furnace",
+            dependency_ratio=Decimal("0.50"),
+            products=[("HRC Coil", Decimal("1.0"), Decimal("2000"), Decimal("1.0"))],
+        )
+
+        result = calculate_production_interruption_impact(
+            interruption_inputs(tenant_id=tenant.id, plant_id=plant.id, material_id=material.id),
+            interruption_config(tenant_id=tenant.id, plant_id=plant.id, material_id=material.id),
+            db=db,
+        )
+
+        assert result.gross_production_impact == Decimal("2400000.00")
+        assert any("dependency ratio 0.5000" in reason for reason in result.reason_chain)
+
+
+def test_dependency_substitution_and_survivability_still_apply() -> None:
+    with impact_test_session() as db:
+        tenant, plant, material = seed_context(db, "Tenant A", "tenant-a")
+        seed_process_dependency(
+            db,
+            tenant_id=tenant.id,
+            plant_id=plant.id,
+            material_id=material.id,
+            process_name="Blast Furnace",
+            substitution_factor=Decimal("0.50"),
+            survivability_hours=Decimal("2"),
+            products=[("HRC Coil", Decimal("1.0"), Decimal("2000"), Decimal("1.0"))],
+        )
+
+        result = calculate_production_interruption_impact(
+            interruption_inputs(
+                tenant_id=tenant.id,
+                plant_id=plant.id,
+                material_id=material.id,
+                risk_hours_remaining=Decimal("120"),
+            ),
+            interruption_config(tenant_id=tenant.id, plant_id=plant.id, material_id=material.id),
+            db=db,
+        )
+
+        assert result.estimated_interruption_hours == Decimal("4.00")
+        assert result.gross_production_impact == Decimal("500000.00")
+
+
+def test_imperfect_product_share_totals_do_not_crash_engine() -> None:
+    with impact_test_session() as db:
+        tenant, plant, material = seed_context(db, "Tenant A", "tenant-a")
+        seed_process_dependency(
+            db,
+            tenant_id=tenant.id,
+            plant_id=plant.id,
+            material_id=material.id,
+            process_name="Blast Furnace",
+            products=[
+                ("HRC Coil", Decimal("0.80"), Decimal("1000"), Decimal("1.0")),
+                ("Billets", Decimal("0.80"), Decimal("1000"), Decimal("1.0")),
+            ],
+        )
+
+        result = calculate_production_interruption_impact(
+            interruption_inputs(tenant_id=tenant.id, plant_id=plant.id, material_id=material.id),
+            interruption_config(tenant_id=tenant.id, plant_id=plant.id, material_id=material.id),
+            db=db,
+        )
+
+        assert result.calculation_status == "calculated"
+        assert result.gross_production_impact == Decimal("3840000.00")
+
+
+def test_dependency_model_preserves_tenant_isolation() -> None:
+    with impact_test_session() as db:
+        tenant_a, plant_a, material_a = seed_context(db, "Tenant A", "tenant-a")
+        tenant_b, plant_b, material_b = seed_context(db, "Tenant B", "tenant-b")
+        seed_process_dependency(
+            db,
+            tenant_id=tenant_b.id,
+            plant_id=plant_b.id,
+            material_id=material_b.id,
+            process_name="Tenant B Blast Furnace",
+            products=[("HRC Coil", Decimal("1.0"), Decimal("5000"), Decimal("1.0"))],
+        )
+
+        result = calculate_production_interruption_impact(
+            interruption_inputs(
+                tenant_id=tenant_a.id,
+                plant_id=plant_a.id,
+                material_id=material_a.id,
+            ),
+            interruption_config(
+                tenant_id=tenant_a.id,
+                plant_id=plant_a.id,
+                material_id=material_a.id,
+            ),
+            db=db,
+        )
+
+        assert result.gross_production_impact == Decimal("2400000.00")
+        assert any("fallback weighted output value" in reason for reason in result.reason_chain)
+
+
 def interruption_inputs(**overrides) -> ProductionInterruptionInputs:
     values = {
         "tenant_id": 1,
@@ -388,3 +609,72 @@ def seed_context(db: Session, name: str, slug: str) -> tuple[Tenant, Plant, Mate
     db.add_all([plant, material])
     db.flush()
     return tenant, plant, material
+
+
+def impact_test_session():
+    engine = create_engine(
+        "sqlite+pysqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    Base.metadata.create_all(bind=engine)
+
+    class ManagedSession:
+        def __enter__(self) -> Session:
+            self.db = SessionLocal()
+            return self.db
+
+        def __exit__(self, exc_type, exc, tb) -> None:
+            self.db.close()
+            Base.metadata.drop_all(bind=engine)
+
+    return ManagedSession()
+
+
+def seed_process_dependency(
+    db: Session,
+    *,
+    tenant_id: int,
+    plant_id: int,
+    material_id: int,
+    process_name: str,
+    products: list[tuple[str, Decimal, Decimal, Decimal]],
+    dependency_ratio: Decimal = Decimal("1.0"),
+    substitution_factor: Decimal | None = None,
+    survivability_hours: Decimal | None = None,
+) -> ProductionLine:
+    process = ProductionLine(
+        tenant_id=tenant_id,
+        plant_id=plant_id,
+        code=process_name.upper().replace(" ", "_"),
+        name=process_name,
+        is_active=True,
+    )
+    db.add(process)
+    db.flush()
+    db.add(
+        MaterialProcessDependency(
+            tenant_id=tenant_id,
+            material_id=material_id,
+            process_id=process.id,
+            dependency_ratio=dependency_ratio,
+            substitution_factor=substitution_factor,
+            survivability_hours=survivability_hours,
+            is_active=True,
+        )
+    )
+    for product_name, share, value, criticality in products:
+        db.add(
+            ProcessProductDependency(
+                tenant_id=tenant_id,
+                process_id=process.id,
+                product_name=product_name,
+                output_share_ratio=share,
+                product_value_per_mt=value,
+                operational_criticality_factor=criticality,
+                is_active=True,
+            )
+        )
+    db.flush()
+    return process
