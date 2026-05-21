@@ -1,6 +1,6 @@
 """shipment inbound trust config
 
-Revision ID: 0018_shipment_inbound_trust_config
+Revision ID: 0018_shipment_trust
 Revises: 0017
 Create Date: 2026-05-20
 """
@@ -10,7 +10,7 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0018_shipment_inbound_trust_config"
+revision: str = "0018_shipment_trust"
 down_revision: str | None = "0017"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
