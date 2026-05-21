@@ -198,7 +198,10 @@ function WorkspaceContent({ workspace }: { workspace: RiskWorkspaceResponse }) {
           </CardContent>
         </Card>
 
-        <TrustSummary workspace={workspace} />
+        <div className="grid gap-3">
+          <TrustSummary workspace={workspace} />
+          <OperationalTrustSummary risk={risk} />
+        </div>
       </section>
 
       <section className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
@@ -391,6 +394,123 @@ function TrustSummary({ workspace }: { workspace: RiskWorkspaceResponse }) {
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+function OperationalTrustSummary({
+  risk,
+}: {
+  risk: SignalRiskCandidate | null;
+}) {
+  const completeness = risk?.configuration_completeness;
+  const operationalTrust = risk?.operational_trust;
+  const hasTrustContext = completeness || operationalTrust;
+  const missing = completeness?.missing_assumptions ?? [];
+  const degraded = completeness?.degraded_reasoning_areas ?? [];
+  const penalties = operationalTrust?.trust_penalties ?? [];
+  const boosts = operationalTrust?.trust_boosts ?? [];
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <ShieldCheck className="h-5 w-5 text-primary" />
+            <CardTitle>Operational Trust</CardTitle>
+          </div>
+          {operationalTrust ? (
+            <BandBadge value={operationalTrust.risk_precision_band} />
+          ) : null}
+        </div>
+        <p className="text-xs leading-5 text-mutedForeground">
+          Shows how complete the operational assumptions are behind this risk.
+          Low trust does not mean the risk is false; it means OpsDeck has less
+          calibrated context.
+        </p>
+      </CardHeader>
+      <CardContent>
+        {hasTrustContext ? (
+          <div className="grid gap-2.5">
+            <div className="grid gap-2 sm:grid-cols-2">
+              <ContextPill
+                label="Operational Trust"
+                value={
+                  operationalTrust
+                    ? `${formatNumber(operationalTrust.operational_trust_score)}% · ${formatLabel(operationalTrust.risk_precision_band)}`
+                    : "Unknown"
+                }
+              />
+              <ContextPill
+                label="Configuration Completeness"
+                value={
+                  completeness
+                    ? `${formatNumber(completeness.overall_completeness_score)}% · ${formatLabel(completeness.operational_confidence_band)}`
+                    : "Unknown"
+                }
+              />
+              <ContextPill
+                label="Reasoning strength"
+                value={formatLabel(operationalTrust?.reasoning_strength)}
+              />
+              <ContextPill
+                label="Signal coverage"
+                value={
+                  operationalTrust
+                    ? `${operationalTrust.trusted_signal_count} trusted · ${operationalTrust.weak_signal_count} weak · ${operationalTrust.missing_signal_count} missing`
+                    : "Unknown"
+                }
+              />
+            </div>
+
+            <CompactSignalList
+              title="Missing assumptions"
+              items={missing}
+              empty="No missing assumptions returned."
+            />
+            <CompactSignalList
+              title="Trust penalties"
+              items={[...penalties, ...degraded.map((area) => `${formatLabel(area)} degraded`)]}
+              empty="No trust penalties returned."
+            />
+            <CompactSignalList
+              title="Trust boosts"
+              items={boosts}
+              empty="No trust boosts returned."
+            />
+          </div>
+        ) : (
+          <p className="rounded-xl bg-slate-50 px-3 py-3 text-sm text-mutedForeground ring-1 ring-slate-900/5">
+            Operational trust context is not available for this risk yet.
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function CompactSignalList({
+  title,
+  items,
+  empty,
+}: {
+  title: string;
+  items: string[];
+  empty: string;
+}) {
+  const visible = items.filter(Boolean).slice(0, 3);
+  return (
+    <div className="rounded-xl bg-slate-50 p-3 ring-1 ring-slate-900/5">
+      <p className="text-xs font-semibold text-mutedForeground">{title}</p>
+      {visible.length > 0 ? (
+        <ul className="mt-2 space-y-1.5 text-sm leading-5">
+          {visible.map((item) => (
+            <li key={item}>{item}</li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mt-2 text-sm text-mutedForeground">{empty}</p>
+      )}
+    </div>
   );
 }
 
@@ -738,6 +858,23 @@ function SeverityBadge({ value }: { value: string }) {
       className={`rounded-full px-3 py-1 text-xs font-semibold ${className}`}
     >
       {value}
+    </span>
+  );
+}
+
+function BandBadge({ value }: { value: string }) {
+  const normalized = value.toLowerCase();
+  const className =
+    normalized === "high"
+      ? "bg-emerald-50 text-emerald-800 ring-emerald-200"
+      : normalized === "moderate"
+        ? "bg-blue-50 text-blue-800 ring-blue-200"
+        : normalized === "low"
+          ? "bg-amber-50 text-amber-900 ring-amber-200"
+          : "bg-slate-100 text-slate-700 ring-slate-200";
+  return (
+    <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ${className}`}>
+      {formatLabel(value)}
     </span>
   );
 }

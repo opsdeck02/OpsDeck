@@ -47,6 +47,11 @@ from app.modules.shipments.continuity import calculate_shipment_continuity_for
 from app.modules.shipments.schemas import ShipmentContinuityResult
 from app.modules.stock.continuity import calculate_inventory_continuity_for
 from app.modules.stock.schemas import InventoryContinuityResult
+from app.modules.trust.operational import (
+    evaluate_configuration_completeness,
+    evaluate_risk_operational_trust,
+    resolve_plant_material,
+)
 from app.schemas.context import RequestContext
 
 SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3}
@@ -479,14 +484,18 @@ def enrich_candidates_with_latest_escalation(
         apply_operational_recommendations(
             db,
             context,
-            apply_operational_interruption_impact(
+            apply_operational_trust(
                 db,
                 context,
-                apply_snapshot_escalation(
-                    candidate,
-                    escalation_for_snapshot(
-                        db,
-                        latest_snapshot_for_candidate(db, context, candidate),
+                apply_operational_interruption_impact(
+                    db,
+                    context,
+                    apply_snapshot_escalation(
+                        candidate,
+                        escalation_for_snapshot(
+                            db,
+                            latest_snapshot_for_candidate(db, context, candidate),
+                        ),
                     ),
                 ),
             ),
@@ -614,6 +623,56 @@ def apply_operational_recommendations(
             )
         }
     )
+
+
+def apply_operational_trust(
+    db: Session,
+    context: RequestContext,
+    candidate: RiskCandidate,
+) -> RiskCandidate:
+    plant, material = resolve_plant_material(
+        db,
+        tenant_id=context.tenant_id,
+        plant_reference=candidate.plant_reference,
+        material_reference=candidate.material_reference,
+    )
+    if plant is None or material is None:
+        return candidate
+    inventory = first_or_none(
+        list_inventory_continuity(
+            db,
+            context,
+            plant_reference=candidate.plant_reference,
+            material_reference=candidate.material_reference,
+        )
+    )
+    completeness = evaluate_configuration_completeness(
+        db,
+        tenant_id=context.tenant_id,
+        plant_id=plant.id,
+        material_id=material.id,
+        inventory=inventory,
+    )
+    operational_trust = evaluate_risk_operational_trust(
+        candidate,
+        completeness,
+        inventory=inventory,
+    )
+    updated = candidate.model_copy(
+        update={
+            "configuration_completeness": completeness,
+            "operational_trust": operational_trust,
+        }
+    )
+    if updated.explainability is not None:
+        updated.explainability.reason_chain.extend(
+            [
+                f"Operational trust score is {operational_trust.operational_trust_score}, mapped to {operational_trust.risk_precision_band}.",
+                *operational_trust.trust_penalties,
+                *operational_trust.trust_boosts,
+            ]
+        )
+    return updated
 
 
 def escalation_for_snapshot(

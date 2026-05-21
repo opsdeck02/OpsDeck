@@ -1,20 +1,27 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 const baseUrl = process.env.INTERNAL_API_BASE_URL ?? process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+const isProduction = process.env.NODE_ENV === "production";
+const sessionCookieName = isProduction ? "__Host-opsdeck-session" : "opsdeck-session";
+const refreshCookieName = isProduction ? "__Host-opsdeck-refresh" : "opsdeck-refresh";
 
 export async function middleware(request: NextRequest) {
-  const token = request.cookies.get("__Host-opsdeck-session")?.value;
-  const refreshToken = request.cookies.get("__Host-opsdeck-refresh")?.value;
+  const token =
+    request.cookies.get(sessionCookieName)?.value ??
+    request.cookies.get("__Host-opsdeck-session")?.value;
+  const refreshToken =
+    request.cookies.get(refreshCookieName)?.value ??
+    request.cookies.get("__Host-opsdeck-refresh")?.value;
   const isDashboardRoute = request.nextUrl.pathname.startsWith("/dashboard");
 
   if (isDashboardRoute && refreshToken && (!token || isJwtExpired(token))) {
     const refreshed = await refreshSession(refreshToken);
     if (refreshed?.access_token) {
       const response = NextResponse.next();
-      response.cookies.set("__Host-opsdeck-session", refreshed.access_token, {
+      response.cookies.set(sessionCookieName, refreshed.access_token, {
         httpOnly: true,
         sameSite: "lax",
-        secure: true,
+        secure: isProduction,
         path: "/",
         maxAge: 15 * 60,
       });

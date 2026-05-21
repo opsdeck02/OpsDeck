@@ -15,6 +15,10 @@ from app.modules.shipments.continuity import calculate_shipment_continuity_for
 from app.modules.shipments.schemas import ShipmentContinuityResult
 from app.modules.stock.continuity import calculate_inventory_continuity_for
 from app.modules.stock.schemas import InventoryContinuityResult
+from app.modules.trust.operational import (
+    ConfigurationCompletenessResult,
+    RiskOperationalTrustResult,
+)
 from app.schemas.context import RequestContext
 
 FRESHNESS_ORDER = {"fresh": 0, "delayed": 1, "unknown": 2, "stale": 3, "critical": 4}
@@ -87,6 +91,8 @@ class RiskCandidate(BaseModel):
     current_exposure_level: str | None = None
     operational_interruption_impact: OperationalInterruptionImpact | None = None
     operational_recommendations: list[OperationalActionRecommendation] = []
+    configuration_completeness: ConfigurationCompletenessResult | None = None
+    operational_trust: RiskOperationalTrustResult | None = None
 
 
 def evaluate_rule_based_risks(

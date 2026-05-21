@@ -3,6 +3,9 @@ import { NextResponse, type NextRequest } from "next/server";
 import type { LoginResponse } from "@steelops/contracts";
 
 const baseUrl = process.env.INTERNAL_API_BASE_URL ?? "http://localhost:8000";
+const isProduction = process.env.NODE_ENV === "production";
+const sessionCookieName = isProduction ? "__Host-opsdeck-session" : "opsdeck-session";
+const refreshCookieName = isProduction ? "__Host-opsdeck-refresh" : "opsdeck-refresh";
 
 export async function POST(request: NextRequest) {
   const payload = await request.json();
@@ -33,18 +36,18 @@ export async function POST(request: NextRequest) {
       refresh_token: null,
     });
 
-    response.cookies.set("__Host-opsdeck-session", body.access_token, {
+    response.cookies.set(sessionCookieName, body.access_token, {
       httpOnly: true,
       sameSite: "lax",
-      secure: true,
+      secure: isProduction,
       path: "/",
       maxAge: 15 * 60,
     });
     if (body.refresh_token) {
-      response.cookies.set("__Host-opsdeck-refresh", body.refresh_token, {
+      response.cookies.set(refreshCookieName, body.refresh_token, {
         httpOnly: true,
         sameSite: "lax",
-        secure: true,
+        secure: isProduction,
         path: "/",
         maxAge: 7 * 24 * 60 * 60,
       });
@@ -52,7 +55,7 @@ export async function POST(request: NextRequest) {
     response.cookies.set("steelops_tenant", activeMembership?.tenant_slug ?? "", {
       httpOnly: true,
       sameSite: "lax",
-      secure: true,
+      secure: isProduction,
       path: "/",
       maxAge: activeMembership ? 7 * 24 * 60 * 60 : 0,
     });

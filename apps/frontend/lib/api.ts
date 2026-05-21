@@ -34,6 +34,14 @@ const baseUrl =
   process.env.NEXT_PUBLIC_API_BASE_URL ??
   "http://localhost:8000";
 
+function getSessionToken() {
+  const cookieStore = cookies();
+  return (
+    cookieStore.get("__Host-opsdeck-session")?.value ??
+    cookieStore.get("opsdeck-session")?.value
+  );
+}
+
 export interface SignalRiskCandidate {
   risk_type: string;
   severity: string;
@@ -50,6 +58,28 @@ export interface SignalRiskCandidate {
   source_event_ids: number[];
   recommended_owner_role: string | null;
   explainability: SignalRiskExplainability | null;
+  configuration_completeness: ConfigurationCompletenessResult | null;
+  operational_trust: RiskOperationalTrustResult | null;
+}
+
+export interface ConfigurationCompletenessResult {
+  overall_completeness_score: string;
+  operational_confidence_band: string;
+  completeness_by_area: Record<string, string>;
+  missing_assumptions: string[];
+  degraded_reasoning_areas: string[];
+  confidence_reason_chain: string[];
+}
+
+export interface RiskOperationalTrustResult {
+  risk_precision_band: string;
+  reasoning_strength: string;
+  trusted_signal_count: number;
+  weak_signal_count: number;
+  missing_signal_count: number;
+  trust_penalties: string[];
+  trust_boosts: string[];
+  operational_trust_score: string;
 }
 
 export interface SignalRiskExplainability {
@@ -532,8 +562,7 @@ export async function getTenantDetails(
 export async function createTenant(
   payload: TenantCreatePayload,
 ): Promise<TenantCreateResponse | null> {
-  const cookieStore = cookies();
-  const token = cookieStore.get("__Host-opsdeck-session")?.value;
+  const token = getSessionToken();
   if (!token) return null;
 
   try {
@@ -559,8 +588,7 @@ export async function activateTenant(tenantId: number): Promise<{
   slug: string;
   is_active: boolean;
 } | null> {
-  const cookieStore = cookies();
-  const token = cookieStore.get("__Host-opsdeck-session")?.value;
+  const token = getSessionToken();
   if (!token) return null;
 
   try {
@@ -592,8 +620,7 @@ export async function deactivateTenant(tenantId: number): Promise<{
   slug: string;
   is_active: boolean;
 } | null> {
-  const cookieStore = cookies();
-  const token = cookieStore.get("__Host-opsdeck-session")?.value;
+  const token = getSessionToken();
   if (!token) return null;
 
   try {
@@ -620,8 +647,7 @@ export async function deactivateTenant(tenantId: number): Promise<{
 }
 
 export async function deleteTenant(tenantId: number): Promise<boolean> {
-  const cookieStore = cookies();
-  const token = cookieStore.get("__Host-opsdeck-session")?.value;
+  const token = getSessionToken();
   if (!token) return false;
 
   try {
@@ -643,7 +669,7 @@ export async function deleteTenant(tenantId: number): Promise<boolean> {
 
 async function getAuthenticatedJson<T>(path: string): Promise<T | null> {
   const cookieStore = cookies();
-  const token = cookieStore.get("__Host-opsdeck-session")?.value;
+  const token = getSessionToken();
   const tenantSlug = cookieStore.get("steelops_tenant")?.value;
 
   if (!token) {
