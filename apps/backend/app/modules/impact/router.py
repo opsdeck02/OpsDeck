@@ -16,6 +16,10 @@ from app.models import (
     ShipmentInboundTrustConfig,
 )
 from app.modules.impact.production_interruption import get_active_interruption_config
+from app.modules.impact.configuration_validation import (
+    ConfigurationValidationResult,
+    validate_operational_configuration,
+)
 from app.modules.impact.shipment_inbound_trust import (
     get_active_shipment_inbound_trust_config,
 )
@@ -227,6 +231,25 @@ def upsert_shipment_inbound_trust_config(
     db.commit()
     db.refresh(config)
     return ShipmentInboundTrustConfigRead.model_validate(config)
+
+
+@router.get(
+    "/configuration-validation",
+    response_model=ConfigurationValidationResult,
+)
+def get_configuration_validation(
+    context: Annotated[RequestContext, Depends(require_admin_access)],
+    db: Annotated[Session, Depends(get_db)],
+    plant_id: Annotated[int, Query()],
+    material_id: Annotated[int, Query()],
+) -> ConfigurationValidationResult:
+    ensure_context(db, context, plant_id, material_id, None)
+    return validate_operational_configuration(
+        db,
+        tenant_id=context.tenant_id,
+        plant_id=plant_id,
+        material_id=material_id,
+    )
 
 
 @router.get(

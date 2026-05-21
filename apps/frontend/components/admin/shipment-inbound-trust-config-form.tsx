@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, useTransition } from "react";
 import type { ReactNode } from "react";
 
+import { ConfigurationValidationSummary } from "@/components/admin/configuration-validation-summary";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 interface ContextOption {
@@ -263,6 +264,11 @@ export function ShipmentInboundTrustConfigForm({
             </select>
           </Field>
         </Section>
+
+        <ConfigurationValidationSummary
+          plantId={selectedPlantId}
+          materialId={selectedMaterialId}
+        />
 
         <Section title="Shipment Visibility Profile">
           <ChoiceGroup

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, useTransition } from "react";
 import type { ReactNode } from "react";
 
+import { ConfigurationValidationSummary } from "@/components/admin/configuration-validation-summary";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 interface ContextOption {
@@ -291,7 +292,7 @@ export function InterruptionImpactConfigForm({
           </p>
         </CardHeader>
         <CardContent className="space-y-5">
-          <Section title="Configuration Context">
+        <Section title="Configuration Context">
             <Field label="Plant" helper="Required plant context.">
               <select
                 value={selectedPlantId}
@@ -335,10 +336,15 @@ export function InterruptionImpactConfigForm({
                 className={inputClass}
                 maxLength={3}
               />
-            </Field>
-          </Section>
+          </Field>
+        </Section>
 
-          <Section title="Operational Dependency">
+        <ConfigurationValidationSummary
+          plantId={selectedPlantId}
+          materialId={selectedMaterialId}
+        />
+
+        <Section title="Operational Dependency">
             <ChoiceGroup
               label="If this material becomes unavailable, how badly is production affected?"
               value={form.line_dependency_ratio}

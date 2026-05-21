@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, useTransition } from "react";
 import type { ReactNode } from "react";
 
+import { ConfigurationValidationSummary } from "@/components/admin/configuration-validation-summary";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 interface ContextOption {
@@ -249,6 +250,11 @@ export function ProductProcessDependencyConfig({
           setSelectedProcessId={setSelectedProcessId}
           showMaterial={tab === "material-dependency"}
           showProcess={tab !== "processes"}
+        />
+
+        <ConfigurationValidationSummary
+          plantId={selectedPlantId}
+          materialId={selectedMaterialId}
         />
 
         {tab === "processes" ? (
