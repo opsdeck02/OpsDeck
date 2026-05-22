@@ -145,3 +145,15 @@ class ShipmentContinuityResult(BaseModel):
     linked_material_reference: str | None
     linked_plant_reference: str | None
     continuity_reasons: list[str]
+    physical_quantity: Decimal | None = None
+    trusted_quantity: Decimal | None = None
+    protective_quantity: Decimal | None = None
+    protective_value_label: str | None = None
+    trust_level: str | None = None
+    trust_reason: str | None = None
+    freshness_status: str | None = None
+    movement_condition: str | None = None
+    eta_status: str | None = None
+    eta_drift_days: Decimal | None = None
+    is_currently_protective: bool | None = None
+    protection_explanation: str | None = None

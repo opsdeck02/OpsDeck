@@ -244,6 +244,316 @@ def test_demo_scenario_outputs_are_deterministic_for_fixed_time() -> None:
         assert first == second
 
 
+def test_pilot_scenario_ocean_vessel_delay_with_declining_cover() -> None:
+    with demo_session() as (db, tenant):
+        plant, material = add_context(db, tenant, "JAM-BF1", "COKING-COAL")
+        shipment = add_shipment(
+            db,
+            tenant,
+            plant,
+            material,
+            shipment_id="MV-EASTERN-LINE-01",
+            current_eta=NOW + timedelta(days=4),
+            planned_eta=NOW + timedelta(days=1),
+            tracking_updated_at=NOW - timedelta(hours=40),
+            quantity=Decimal("450"),
+            vessel_name="MV Eastern Line",
+        )
+        add_stock(db, tenant, plant, material, on_hand=Decimal("20"), daily=Decimal("10"))
+        add_event(
+            db,
+            tenant,
+            event_type=OperationalEventType.SHIPMENT_ETA_CHANGED,
+            event_category=OperationalEventCategory.SHIPMENT,
+            plant_reference=plant.code,
+            material_reference=material.code,
+            shipment_reference=shipment.shipment_id,
+            previous_value={"current_eta": (NOW + timedelta(days=1)).isoformat()},
+            new_value={"current_eta": (NOW + timedelta(days=4)).isoformat()},
+        )
+        db.commit()
+
+        workspace = get_risk_workspace(
+            db,
+            context_for(tenant),
+            shipment_reference=shipment.shipment_id,
+            severity="high",
+            now=NOW,
+        )
+
+        assert workspace.empty is False
+        assert workspace.selected_risk is not None
+        assert workspace.selected_risk.risk_type == "inbound_delay_against_cover"
+        assert workspace.exposure is not None
+        assert workspace.exposure.exposure_level in {"immediate", "near_term"}
+        inbound = workspace.shipment_continuity[0]
+        assert inbound.physical_quantity == Decimal("450.00")
+        assert inbound.protective_value_label in {"Partial protection", "Weak protection"}
+        assert inbound.trusted_quantity < inbound.physical_quantity
+        assert workspace.selected_risk.operational_recommendations
+        assert_human_led_actions(workspace.selected_risk.operational_recommendations)
+        assert_explainability_mentions(workspace, ["ETA", "Physical inbound quantity remains"])
+
+
+def test_pilot_scenario_inland_movement_failure_after_port_arrival() -> None:
+    with demo_session() as (db, tenant):
+        plant, material = add_context(db, tenant, "KAL-RM2", "LIMESTONE")
+        shipment = add_shipment(
+            db,
+            tenant,
+            plant,
+            material,
+            shipment_id="INLAND-DHAMRA-TRUCK-17",
+            current_eta=NOW + timedelta(days=5),
+            planned_eta=NOW + timedelta(days=1),
+            tracking_updated_at=NOW - timedelta(hours=30),
+            quantity=Decimal("300"),
+            vessel_name=None,
+            current_state=ShipmentState.INLAND_TRANSIT,
+            current_milestone="port_cleared inland_movement_not_confirmed",
+        )
+        add_stock(db, tenant, plant, material, on_hand=Decimal("25"), daily=Decimal("10"))
+        add_event(
+            db,
+            tenant,
+            event_type=OperationalEventType.SHIPMENT_MILESTONE_UPDATED,
+            event_category=OperationalEventCategory.SHIPMENT,
+            plant_reference=plant.code,
+            material_reference=material.code,
+            shipment_reference=shipment.shipment_id,
+            new_value={"current_milestone": "port_cleared inland_movement_not_confirmed"},
+        )
+        db.commit()
+
+        workspace = get_risk_workspace(
+            db,
+            context_for(tenant),
+            shipment_reference=shipment.shipment_id,
+            severity="high",
+            now=NOW,
+        )
+
+        assert workspace.empty is False
+        inbound = workspace.shipment_continuity[0]
+        assert inbound.protective_value_label in {
+            "Weak protection",
+            "Not currently protective",
+        }
+        assert inbound.trust_level in {"weak", "not_protective"}
+        assert inbound.protective_quantity <= inbound.trusted_quantity
+        assert workspace.selected_risk is not None
+        action_types = {
+            item.action_type for item in workspace.selected_risk.operational_recommendations
+        }
+        assert {"verify_inbound", "confirm_inland_movement"} & action_types
+        assert_human_led_actions(workspace.selected_risk.operational_recommendations)
+
+
+def test_pilot_scenario_false_safety_from_stale_inbound_visibility() -> None:
+    with demo_session() as (db, tenant):
+        plant, material = add_context(db, tenant, "ANG-SMS", "FERRO-ALLOY")
+        shipment = add_shipment(
+            db,
+            tenant,
+            plant,
+            material,
+            shipment_id="ERP-INBOUND-FA-900",
+            current_eta=NOW + timedelta(days=3),
+            planned_eta=NOW + timedelta(days=1),
+            tracking_updated_at=NOW - timedelta(hours=36),
+            quantity=Decimal("900"),
+            vessel_name=None,
+            current_state=ShipmentState.INLAND_TRANSIT,
+            current_milestone="supplier_dispatch_unconfirmed",
+        )
+        add_stock(db, tenant, plant, material, on_hand=Decimal("15"), daily=Decimal("10"))
+        add_event(
+            db,
+            tenant,
+            event_type=OperationalEventType.SHIPMENT_MILESTONE_UPDATED,
+            event_category=OperationalEventCategory.SHIPMENT,
+            plant_reference=plant.code,
+            material_reference=material.code,
+            shipment_reference=shipment.shipment_id,
+            confidence_score=Decimal("35"),
+            new_value={"current_milestone": "supplier_dispatch_unconfirmed"},
+        )
+        db.commit()
+
+        workspace = get_risk_workspace(
+            db,
+            context_for(tenant),
+            plant_reference=plant.code,
+            material_reference=material.code,
+            now=NOW,
+        )
+
+        assert workspace.empty is False
+        assert workspace.selected_risk is not None
+        inbound = workspace.shipment_continuity[0]
+        assert inbound.physical_quantity == Decimal("900.00")
+        assert inbound.trusted_quantity < Decimal("900.00")
+        assert inbound.protective_value_label in {
+            "Weak protection",
+            "Not currently protective",
+            "Partial protection",
+        }
+        assert workspace.selected_risk.severity in {"critical", "high", "medium"}
+        assert any(
+            item.action_type == "verify_inbound"
+            for item in workspace.selected_risk.operational_recommendations
+        )
+        assert_human_led_actions(workspace.selected_risk.operational_recommendations)
+
+
+def test_pilot_scenario_fresh_verified_inbound_stabilizes_risk() -> None:
+    with demo_session() as (db, tenant):
+        plant, material = add_context(db, tenant, "JSW-HSM", "ZINC")
+        shipment = add_shipment(
+            db,
+            tenant,
+            plant,
+            material,
+            shipment_id="VERIFIED-INBOUND-ZN-22",
+            current_eta=NOW + timedelta(days=1),
+            planned_eta=NOW + timedelta(days=1),
+            tracking_updated_at=NOW - timedelta(minutes=20),
+            quantity=Decimal("120"),
+            vessel_name="MV Verified Coast",
+        )
+        add_stock(db, tenant, plant, material, on_hand=Decimal("40"), daily=Decimal("10"))
+        add_event(
+            db,
+            tenant,
+            plant_reference=plant.code,
+            material_reference=material.code,
+            shipment_reference=shipment.shipment_id,
+            confidence_score=Decimal("95"),
+        )
+        db.commit()
+
+        risks = list_signal_risks(
+            db,
+            context_for(tenant),
+            plant_reference=plant.code,
+            material_reference=material.code,
+            now=NOW,
+        )
+        workspace = get_risk_workspace(
+            db,
+            context_for(tenant),
+            risk_type="days_of_cover_breach",
+            plant_reference=plant.code,
+            material_reference=material.code,
+            now=NOW,
+        )
+
+        assert not [
+            risk
+            for risk in risks
+            if risk.risk_type == "inbound_delay_against_cover"
+            and risk.severity in {"critical", "high"}
+        ]
+        assert workspace.empty is False
+        inbound = workspace.shipment_continuity[0]
+        assert inbound.protective_value_label == "Strong protection"
+        assert inbound.is_currently_protective is True
+        assert workspace.selected_risk is not None
+        assert workspace.selected_risk.severity != "critical"
+        assert_human_led_actions(workspace.selected_risk.operational_recommendations)
+
+
+def test_pilot_scenario_multi_inbound_mixed_protection_values() -> None:
+    with demo_session() as (db, tenant):
+        plant, material = add_context(db, tenant, "TATA-BF2", "PCI-COAL")
+        add_stock(db, tenant, plant, material, on_hand=Decimal("20"), daily=Decimal("10"))
+        strong = add_shipment(
+            db,
+            tenant,
+            plant,
+            material,
+            shipment_id="MV-STRONG-PCI",
+            current_eta=NOW + timedelta(days=1),
+            planned_eta=NOW + timedelta(days=1),
+            tracking_updated_at=NOW - timedelta(hours=1),
+            quantity=Decimal("120"),
+            vessel_name="MV Strong PCI",
+        )
+        weak = add_shipment(
+            db,
+            tenant,
+            plant,
+            material,
+            shipment_id="TRUCK-STALE-PCI",
+            current_eta=NOW + timedelta(days=3),
+            planned_eta=NOW + timedelta(days=1),
+            tracking_updated_at=NOW - timedelta(hours=30),
+            quantity=Decimal("200"),
+            vessel_name=None,
+            current_state=ShipmentState.INLAND_TRANSIT,
+            current_milestone="truck_dispatch_stale",
+        )
+        late = add_shipment(
+            db,
+            tenant,
+            plant,
+            material,
+            shipment_id="MV-LATE-PCI",
+            current_eta=NOW + timedelta(days=60),
+            planned_eta=NOW + timedelta(days=1),
+            tracking_updated_at=NOW - timedelta(hours=2),
+            quantity=Decimal("400"),
+            vessel_name="MV Late PCI",
+        )
+        add_event(
+            db,
+            tenant,
+            event_type=OperationalEventType.SHIPMENT_ETA_CHANGED,
+            event_category=OperationalEventCategory.SHIPMENT,
+            plant_reference=plant.code,
+            material_reference=material.code,
+            shipment_reference=weak.shipment_id,
+            new_value={"current_eta": weak.current_eta.isoformat()},
+        )
+        add_event(
+            db,
+            tenant,
+            event_type=OperationalEventType.SHIPMENT_ETA_CHANGED,
+            event_category=OperationalEventCategory.SHIPMENT,
+            plant_reference=plant.code,
+            material_reference=material.code,
+            shipment_reference=late.shipment_id,
+            new_value={"current_eta": late.current_eta.isoformat()},
+        )
+        db.commit()
+
+        workspace = get_risk_workspace(
+            db,
+            context_for(tenant),
+            risk_type="days_of_cover_breach",
+            plant_reference=plant.code,
+            material_reference=material.code,
+            now=NOW,
+        )
+
+        labels = {
+            item.shipment_reference: item.protective_value_label
+            for item in workspace.shipment_continuity
+        }
+        quantities = {
+            item.shipment_reference: item.protective_quantity
+            for item in workspace.shipment_continuity
+        }
+        assert labels[strong.shipment_id] == "Strong protection"
+        assert labels[weak.shipment_id] == "Weak protection"
+        assert labels[late.shipment_id] == "Not currently protective"
+        assert len(set(quantities.values())) > 1
+        assert quantities[late.shipment_id] == Decimal("0.00")
+        assert workspace.selected_risk is not None
+        assert workspace.selected_risk.operational_recommendations
+        assert_human_led_actions(workspace.selected_risk.operational_recommendations)
+
+
 class demo_session:
     def __enter__(self):
         self.engine = create_engine(
@@ -320,6 +630,10 @@ def add_shipment(
     current_eta: datetime,
     planned_eta: datetime,
     tracking_updated_at: datetime,
+    quantity: Decimal = Decimal("50"),
+    vessel_name: str | None = "MV Demo",
+    current_state: ShipmentState = ShipmentState.IN_TRANSIT,
+    current_milestone: str = "in_transit",
 ) -> Shipment:
     shipment = Shipment(
         tenant_id=tenant.id,
@@ -327,16 +641,16 @@ def add_shipment(
         material_id=material.id,
         plant_id=plant.id,
         supplier_name="Demo Supplier",
-        quantity_mt=Decimal("50"),
-        vessel_name="MV Demo",
-        imo_number="1234567",
-        mmsi="987654321",
+        quantity_mt=quantity,
+        vessel_name=vessel_name,
+        imo_number="1234567" if vessel_name else None,
+        mmsi="987654321" if vessel_name else None,
         planned_eta=planned_eta,
         current_eta=current_eta,
         latest_eta=planned_eta,
-        current_milestone="in_transit",
+        current_milestone=current_milestone,
         last_tracking_update_at=tracking_updated_at,
-        current_state=ShipmentState.IN_TRANSIT,
+        current_state=current_state,
         source_of_truth="manual_upload",
         latest_update_at=tracking_updated_at,
     )
@@ -401,3 +715,34 @@ def assert_graph_edges_have_nodes(graph) -> None:
     assert graph.nodes
     assert all(edge.from_node_id in node_ids for edge in graph.edges)
     assert all(edge.to_node_id in node_ids for edge in graph.edges)
+
+
+def assert_human_led_actions(actions) -> None:
+    assert actions
+    text = " ".join(
+        " ".join(
+            [
+                action.action_type,
+                action.operational_reason,
+                *action.supporting_signals,
+                *action.reason_chain,
+            ]
+        ).lower()
+        for action in actions
+    )
+    assert "reorder" not in text
+    assert "buy material" not in text
+    assert "approve po" not in text
+    assert "place order" not in text
+
+
+def assert_explainability_mentions(workspace, snippets: list[str]) -> None:
+    assert workspace.explainability is not None
+    joined = " ".join(
+        [
+            *workspace.explainability.reason_chain,
+            *(workspace.selected_risk.rule_reasons if workspace.selected_risk else []),
+        ]
+    )
+    for snippet in snippets:
+        assert snippet in joined

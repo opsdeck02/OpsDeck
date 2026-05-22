@@ -3,16 +3,18 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_db, get_request_context
+from app.core.config import settings
 from app.models.enums import OperationalEventCategory
 from app.modules.exposure.mapping import OperationalExposureMapping
 from app.modules.operational_events.timeline import ContinuityTimelineEntry
 from app.modules.relationships.graph import OperationalRelationshipGraph
 from app.modules.rules.engine import RiskCandidate
 from app.modules.shipments.schemas import ShipmentContinuityResult
+from app.modules.signal_engine.pilot_scenarios import SUPPORTED_PILOT_SCENARIOS
 from app.modules.signal_engine.service import (
     EscalationEvaluationResponse,
     RiskWorkspaceResponse,
@@ -58,6 +60,7 @@ def signal_evaluate_escalation(
 def signal_risk_workspace(
     context: Annotated[RequestContext, Depends(get_request_context)],
     db: Annotated[Session, Depends(get_db)],
+    scenario: Annotated[str | None, Query()] = None,
     risk_type: Annotated[str | None, Query()] = None,
     plant_reference: Annotated[str | None, Query()] = None,
     material_reference: Annotated[str | None, Query()] = None,
@@ -66,9 +69,23 @@ def signal_risk_workspace(
     timeline_limit: Annotated[int, Query(ge=0, le=200)] = 50,
     timeline_offset: Annotated[int, Query(ge=0)] = 0,
 ) -> RiskWorkspaceResponse:
+    if scenario is not None and not settings.enable_pilot_scenarios:
+        raise HTTPException(
+            status_code=403,
+            detail="Pilot scenarios are disabled for this environment.",
+        )
+    if scenario is not None and scenario not in SUPPORTED_PILOT_SCENARIOS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Unsupported pilot scenario. Supported values: "
+                + ", ".join(sorted(SUPPORTED_PILOT_SCENARIOS))
+            ),
+        )
     return get_risk_workspace(
         db,
         context,
+        scenario=scenario,
         risk_type=risk_type,
         plant_reference=plant_reference,
         material_reference=material_reference,

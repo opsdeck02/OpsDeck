@@ -6,15 +6,17 @@ from decimal import Decimal
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.api.dependencies import get_db
+from app.core.config import settings
 from app.db.base import Base
 from app.main import app
 from app.models import (
     Material,
+    OperationalEvent,
     Plant,
     Role,
     Shipment,
@@ -89,6 +91,178 @@ def test_risk_workspace_returns_selected_risk_plus_explainability(
         "inventory_continuity",
         "shipment_continuity",
     }
+
+
+def test_risk_workspace_default_mode_does_not_require_scenario(
+    client: TestClient,
+) -> None:
+    response = client.get(
+        "/api/v1/signal-engine/risk-workspace",
+        headers=auth_headers(client),
+        params={"plant_reference": "P1", "material_reference": "M1"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["empty"] is False
+    assert body["selected_risk"] is not None
+    assert body["selected_risk"]["plant_reference"] == "P1"
+    assert body["is_demo_scenario"] is False
+
+
+def test_risk_workspace_scenario_rejected_when_pilot_mode_disabled(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "enable_pilot_scenarios", False)
+
+    response = client.get(
+        "/api/v1/signal-engine/risk-workspace",
+        headers=auth_headers(client),
+        params={"scenario": "ocean_vessel_delay"},
+    )
+
+    assert response.status_code == 403
+    assert "disabled" in response.json()["detail"]
+
+
+@pytest.mark.parametrize(
+    ("scenario", "expected_labels"),
+    [
+        ("ocean_vessel_delay", {"Partial protection", "Weak protection"}),
+        (
+            "inland_movement_failure",
+            {"Weak protection", "Not currently protective"},
+        ),
+        (
+            "false_safety",
+            {"Partial protection", "Weak protection", "Not currently protective"},
+        ),
+        ("fresh_verified_inbound", {"Strong protection"}),
+        (
+            "multi_inbound_mixed_protection",
+            {"Strong protection", "Weak protection", "Not currently protective"},
+        ),
+    ],
+)
+def test_risk_workspace_demo_scenario_selector_returns_operational_context(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    scenario: str,
+    expected_labels: set[str],
+) -> None:
+    monkeypatch.setattr(settings, "enable_pilot_scenarios", True)
+
+    response = client.get(
+        "/api/v1/signal-engine/risk-workspace",
+        headers=auth_headers(client),
+        params={"scenario": scenario},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["empty"] is False
+    assert body["is_demo_scenario"] is True
+    assert body["scenario_key"] == scenario
+    assert body["scenario_label"]
+    assert "demo data" in body["demo_data_notice"].lower()
+    assert body["selected_risk"] is not None
+    assert body["explainability"] is not None
+    assert body["explainability"]["reason_chain"]
+    assert body["shipment_continuity"]
+    labels = {
+        item["protective_value_label"]
+        for item in body["shipment_continuity"]
+        if item["protective_value_label"] is not None
+    }
+    assert labels & expected_labels
+    assert body["selected_risk"]["operational_recommendations"]
+    action_text = " ".join(
+        " ".join(
+            [
+                action["action_type"],
+                action["operational_reason"],
+                *action["supporting_signals"],
+                *action["reason_chain"],
+            ]
+        ).lower()
+        for action in body["selected_risk"]["operational_recommendations"]
+    )
+    assert "reorder" not in action_text
+    assert "approve po" not in action_text
+
+
+def test_risk_workspace_multi_inbound_demo_has_distinct_protection_values(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "enable_pilot_scenarios", True)
+
+    response = client.get(
+        "/api/v1/signal-engine/risk-workspace",
+        headers=auth_headers(client),
+        params={"scenario": "multi_inbound_mixed_protection"},
+    )
+
+    assert response.status_code == 200
+    shipments = response.json()["shipment_continuity"]
+    labels = {item["shipment_reference"]: item["protective_value_label"] for item in shipments}
+    assert labels["DEMO-MV-STRONG-PCI"] == "Strong protection"
+    assert labels["DEMO-TRUCK-STALE-PCI"] == "Weak protection"
+    assert labels["DEMO-MV-LATE-PCI"] == "Not currently protective"
+    protective_quantities = {item["protective_quantity"] for item in shipments}
+    assert len(protective_quantities) > 1
+
+
+def test_risk_workspace_demo_records_are_marked_and_upserted(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "enable_pilot_scenarios", True)
+
+    headers = auth_headers(client)
+    for _ in range(2):
+        response = client.get(
+            "/api/v1/signal-engine/risk-workspace",
+            headers=headers,
+            params={"scenario": "ocean_vessel_delay"},
+        )
+        assert response.status_code == 200
+
+    with next(app.dependency_overrides[get_db]()) as db:
+        shipments = db.scalars(
+            select(Shipment).where(Shipment.shipment_id == "DEMO-MV-EASTERN-LINE-01")
+        ).all()
+        events = db.scalars(
+            select(OperationalEvent).where(
+                OperationalEvent.shipment_reference == "DEMO-MV-EASTERN-LINE-01"
+            )
+        ).all()
+
+    assert len(shipments) == 1
+    assert shipments[0].source_of_truth == "pilot_scenario:ocean_vessel_delay"
+    assert len(events) == 1
+    metadata = events[0].metadata_json or {}
+    assert metadata["source"] == "pilot_scenario"
+    assert metadata["scenario_key"] == "ocean_vessel_delay"
+    assert metadata["demo_data"] is True
+    assert metadata["created_for"] == "risk_workspace_pilot_demo"
+
+
+def test_risk_workspace_unknown_demo_scenario_returns_validation_error(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "enable_pilot_scenarios", True)
+
+    response = client.get(
+        "/api/v1/signal-engine/risk-workspace",
+        headers=auth_headers(client),
+        params={"scenario": "not_real"},
+    )
+
+    assert response.status_code == 400
+    assert "Unsupported pilot scenario" in response.json()["detail"]
 
 
 def test_risk_workspace_selects_highest_priority_risk_deterministically(

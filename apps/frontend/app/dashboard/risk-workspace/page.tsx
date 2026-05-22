@@ -9,6 +9,7 @@ import {
   Truck,
 } from "lucide-react";
 import Link from "next/link";
+import type { ReactNode } from "react";
 
 import { DailyBriefButton } from "@/components/reports/daily-brief-button";
 import { Badge } from "@/components/ui/badge";
@@ -27,6 +28,8 @@ import {
 export const dynamic = "force-dynamic";
 
 type SearchParams = {
+  scenario?: string;
+  walkthrough?: string;
   risk_type?: string;
   plant_reference?: string;
   material_reference?: string;
@@ -34,23 +37,58 @@ type SearchParams = {
   severity?: string;
 };
 
+const PILOT_SCENARIOS = [
+  {
+    value: "ocean_vessel_delay",
+    label: "Ocean vessel delay",
+    note:
+      "Shows how ETA drift weakens inbound protection even when material is physically on the way.",
+  },
+  {
+    value: "inland_movement_failure",
+    label: "Inland movement failure",
+    note: "Shows why material in-country may still not protect plant continuity.",
+  },
+  {
+    value: "false_safety",
+    label: "False safety: inbound exists but weak trust",
+    note: "Shows why ERP/inbound quantity alone is not enough if trust is weak.",
+  },
+  {
+    value: "fresh_verified_inbound",
+    label: "Fresh verified inbound",
+    note: "Shows how verified inbound can stabilize tight cover.",
+  },
+  {
+    value: "multi_inbound_mixed_protection",
+    label: "Multi-inbound mixed protection",
+    note: "Shows how different inbound rows can carry different protective value.",
+  },
+];
+
+const PILOT_SCENARIOS_ENABLED =
+  process.env.NEXT_PUBLIC_ENABLE_PILOT_SCENARIOS === "true";
+
 export default async function CriticalRiskWorkspacePage({
   searchParams,
 }: {
   searchParams?: SearchParams;
 }) {
-  const [workspace, risks] = await Promise.all([
-    getRiskWorkspace({
-      risk_type: searchParams?.risk_type,
-      plant_reference: searchParams?.plant_reference,
-      material_reference: searchParams?.material_reference,
-      shipment_reference: searchParams?.shipment_reference,
-      severity: searchParams?.severity,
-      timeline_limit: 50,
-      timeline_offset: 0,
-    }),
-    getSignalRisks({ plant_reference: searchParams?.plant_reference }),
-  ]);
+  const activeScenario = PILOT_SCENARIOS_ENABLED ? searchParams?.scenario : undefined;
+  const walkthroughActive = isWalkthroughActive(searchParams);
+  const workspace = await getRiskWorkspace({
+    scenario: activeScenario,
+    risk_type: searchParams?.risk_type,
+    plant_reference: searchParams?.plant_reference,
+    material_reference: searchParams?.material_reference,
+    shipment_reference: searchParams?.shipment_reference,
+    severity: searchParams?.severity,
+    timeline_limit: 50,
+    timeline_offset: 0,
+  });
+  const risks = activeScenario
+    ? []
+    : await getSignalRisks({ plant_reference: searchParams?.plant_reference });
 
   if (!workspace) {
     return <UnavailableState />;
@@ -58,15 +96,27 @@ export default async function CriticalRiskWorkspacePage({
 
   return (
     <main className="grid min-w-0 gap-3">
-      <WorkspaceFilters searchParams={searchParams} />
+      <WorkspaceFilters
+        searchParams={searchParams}
+        walkthroughActive={walkthroughActive}
+      />
       {risks.length > 0 ? (
         <ExposureSelector risks={risks} selected={workspace.selected_risk} />
+      ) : null}
+      {workspace.is_demo_scenario ? (
+        <DemoScenarioNotice
+          workspace={workspace}
+          walkthroughActive={walkthroughActive}
+        />
       ) : null}
 
       {workspace.empty ? (
         <EmptyWorkspace />
       ) : (
-        <WorkspaceContent workspace={workspace} />
+        <WorkspaceContent
+          workspace={workspace}
+          walkthroughActive={walkthroughActive}
+        />
       )}
     </main>
   );
@@ -125,87 +175,69 @@ function ExposureSelector({
   );
 }
 
-function WorkspaceContent({ workspace }: { workspace: RiskWorkspaceResponse }) {
+function WorkspaceContent({
+  workspace,
+  walkthroughActive,
+}: {
+  workspace: RiskWorkspaceResponse;
+  walkthroughActive: boolean;
+}) {
   const risk = workspace.selected_risk;
-  const exposure = workspace.exposure;
-  const explainability = workspace.explainability;
+  const inventory = primaryInventory(workspace);
 
   return (
     <>
       <section className="grid gap-3 xl:grid-cols-[minmax(0,1.45fr)_minmax(300px,0.55fr)]">
-        <Card className={`overflow-hidden ${workspaceTone(risk?.severity)}`}>
-          <CardHeader className="text-white">
-            <div className="flex flex-wrap items-center gap-2">
-              <SeverityBadge value={risk?.severity ?? "unknown"} />
-              <Badge className="bg-white/12 text-white ring-1 ring-white/15">
-                {formatLabel(risk?.risk_type ?? "risk")}
-              </Badge>
-              {exposure ? (
-                <Badge className="bg-white/12 text-white ring-1 ring-white/15">
-                  {formatLabel(exposure.exposure_level)} exposure
-                </Badge>
-              ) : null}
-            </div>
-            <CardTitle className="mt-2 text-2xl tracking-tight">
-              {contextTitle(risk?.material_reference, risk?.plant_reference)}
-            </CardTitle>
-            <p className="text-white/68 max-w-3xl text-sm leading-5">
-              {exposure?.operational_reason ??
-                explainability?.summary ??
-                "Continuity exposure context is available for review."}
-            </p>
-          </CardHeader>
-          <CardContent>
-            <div className="grid gap-2.5 md:grid-cols-2 2xl:grid-cols-4">
-              <SignalMetric
-                icon={<Boxes className="h-4 w-4" />}
-                label="Continuity cover"
-                value={displayDays(risk?.days_of_cover)}
-                helper="available"
-              />
-              <SignalMetric
-                icon={<Clock3 className="h-4 w-4" />}
-                label="Failure window"
-                value={formatDate(
-                  exposure?.estimated_exposure_date ??
-                    risk?.projected_exhaustion_date,
-                )}
-                helper={displayDaysUntil(exposure?.days_until_exposure)}
-                tone="critical"
-              />
-              <SignalMetric
-                icon={<Truck className="h-4 w-4" />}
-                label="Inbound dependency"
-                value={
-                  risk?.shipment_reference ??
-                  exposure?.shipment_reference ??
-                  "Not linked"
-                }
-                helper={formatLabel(
-                  risk?.continuity_status ?? "dependency context",
-                )}
-                tone={
-                  risk?.continuity_status === "degraded" ? "warning" : "default"
-                }
-              />
-              <SignalMetric
-                icon={<AlertTriangle className="h-4 w-4" />}
-                label="Why exposed"
-                value={formatLabel(exposure?.exposure_basis ?? "unknown")}
-                helper="operational exposure"
-              />
-            </div>
-          </CardContent>
-        </Card>
+        <div className="grid gap-3">
+          {walkthroughActive ? (
+            <WalkthroughNote>
+              This shows the plant-material combination most likely to create
+              continuity pressure.
+            </WalkthroughNote>
+          ) : null}
+          <OperationalRiskHero workspace={workspace} inventory={inventory} />
+        </div>
 
         <div className="grid gap-3">
-          <TrustSummary workspace={workspace} />
-          <OperationalTrustSummary risk={risk} />
+          {walkthroughActive ? (
+            <WalkthroughNote>
+              This translates current signals into likely operational consequence.
+            </WalkthroughNote>
+          ) : null}
+          <IfNothingChanges workspace={workspace} inventory={inventory} />
+          {walkthroughActive ? (
+            <WalkthroughNote>
+              These are human-led operational actions, not automated procurement.
+            </WalkthroughNote>
+          ) : null}
+          <RecommendedActions risk={risk} />
         </div>
       </section>
 
       <section className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-        <WhyThisMatters workspace={workspace} />
+        <div className="grid gap-3">
+          {walkthroughActive ? (
+            <WalkthroughNote>
+              This explains the operational signals causing the risk, not just a
+              generic score.
+            </WalkthroughNote>
+          ) : null}
+          <WhyThisMatters workspace={workspace} />
+        </div>
+        <div className="grid gap-3">
+          {walkthroughActive ? (
+            <WalkthroughNote>
+              This separates physical inbound from trusted inbound. An inbound
+              shipment only protects continuity if timing, freshness, and
+              confidence are acceptable.
+            </WalkthroughNote>
+          ) : null}
+          <InboundProtectionQuality workspace={workspace} inventory={inventory} />
+        </div>
+      </section>
+
+      <section className="grid gap-3 xl:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
+        <OperationalTrustSummary risk={risk} />
         <ContinuitySummary
           inventory={workspace.inventory_continuity}
           shipments={workspace.shipment_continuity}
@@ -220,7 +252,181 @@ function WorkspaceContent({ workspace }: { workspace: RiskWorkspaceResponse }) {
   );
 }
 
-function WorkspaceFilters({ searchParams }: { searchParams?: SearchParams }) {
+function OperationalRiskHero({
+  workspace,
+  inventory,
+}: {
+  workspace: RiskWorkspaceResponse;
+  inventory: SignalInventoryContinuity | null;
+}) {
+  const risk = workspace.selected_risk;
+  const exposure = workspace.exposure;
+  const breachDays = exposure?.days_until_exposure ?? risk?.days_of_cover ?? null;
+  const threshold = inventory?.threshold_days ?? null;
+  const trustedInbound = inventory?.trusted_inbound_protection_mt ?? inventory?.trusted_inbound_quantity;
+  const physicalInbound = inventory?.physical_inbound_quantity_mt ?? inventory?.inbound_committed_quantity;
+  const confidence =
+    risk?.operational_trust?.operational_trust_score ??
+    inventory?.visibility_confidence ??
+    workspace.trust_summary?.lowest_confidence_score;
+
+  return (
+    <Card className={`overflow-hidden ${workspaceTone(risk?.severity)}`}>
+      <CardHeader className="pb-3 text-white">
+        <div className="flex flex-wrap items-center gap-2">
+          <SeverityBadge value={risk?.severity ?? "unknown"} />
+          <Badge className="bg-white/12 text-white ring-1 ring-white/15">
+            {formatLabel(risk?.risk_type ?? "continuity risk")}
+          </Badge>
+          {exposure ? (
+            <Badge className="bg-white/12 text-white ring-1 ring-white/15">
+              {formatLabel(exposure.exposure_level)}
+            </Badge>
+          ) : null}
+        </div>
+        <CardTitle className="mt-3 max-w-4xl text-3xl tracking-tight">
+          {operationalHeadline(risk, exposure)}
+        </CardTitle>
+        <p className="max-w-3xl text-sm leading-5 text-white/70">
+          {contextTitle(risk?.material_reference, risk?.plant_reference)}
+          {risk?.shipment_reference ? ` · Inbound ${risk.shipment_reference}` : ""}
+        </p>
+      </CardHeader>
+      <CardContent>
+        <div className="grid gap-2.5 md:grid-cols-2 2xl:grid-cols-4">
+          <SignalMetric
+            icon={<Boxes className="h-4 w-4" />}
+            label="Current usable cover"
+            value={displayDays(risk?.days_of_cover ?? inventory?.days_of_cover)}
+            helper={`${displayQuantity(inventory?.usable_quantity, inventory?.unit)} usable stock`}
+          />
+          <SignalMetric
+            icon={<AlertTriangle className="h-4 w-4" />}
+            label="Safe threshold"
+            value={displayDays(threshold)}
+            helper={safeCoverHelper(breachDays)}
+            tone="warning"
+          />
+          <SignalMetric
+            icon={<Truck className="h-4 w-4" />}
+            label="Trusted inbound protection"
+            value={displayQuantity(trustedInbound, inventory?.unit)}
+            helper={`${displayQuantity(physicalInbound, inventory?.unit)} physical inbound exists`}
+            tone={trustedInboundTone(inventory)}
+          />
+          <SignalMetric
+            icon={<ShieldCheck className="h-4 w-4" />}
+            label="Operational confidence"
+            value={displayPercent(confidence)}
+            helper={formatLabel(risk?.operational_trust?.risk_precision_band ?? "calibrated context")}
+          />
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function IfNothingChanges({
+  workspace,
+  inventory,
+}: {
+  workspace: RiskWorkspaceResponse;
+  inventory: SignalInventoryContinuity | null;
+}) {
+  const risk = workspace.selected_risk;
+  const exposure = workspace.exposure;
+  const impact = risk?.operational_interruption_impact;
+  const items = [
+    safeBreachStatement(workspace, inventory),
+    interruptionStatement(impact),
+    inboundStabilityStatement(workspace, inventory),
+  ].filter(Boolean) as string[];
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <div className="flex items-center gap-2">
+          <Clock3 className="h-5 w-5 text-pressure-red" />
+          <CardTitle>If nothing changes</CardTitle>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <div className="grid gap-2">
+          {items.length > 0 ? (
+            items.map((item) => (
+              <div
+                key={item}
+                className="rounded-xl bg-slate-50 px-3 py-2.5 text-sm font-medium leading-5 ring-1 ring-slate-900/5"
+              >
+                {item}
+              </div>
+            ))
+          ) : (
+            <p className="rounded-xl bg-slate-50 px-3 py-3 text-sm text-mutedForeground ring-1 ring-slate-900/5">
+              Future consequence is not available for this risk yet.
+            </p>
+          )}
+          {exposure?.estimated_exposure_date ? (
+            <ContextPill
+              label="Expected breach timing"
+              value={formatDate(exposure.estimated_exposure_date)}
+            />
+          ) : null}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function RecommendedActions({ risk }: { risk: SignalRiskCandidate | null }) {
+  const actions = (risk?.operational_recommendations ?? []).slice(0, 4);
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <div className="flex items-center gap-2">
+          <PackageCheck className="h-5 w-5 text-primary" />
+          <CardTitle>Recommended next actions</CardTitle>
+        </div>
+        <p className="text-xs leading-5 text-mutedForeground">
+          Human-led operational checks only. OpsDeck does not create purchase orders or
+          replace suppliers automatically.
+        </p>
+      </CardHeader>
+      <CardContent>
+        <div className="grid gap-2">
+          {actions.length > 0 ? (
+            actions.map((action) => (
+              <div
+                key={`${action.action_type}-${action.urgency}`}
+                className="rounded-xl bg-slate-50 p-3 ring-1 ring-slate-900/5"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="font-semibold">{actionLabel(action.action_type)}</p>
+                  <Badge variant="outline">{formatLabel(action.urgency)}</Badge>
+                </div>
+                <p className="mt-2 text-sm leading-5 text-mutedForeground">
+                  {action.operational_reason}
+                </p>
+              </div>
+            ))
+          ) : (
+            <p className="rounded-xl bg-slate-50 px-3 py-3 text-sm text-mutedForeground ring-1 ring-slate-900/5">
+              No operational action guidance returned for this selected risk.
+            </p>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function WorkspaceFilters({
+  searchParams,
+  walkthroughActive,
+}: {
+  searchParams?: SearchParams;
+  walkthroughActive: boolean;
+}) {
   return (
     <Card className="bg-card/90 shadow-panel">
       <CardHeader>
@@ -230,14 +436,56 @@ function WorkspaceFilters({ searchParams }: { searchParams?: SearchParams }) {
             <p className="mt-1 text-sm text-mutedForeground">
               {searchParams?.plant_reference
                 ? `Viewing continuity for ${searchParams.plant_reference}.`
+                : PILOT_SCENARIOS_ENABLED && searchParams?.scenario
+                  ? "Viewing a controlled pilot scenario."
                 : "Viewing continuity for All plants."}
             </p>
           </div>
-          <DailyBriefButton />
+          <div className="flex flex-wrap items-center gap-2">
+            {PILOT_SCENARIOS_ENABLED ? (
+              <Link
+                href={walkthroughHref(searchParams, !walkthroughActive)}
+                className={`rounded-xl px-3 py-2 text-sm font-semibold ring-1 transition ${
+                  walkthroughActive
+                    ? "bg-slate-950 text-white ring-slate-950"
+                    : "bg-white text-slate-700 ring-slate-900/10 hover:bg-slate-50"
+                }`}
+              >
+                {walkthroughActive ? "Hide walkthrough" : "Walkthrough"}
+              </Link>
+            ) : null}
+            <DailyBriefButton />
+          </div>
         </div>
       </CardHeader>
       <CardContent>
-        <form className="grid gap-3 md:grid-cols-3 xl:grid-cols-[1fr_1fr_1fr_1fr_160px_auto]">
+        <form className="grid gap-3 md:grid-cols-3 xl:grid-cols-[1.25fr_1fr_1fr_1fr_1fr_160px_auto]">
+          {walkthroughActive ? (
+            <input type="hidden" name="walkthrough" value="1" />
+          ) : null}
+          {PILOT_SCENARIOS_ENABLED ? (
+            <div className="grid gap-1">
+              <label
+                htmlFor="scenario"
+                className="text-xs font-semibold uppercase tracking-wide text-mutedForeground"
+              >
+                Pilot scenario
+              </label>
+              <select
+                id="scenario"
+                name="scenario"
+                defaultValue={searchParams?.scenario ?? ""}
+                className="rounded-xl border bg-card px-3 py-2 text-sm"
+              >
+                <option value="">Live workspace</option>
+                {PILOT_SCENARIOS.map((scenario) => (
+                  <option key={scenario.value} value={scenario.value}>
+                    {scenario.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null}
           <input
             name="plant_reference"
             defaultValue={searchParams?.plant_reference ?? ""}
@@ -285,21 +533,64 @@ function WorkspaceFilters({ searchParams }: { searchParams?: SearchParams }) {
   );
 }
 
+function DemoScenarioNotice({
+  workspace,
+  walkthroughActive,
+}: {
+  workspace: RiskWorkspaceResponse;
+  walkthroughActive: boolean;
+}) {
+  const scenarioNote = scenarioWalkthroughNote(workspace.scenario_key);
+
+  return (
+    <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="font-semibold">
+          {workspace.scenario_label ?? "Pilot demo scenario"}
+        </span>
+        <Badge className="bg-amber-100 text-amber-900 ring-1 ring-amber-200">
+          Demo data
+        </Badge>
+      </div>
+      <p className="mt-1 leading-5">
+        {workspace.demo_data_notice ??
+          "Pilot demo scenario - seeded demo data, not live customer operations."}
+      </p>
+      {walkthroughActive && scenarioNote ? (
+        <p className="mt-2 rounded-lg bg-white/60 px-3 py-2 leading-5 ring-1 ring-amber-200/70">
+          You are viewing a controlled pilot scenario designed to demonstrate:
+          {" "}
+          {scenarioNote}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function WalkthroughNote({ children }: { children: ReactNode }) {
+  return (
+    <div className="rounded-xl border border-sky-100 bg-sky-50 px-3 py-2 text-sm leading-5 text-slate-700">
+      {children}
+    </div>
+  );
+}
+
 function WhyThisMatters({ workspace }: { workspace: RiskWorkspaceResponse }) {
   const explainability = workspace.explainability;
   const reasonChain =
     explainability?.reason_chain ?? workspace.selected_risk?.rule_reasons ?? [];
+  const concreteSignals = escalatingSignals(workspace, reasonChain);
 
   return (
     <Card>
       <CardHeader>
         <div className="flex items-center gap-2">
           <Activity className="h-5 w-5 text-pressure-red" />
-          <CardTitle>Why this is becoming risky</CardTitle>
+          <CardTitle>Why this is escalating</CardTitle>
         </div>
         <p className="text-sm leading-5 text-mutedForeground">
-          {explainability?.summary ??
-            "OpsDeck does not have enough signal detail to explain this continuity risk yet."}
+          Operational signals that explain why this plant-material context is becoming
+          fragile.
         </p>
       </CardHeader>
       <CardContent>
@@ -313,9 +604,19 @@ function WhyThisMatters({ workspace }: { workspace: RiskWorkspaceResponse }) {
             value={formatLabel(workspace.selected_risk?.risk_type)}
           />
         </div>
+        <div className="mb-4 grid gap-2 sm:grid-cols-2">
+          {concreteSignals.slice(0, 6).map((signal) => (
+            <div
+              key={signal}
+              className="rounded-xl bg-white px-3 py-2.5 text-sm font-medium leading-5 ring-1 ring-slate-900/5"
+            >
+              {signal}
+            </div>
+          ))}
+        </div>
         <div className="relative space-y-0 pl-3">
           <div className="absolute bottom-6 left-[24px] top-6 w-px bg-gradient-to-b from-red-300 via-amber-300 to-slate-200" />
-          {reasonChain.map((reason, index) => (
+          {reasonChain.slice(0, 6).map((reason, index) => (
             <div
               key={`${reason}-${index}`}
               className="relative flex gap-3 pb-4"
@@ -341,59 +642,125 @@ function WhyThisMatters({ workspace }: { workspace: RiskWorkspaceResponse }) {
   );
 }
 
-function TrustSummary({ workspace }: { workspace: RiskWorkspaceResponse }) {
-  const trust = workspace.trust_summary;
-  const warnings = trust?.warnings ?? [];
-  const confidence =
-    trust?.lowest_confidence_score ??
-    workspace.explainability?.trust_context.lowest_confidence_score;
-  const freshness =
-    trust?.worst_freshness_status ??
-    workspace.explainability?.trust_context.worst_freshness_status;
+function InboundProtectionQuality({
+  workspace,
+  inventory,
+}: {
+  workspace: RiskWorkspaceResponse;
+  inventory: SignalInventoryContinuity | null;
+}) {
+  const shipmentQuantities = shipmentQuantityByReference(workspace);
+  const aggregatePhysical =
+    inventory?.physical_inbound_quantity_mt ?? inventory?.inbound_committed_quantity;
+  const aggregateTrusted =
+    inventory?.trusted_inbound_protection_mt ?? inventory?.trusted_inbound_quantity;
+  const aggregateUncertain =
+    inventory?.visibility_uncertain_quantity_mt ?? inventory?.uncertain_inbound_quantity;
 
   return (
     <Card>
       <CardHeader>
         <div className="flex items-center gap-2">
-          <ShieldCheck className="h-5 w-5 text-primary" />
-          <CardTitle>Continuity trust</CardTitle>
+          <Truck className="h-5 w-5 text-pressure-amber" />
+          <CardTitle>Inbound protection quality</CardTitle>
         </div>
+        <p className="text-sm leading-5 text-mutedForeground">
+          Separates physical inbound from the portion OpsDeck can trust for continuity
+          protection.
+        </p>
       </CardHeader>
       <CardContent>
-        <div className="grid gap-2.5">
-          <SignalMetric
-            icon={<ShieldCheck className="h-4 w-4" />}
-            label="Signal confidence"
-            value={displayPercent(confidence)}
-            helper="reliability"
+        <div className="mb-3 grid gap-2 sm:grid-cols-3">
+          <ContextPill
+            label="Physical inbound exists"
+            value={displayQuantity(aggregatePhysical, inventory?.unit)}
           />
-          <SignalMetric
-            icon={<Clock3 className="h-4 w-4" />}
-            label="Visibility freshness"
-            value={formatLabel(freshness ?? "unknown")}
-            helper="latest source"
+          <ContextPill
+            label="Trusted inbound"
+            value={displayQuantity(aggregateTrusted, inventory?.unit)}
           />
-          <div className="rounded-xl bg-slate-50 p-3 ring-1 ring-slate-900/5">
-            <p className="text-xs font-semibold text-mutedForeground">
-              Trust degradation
+          <ContextPill
+            label="Visibility uncertainty"
+            value={displayQuantity(aggregateUncertain, inventory?.unit)}
+          />
+        </div>
+        <div className="space-y-2">
+          {workspace.shipment_continuity.slice(0, 4).map((shipment) => (
+            <InboundProtectionRow
+              key={shipment.shipment_reference}
+              shipment={shipment}
+              inventory={inventory}
+              quantity={shipmentQuantities.get(shipment.shipment_reference)}
+              totalShipments={workspace.shipment_continuity.length}
+            />
+          ))}
+          {workspace.shipment_continuity.length === 0 ? (
+            <p className="rounded-xl bg-slate-50 px-3 py-3 text-sm text-mutedForeground ring-1 ring-slate-900/5">
+              No linked inbound movement returned for this selected risk.
             </p>
-            {warnings.length > 0 ? (
-              <ul className="mt-3 space-y-2 text-sm">
-                {warnings.map((warning) => (
-                  <li key={warning} className="leading-6">
-                    {warning}
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="mt-2 text-sm text-mutedForeground">
-                No trust warnings.
-              </p>
-            )}
-          </div>
+          ) : null}
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+function InboundProtectionRow({
+  shipment,
+  inventory,
+  quantity,
+  totalShipments,
+}: {
+  shipment: SignalShipmentContinuity;
+  inventory: SignalInventoryContinuity | null;
+  quantity?: string;
+  totalShipments: number;
+}) {
+  const quality = inboundProtectionLabel(shipment);
+  const physicalValue = shipment.physical_quantity ?? quantity;
+  const trustedValue =
+    shipment.protective_quantity ??
+    shipment.trusted_quantity ??
+    (totalShipments === 1
+      ? inventory?.trusted_inbound_protection_mt ?? inventory?.trusted_inbound_quantity
+      : null);
+
+  return (
+    <div className={`rounded-xl p-3 ring-1 ${quality.className}`}>
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <p className="font-semibold">{shipment.shipment_reference}</p>
+          <p className="mt-1 text-xs text-mutedForeground">
+            {formatLabel(shipment.movement_condition ?? shipment.current_milestone ?? shipment.status)}
+          </p>
+        </div>
+        <Badge variant="outline">{quality.label}</Badge>
+      </div>
+      <div className="mt-3 grid gap-2 text-sm sm:grid-cols-3">
+        <span>Trust {formatLabel(shipment.trust_level ?? "unknown")}</span>
+        <span>ETA {formatLabel(shipment.eta_status ?? "unknown")}</span>
+        <span>Freshness {formatLabel(shipment.freshness_status ?? shipment.tracking_freshness_status)}</span>
+      </div>
+      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+        <ContextPill
+          label="Physical inbound"
+          value={displayQuantity(physicalValue, inventory?.unit)}
+        />
+        <ContextPill
+          label="Protective value"
+          value={
+            trustedValue
+              ? displayQuantity(trustedValue, inventory?.unit)
+              : quality.protectiveValue
+          }
+        />
+      </div>
+      {shipment.protection_explanation ?? quality.reason ? (
+        <p className="mt-3 text-sm leading-5 text-mutedForeground">
+          {shipment.protection_explanation ?? quality.reason}
+        </p>
+      ) : null}
+    </div>
   );
 }
 
@@ -708,14 +1075,21 @@ function InventoryBlock({ item }: { item: SignalInventoryContinuity }) {
         label="Usable quantity"
         value={`${formatNumber(item.usable_quantity)} ${item.unit}`}
       />
-      <ContextPill label="Raw cover" value={displayDays(item.days_of_cover)} />
       <ContextPill
-        label="Trusted cover"
+        label="Current usable cover"
+        value={displayDays(item.days_of_cover)}
+      />
+      <ContextPill
+        label="Trusted operating cover"
         value={displayDays(item.trusted_days_of_cover ?? item.days_of_cover)}
       />
       <ContextPill
-        label="Uncertain inbound"
-        value={`${formatNumber(item.uncertain_inbound_quantity)} ${item.unit}`}
+        label="Trusted inbound protection"
+        value={displayQuantity(item.trusted_inbound_protection_mt, item.unit)}
+      />
+      <ContextPill
+        label="Visibility uncertainty"
+        value={displayQuantity(item.visibility_uncertain_quantity_mt, item.unit)}
       />
       <ContextPill
         label="Cover confidence"
@@ -879,6 +1253,225 @@ function BandBadge({ value }: { value: string }) {
   );
 }
 
+function primaryInventory(workspace: RiskWorkspaceResponse) {
+  const selected = workspace.selected_risk;
+  return (
+    workspace.inventory_continuity.find(
+      (item) =>
+        item.plant_reference === selected?.plant_reference &&
+        item.material_reference === selected?.material_reference,
+    ) ??
+    workspace.context_graph?.summary.inventory_continuity ??
+    workspace.inventory_continuity[0] ??
+    null
+  ) as SignalInventoryContinuity | null;
+}
+
+function operationalHeadline(
+  risk: SignalRiskCandidate | null,
+  exposure: RiskWorkspaceResponse["exposure"],
+) {
+  const days = exposure?.days_until_exposure ?? risk?.days_of_cover;
+  const context = contextTitle(risk?.material_reference, risk?.plant_reference);
+  if (risk?.risk_type === "projected_stockout") {
+    return `Projected stockout risk for ${context}`;
+  }
+  if (risk?.risk_type === "inbound_delay_against_cover") {
+    return `Inbound protection may not arrive before safe cover weakens`;
+  }
+  if (days) {
+    return `Production continuity risk expected in ${formatNumber(days)} days`;
+  }
+  return `Production continuity risk for ${context}`;
+}
+
+function safeCoverHelper(value?: string | null) {
+  if (!value) return "breach timing not available";
+  return `safe cover breach expected in ${formatNumber(value)} days`;
+}
+
+function safeBreachStatement(
+  workspace: RiskWorkspaceResponse,
+  inventory: SignalInventoryContinuity | null,
+) {
+  const exposureDays = workspace.exposure?.days_until_exposure;
+  const threshold = inventory?.threshold_days;
+  if (exposureDays) {
+    return `Safe threshold breach expected in ${formatNumber(exposureDays)} days.`;
+  }
+  if (workspace.selected_risk?.days_of_cover && threshold) {
+    return `Current usable cover is ${displayDays(workspace.selected_risk.days_of_cover)} against a safe threshold of ${displayDays(threshold)}.`;
+  }
+  if (workspace.selected_risk?.projected_exhaustion_date) {
+    return `Projected exhaustion is ${formatDate(workspace.selected_risk.projected_exhaustion_date)}.`;
+  }
+  return null;
+}
+
+function interruptionStatement(impact?: SignalRiskCandidate["operational_interruption_impact"]) {
+  if (!impact) return null;
+  if (impact.calculation_status !== "calculated") {
+    return "Production interruption impact is not fully calibrated for this context.";
+  }
+  if (impact.estimated_interruption_hours) {
+    return `If cover fails, estimated interruption window is ${formatNumber(impact.estimated_interruption_hours)} hours.`;
+  }
+  return "Operational interruption impact is calculated for this risk.";
+}
+
+function inboundStabilityStatement(
+  workspace: RiskWorkspaceResponse,
+  inventory: SignalInventoryContinuity | null,
+) {
+  const weakInbound =
+    numberValue(inventory?.visibility_uncertain_quantity_mt) > 0 ||
+    workspace.shipment_continuity.some((shipment) =>
+      ["degraded", "watch"].includes(shipment.status),
+    );
+  if (weakInbound) {
+    return "Inbound must stabilize before projected cover loss.";
+  }
+  if ((workspace.shipment_continuity.length ?? 0) > 0) {
+    return "Inbound movement remains linked, but operations should keep timing validated.";
+  }
+  return null;
+}
+
+function escalatingSignals(
+  workspace: RiskWorkspaceResponse,
+  reasons: string[],
+) {
+  const signals = new Set<string>();
+  const text = [
+    ...reasons,
+    ...workspace.shipment_continuity.flatMap((shipment) => shipment.continuity_reasons),
+    ...(workspace.inventory_continuity[0]?.trust_warnings ?? []),
+  ]
+    .join(" ")
+    .toLowerCase();
+  const inventory = primaryInventory(workspace);
+  if (text.includes("eta slipped") || text.includes("eta drift")) {
+    signals.add("Vessel or inbound ETA slipped against plan.");
+  }
+  if (text.includes("inland") || text.includes("near_plant") || text.includes("gate_in")) {
+    signals.add("Inland movement is not confirmed strongly enough.");
+  }
+  if (text.includes("supplier") && (text.includes("weak") || text.includes("insufficient"))) {
+    signals.add("Supplier dispatch or reliability evidence is weak.");
+  }
+  if (text.includes("stale") || text.includes("critical visibility")) {
+    signals.add("Last tracking update is stale for this movement context.");
+  }
+  if (workspace.selected_risk?.days_of_cover || inventory?.threshold_days) {
+    signals.add("Usable cover is at or below the configured operating threshold.");
+  }
+  if (numberValue(inventory?.visibility_uncertain_quantity_mt) > 0) {
+    signals.add("Inbound exists physically but is not fully trusted for protection.");
+  }
+  if (inventory?.daily_consumption_rate) {
+    signals.add(`Consumption pressure is ${formatNumber(inventory.daily_consumption_rate)} ${inventory.unit}/day.`);
+  }
+  if (signals.size === 0) {
+    signals.add("OpsDeck returned a continuity risk, but the causal signal detail is limited.");
+  }
+  return Array.from(signals);
+}
+
+function inboundProtectionLabel(shipment: SignalShipmentContinuity) {
+  if (shipment.protective_value_label) {
+    const label = shipment.protective_value_label;
+    const level = shipment.trust_level ?? "";
+    const className =
+      level === "strong"
+        ? "bg-emerald-50 ring-emerald-200"
+        : level === "partial"
+          ? "bg-amber-50 ring-amber-200"
+          : level === "weak" || level === "not_protective"
+            ? "bg-red-50 ring-red-200"
+            : "bg-slate-100 ring-slate-200";
+    return {
+      label,
+      protectiveValue: shipment.protective_quantity
+        ? displayQuantity(shipment.protective_quantity)
+        : "Not quantified",
+      reason: shipment.trust_reason,
+      className,
+    };
+  }
+  const slip = numberValue(shipment.eta_slip_days);
+  if (shipment.status === "degraded" || shipment.tracking_freshness_status === "critical") {
+    return {
+      label: "Weak protection",
+      protectiveValue: "Reduced by visibility trust",
+      reason: "ETA, milestone, or tracking condition is degraded.",
+      className: "bg-red-50 ring-red-200",
+    };
+  }
+  if (shipment.status === "watch" || shipment.tracking_freshness_status === "stale" || slip > 0) {
+    return {
+      label: "Partial protection",
+      protectiveValue: "Partially trusted",
+      reason: "Inbound exists, but timing or visibility needs operational validation.",
+      className: "bg-amber-50 ring-amber-200",
+    };
+  }
+  if (shipment.status === "unknown") {
+    return {
+      label: "Not currently protective",
+      protectiveValue: "Not trusted yet",
+      reason: "Shipment condition is missing enough context for trusted protection.",
+      className: "bg-slate-100 ring-slate-200",
+    };
+  }
+  return {
+    label: "Strong protection",
+    protectiveValue: "Trusted",
+    reason: "Inbound timing and visibility are currently acceptable.",
+    className: "bg-emerald-50 ring-emerald-200",
+  };
+}
+
+function shipmentQuantityByReference(workspace: RiskWorkspaceResponse) {
+  const quantities = new Map<string, string>();
+  for (const node of workspace.context_graph?.nodes ?? []) {
+    if (node.type !== "shipment") continue;
+    const quantity = node.metadata.quantity_mt;
+    if (quantity === null || quantity === undefined) continue;
+    quantities.set(node.reference, String(quantity));
+  }
+  return quantities;
+}
+
+function trustedInboundTone(
+  inventory: SignalInventoryContinuity | null,
+): "default" | "critical" | "warning" {
+  if (!inventory) return "default";
+  const physical = numberValue(inventory.physical_inbound_quantity_mt);
+  const trusted = numberValue(inventory.trusted_inbound_protection_mt);
+  if (physical <= 0) return "default";
+  const ratio = trusted / physical;
+  if (ratio < 0.4) return "critical";
+  if (ratio < 0.75) return "warning";
+  return "default";
+}
+
+function actionLabel(value: string) {
+  const labels: Record<string, string> = {
+    monitor: "Monitor continuity position",
+    verify_inbound: "Verify inbound status",
+    validate_eta: "Validate ETA",
+    expedite_inbound: "Expedite inbound recovery",
+    escalate_supplier: "Escalate to supplier owner",
+    review_recovery_plan: "Review recovery plan",
+    activate_substitution: "Review substitution option",
+    review_reserve_usage: "Review reserve usage",
+    validate_tracking_visibility: "Increase tracking cadence",
+    confirm_port_clearance: "Confirm port clearance",
+    confirm_inland_movement: "Confirm inland movement allocation",
+  };
+  return labels[value] ?? formatLabel(value);
+}
+
 const severityRank: Record<string, number> = {
   critical: 0,
   high: 1,
@@ -920,6 +1513,35 @@ function riskWorkspaceHref(risk: SignalRiskCandidate) {
   if (risk.shipment_reference)
     params.set("shipment_reference", risk.shipment_reference);
   return `/dashboard/risk-workspace?${params.toString()}`;
+}
+
+function walkthroughHref(searchParams: SearchParams | undefined, enabled: boolean) {
+  const params = new URLSearchParams();
+  setParam(params, "scenario", PILOT_SCENARIOS_ENABLED ? searchParams?.scenario : undefined);
+  setParam(params, "plant_reference", searchParams?.plant_reference);
+  setParam(params, "material_reference", searchParams?.material_reference);
+  setParam(params, "shipment_reference", searchParams?.shipment_reference);
+  setParam(params, "risk_type", searchParams?.risk_type);
+  setParam(params, "severity", searchParams?.severity);
+  if (enabled) params.set("walkthrough", "1");
+  const query = params.toString();
+  return query ? `/dashboard/risk-workspace?${query}` : "/dashboard/risk-workspace";
+}
+
+function setParam(
+  params: URLSearchParams,
+  key: string,
+  value: string | undefined,
+) {
+  if (value) params.set(key, value);
+}
+
+function isWalkthroughActive(searchParams: SearchParams | undefined) {
+  return PILOT_SCENARIOS_ENABLED && searchParams?.walkthrough === "1";
+}
+
+function scenarioWalkthroughNote(scenarioKey?: string | null) {
+  return PILOT_SCENARIOS.find((scenario) => scenario.value === scenarioKey)?.note;
 }
 
 function isSelectedExposure(
@@ -1021,6 +1643,11 @@ function displayDays(value?: string | null) {
   return `${formatNumber(value)} days`;
 }
 
+function displayQuantity(value?: string | null, unit = "MT") {
+  if (value === null || value === undefined) return "Unknown";
+  return `${formatNumber(value)} ${unit}`;
+}
+
 function displayDaysUntil(value?: string | null) {
   if (!value) return "exposure timing unknown";
   return `${formatNumber(value)} days until exposure`;
@@ -1028,5 +1655,15 @@ function displayDaysUntil(value?: string | null) {
 
 function displayPercent(value?: string | null) {
   if (!value) return "Unknown";
+  const numeric = Number(value);
+  if (Number.isFinite(numeric) && numeric <= 1) {
+    return `${formatNumber(String(numeric * 100))}%`;
+  }
   return `${formatNumber(value)}%`;
+}
+
+function numberValue(value?: string | null) {
+  if (value === null || value === undefined) return 0;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : 0;
 }

@@ -58,8 +58,32 @@ export interface SignalRiskCandidate {
   source_event_ids: number[];
   recommended_owner_role: string | null;
   explainability: SignalRiskExplainability | null;
+  operational_interruption_impact: OperationalInterruptionImpact | null;
+  operational_recommendations: OperationalActionRecommendation[];
   configuration_completeness: ConfigurationCompletenessResult | null;
   operational_trust: RiskOperationalTrustResult | null;
+}
+
+export interface OperationalInterruptionImpact {
+  calculation_status: string;
+  currency: string;
+  estimated_interruption_hours: string | null;
+  interruption_probability: string | null;
+  gross_operational_impact: string | null;
+  final_estimated_impact: string | null;
+  operational_interruption_impact: string | null;
+  reason_chain: string[];
+}
+
+export interface OperationalActionRecommendation {
+  action_type: string;
+  urgency: string;
+  operational_reason: string;
+  supporting_signals: string[];
+  confidence_level: string;
+  requires_human_validation: boolean;
+  action_priority_score: string;
+  reason_chain: string[];
 }
 
 export interface ConfigurationCompletenessResult {
@@ -191,9 +215,18 @@ export interface SignalInventoryContinuity {
   usable_quantity: string;
   inbound_committed_quantity: string;
   inbound_uncertain_quantity: string;
+  physical_inbound_quantity_mt: string;
+  trusted_inbound_protection_mt: string;
+  visibility_uncertain_quantity_mt: string;
+  visibility_confidence: string | null;
   daily_consumption_rate: string | null;
   days_of_cover: string | null;
   raw_days_of_cover: string | null;
+  threshold_days: string | null;
+  warning_days: string | null;
+  minimum_buffer_stock_days: string | null;
+  minimum_buffer_stock_mt: string | null;
+  stockout_alert_horizon_days: string | null;
   trusted_inbound_quantity: string;
   uncertain_inbound_quantity: string;
   trusted_days_of_cover: string | null;
@@ -219,6 +252,18 @@ export interface SignalShipmentContinuity {
   linked_material_reference: string | null;
   linked_plant_reference: string | null;
   continuity_reasons: string[];
+  physical_quantity: string | null;
+  trusted_quantity: string | null;
+  protective_quantity: string | null;
+  protective_value_label: string | null;
+  trust_level: string | null;
+  trust_reason: string | null;
+  freshness_status: string | null;
+  movement_condition: string | null;
+  eta_status: string | null;
+  eta_drift_days: string | null;
+  is_currently_protective: boolean | null;
+  protection_explanation: string | null;
 }
 
 export interface RiskWorkspaceResponse {
@@ -236,9 +281,14 @@ export interface RiskWorkspaceResponse {
   shipment_continuity: SignalShipmentContinuity[];
   trust_summary: SignalTrustSummary | null;
   empty: boolean;
+  is_demo_scenario: boolean;
+  scenario_key: string | null;
+  scenario_label: string | null;
+  demo_data_notice: string | null;
 }
 
 export async function getRiskWorkspace(params?: {
+  scenario?: string;
   risk_type?: string;
   plant_reference?: string;
   material_reference?: string;
@@ -248,6 +298,7 @@ export async function getRiskWorkspace(params?: {
   timeline_offset?: number;
 }): Promise<RiskWorkspaceResponse | null> {
   const query = new URLSearchParams();
+  if (params?.scenario) query.set("scenario", params.scenario);
   if (params?.risk_type) query.set("risk_type", params.risk_type);
   if (params?.plant_reference)
     query.set("plant_reference", params.plant_reference);

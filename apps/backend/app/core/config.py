@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     tracking_dcsa_events_path: str = "/v2/events"
     tracking_dcsa_timeout_seconds: int = 20
     tracking_dcsa_max_retries: int = 1
+    enable_pilot_scenarios: bool = False
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

@@ -20,6 +20,7 @@ from app.modules.impact.production_interruption import (
     calculate_production_interruption_impact,
     get_active_interruption_config,
 )
+from app.modules.impact.shipment_inbound_trust import get_active_shipment_inbound_trust_config
 from app.modules.operational_events.timeline import (
     ContinuityTimelineEntry,
     ContinuityTimelineFilters,
@@ -45,8 +46,18 @@ from app.modules.rules.engine import (
 )
 from app.modules.shipments.continuity import calculate_shipment_continuity_for
 from app.modules.shipments.schemas import ShipmentContinuityResult
+from app.modules.shipments.visibility_confidence import (
+    calculate_visibility_confidence,
+    is_physical_inbound_candidate,
+    quantize_decimal,
+)
+from app.modules.signal_engine.pilot_scenarios import DEMO_DATA_NOTICE, prepare_pilot_scenario
 from app.modules.stock.continuity import calculate_inventory_continuity_for
 from app.modules.stock.schemas import InventoryContinuityResult
+from app.modules.suppliers.reliability_context import (
+    calculate_supplier_reliability_context,
+    supplier_reliability_modifier,
+)
 from app.modules.trust.operational import (
     evaluate_configuration_completeness,
     evaluate_risk_operational_trust,
@@ -74,6 +85,10 @@ class RiskWorkspaceResponse(BaseModel):
     shipment_continuity: list[ShipmentContinuityResult]
     trust_summary: ExposureTrustSummary | None = None
     empty: bool
+    is_demo_scenario: bool = False
+    scenario_key: str | None = None
+    scenario_label: str | None = None
+    demo_data_notice: str | None = None
 
 
 class EscalationEvaluationResponse(BaseModel):
@@ -113,6 +128,7 @@ def get_risk_workspace(
     db: Session,
     context: RequestContext,
     *,
+    scenario: str | None = None,
     risk_type: str | None = None,
     plant_reference: str | None = None,
     material_reference: str | None = None,
@@ -122,6 +138,20 @@ def get_risk_workspace(
     timeline_offset: int = 0,
     now: datetime | None = None,
 ) -> RiskWorkspaceResponse:
+    scenario_key: str | None = None
+    scenario_label: str | None = None
+    if scenario is not None:
+        scenario_now = now or datetime.now(UTC)
+        selection = prepare_pilot_scenario(db, context, scenario, now=scenario_now)
+        risk_type = selection.risk_type
+        plant_reference = selection.plant_reference
+        material_reference = selection.material_reference
+        shipment_reference = selection.shipment_reference
+        severity = selection.severity
+        scenario_key = selection.scenario_key
+        scenario_label = selection.scenario_label
+        now = scenario_now
+
     candidates = list_signal_risks(
         db,
         context,
@@ -134,7 +164,12 @@ def get_risk_workspace(
     )
     selected = select_highest_priority_risk(candidates)
     if selected is None:
-        return empty_workspace(timeline_limit, timeline_offset)
+        return empty_workspace(
+            timeline_limit,
+            timeline_offset,
+            scenario_key=scenario_key,
+            scenario_label=scenario_label,
+        )
 
     resolved_plant_reference = plant_reference or selected.plant_reference
     resolved_material_reference = material_reference or selected.material_reference
@@ -171,6 +206,7 @@ def get_risk_workspace(
         plant_reference=resolved_plant_reference,
         material_reference=resolved_material_reference,
         shipment_reference=resolved_shipment_reference,
+        inventory=first_or_none(inventory_continuity),
         now=now,
     )
     return RiskWorkspaceResponse(
@@ -183,6 +219,10 @@ def get_risk_workspace(
         shipment_continuity=shipment_continuity,
         trust_summary=exposure.trust_summary,
         empty=False,
+        is_demo_scenario=scenario_key is not None,
+        scenario_key=scenario_key,
+        scenario_label=scenario_label,
+        demo_data_notice=DEMO_DATA_NOTICE if scenario_key is not None else None,
     )
 
 
@@ -274,7 +314,13 @@ def evaluate_and_record_risk_escalation(
     )
 
 
-def empty_workspace(timeline_limit: int, timeline_offset: int) -> RiskWorkspaceResponse:
+def empty_workspace(
+    timeline_limit: int,
+    timeline_offset: int,
+    *,
+    scenario_key: str | None = None,
+    scenario_label: str | None = None,
+) -> RiskWorkspaceResponse:
     return RiskWorkspaceResponse(
         selected_risk=None,
         explainability=None,
@@ -290,6 +336,10 @@ def empty_workspace(timeline_limit: int, timeline_offset: int) -> RiskWorkspaceR
         shipment_continuity=[],
         trust_summary=None,
         empty=True,
+        is_demo_scenario=scenario_key is not None,
+        scenario_key=scenario_key,
+        scenario_label=scenario_label,
+        demo_data_notice=DEMO_DATA_NOTICE if scenario_key is not None else None,
     )
 
 
@@ -452,6 +502,7 @@ def list_shipment_continuity(
     plant_reference: str | None = None,
     material_reference: str | None = None,
     shipment_reference: str | None = None,
+    inventory: InventoryContinuityResult | None = None,
     now: datetime | None = None,
 ) -> list[ShipmentContinuityResult]:
     items = []
@@ -471,8 +522,246 @@ def list_shipment_continuity(
             continue
         if material_reference and continuity.linked_material_reference != material_reference:
             continue
-        items.append(continuity)
+        items.append(
+            enrich_shipment_protection(
+                db,
+                context,
+                shipment,
+                continuity,
+                inventory=inventory,
+                now=now,
+            )
+        )
     return sorted(items, key=lambda item: item.shipment_reference)
+
+
+def enrich_shipment_protection(
+    db: Session,
+    context: RequestContext,
+    shipment: Shipment,
+    continuity: ShipmentContinuityResult,
+    *,
+    inventory: InventoryContinuityResult | None,
+    now: datetime | None = None,
+) -> ShipmentContinuityResult:
+    if shipment.plant_id is None or shipment.material_id is None:
+        return continuity.model_copy(
+            update={
+                "physical_quantity": shipment.quantity_mt,
+                "trusted_quantity": None,
+                "protective_quantity": None,
+                "protective_value_label": "Unknown protection",
+                "trust_level": "unknown",
+                "trust_reason": "Shipment is missing plant or material linkage.",
+                "freshness_status": continuity.tracking_freshness_status,
+                "movement_condition": continuity.status,
+                "eta_status": "unknown",
+                "eta_drift_days": continuity.eta_slip_days,
+                "is_currently_protective": None,
+                "protection_explanation": (
+                    "Precise protection is unavailable because plant/material linkage is missing."
+                ),
+            }
+        )
+    if not is_physical_inbound_candidate(shipment):
+        return continuity.model_copy(
+            update={
+                "physical_quantity": shipment.quantity_mt,
+                "trusted_quantity": Decimal("0.00"),
+                "protective_quantity": Decimal("0.00"),
+                "protective_value_label": "Not currently protective",
+                "trust_level": "not_protective",
+                "trust_reason": "Shipment state is not eligible for physical inbound protection.",
+                "freshness_status": continuity.tracking_freshness_status,
+                "movement_condition": continuity.status,
+                "eta_status": eta_status_for(continuity),
+                "eta_drift_days": continuity.eta_slip_days,
+                "is_currently_protective": False,
+                "protection_explanation": (
+                    "Inbound exists in records, but this movement state is not currently "
+                    "protective for continuity cover."
+                ),
+            }
+        )
+
+    trust_config = get_active_shipment_inbound_trust_config(
+        db,
+        tenant_id=context.tenant_id,
+        plant_id=shipment.plant_id,
+        material_id=shipment.material_id,
+    )
+    visibility = calculate_visibility_confidence(
+        shipment,
+        now=now,
+        trust_config=trust_config,
+    )
+    supplier = calculate_supplier_reliability_context(
+        db,
+        tenant_id=context.tenant_id,
+        shipment=shipment,
+        visibility_result=visibility,
+        now=now,
+    )
+    adjusted_confidence = max(
+        Decimal("0.00"),
+        min(
+            Decimal("1.00"),
+            visibility.visibility_confidence
+            + supplier_reliability_modifier(supplier.reliability_band),
+        ),
+    )
+    physical = visibility.physical_inbound_quantity_mt
+    trusted = quantize_decimal(physical * adjusted_confidence)
+    arrives_before_cover_loss = arrives_before_projected_exhaustion(shipment, inventory)
+    label, trust_level, is_protective, reason = protection_status(
+        continuity,
+        adjusted_confidence=adjusted_confidence,
+        arrives_before_cover_loss=arrives_before_cover_loss,
+    )
+    protective_quantity = trusted if is_protective else Decimal("0.00")
+    explanation = protection_explanation(
+        shipment,
+        continuity,
+        label=label,
+        trust_reason=reason,
+        arrives_before_cover_loss=arrives_before_cover_loss,
+        trusted=trusted,
+    )
+
+    return continuity.model_copy(
+        update={
+            "physical_quantity": physical,
+            "trusted_quantity": trusted,
+            "protective_quantity": protective_quantity,
+            "protective_value_label": label,
+            "trust_level": trust_level,
+            "trust_reason": reason,
+            "freshness_status": continuity.tracking_freshness_status,
+            "movement_condition": continuity.status,
+            "eta_status": visibility.eta_behavior_status,
+            "eta_drift_days": continuity.eta_slip_days,
+            "is_currently_protective": is_protective,
+            "protection_explanation": explanation,
+        }
+    )
+
+
+def arrives_before_projected_exhaustion(
+    shipment: Shipment,
+    inventory: InventoryContinuityResult | None,
+) -> bool | None:
+    if (
+        shipment.current_eta is None
+        or inventory is None
+        or inventory.projected_exhaustion_date is None
+    ):
+        return None
+    return ensure_utc(shipment.current_eta) <= ensure_utc(inventory.projected_exhaustion_date)
+
+
+def protection_status(
+    continuity: ShipmentContinuityResult,
+    *,
+    adjusted_confidence: Decimal,
+    arrives_before_cover_loss: bool | None,
+) -> tuple[str, str, bool | None, str]:
+    if arrives_before_cover_loss is False:
+        return (
+            "Not currently protective",
+            "not_protective",
+            False,
+            "Inbound ETA is after projected cover loss.",
+        )
+    if continuity.eta is None:
+        return (
+            "Unknown protection",
+            "unknown",
+            None,
+            "Current ETA is missing, so protection timing cannot be confirmed.",
+        )
+    if continuity.status == "degraded" or continuity.tracking_freshness_status == "critical":
+        return (
+            "Weak protection",
+            "weak",
+            adjusted_confidence > Decimal("0"),
+            "Movement condition, ETA, or visibility freshness is degraded.",
+        )
+    if adjusted_confidence >= Decimal("0.80") and arrives_before_cover_loss is not False:
+        return (
+            "Strong protection",
+            "strong",
+            True,
+            "Inbound quantity exists, visibility is acceptable, and ETA protects cover.",
+        )
+    if adjusted_confidence >= Decimal("0.40"):
+        return (
+            "Partial protection",
+            "partial",
+            True,
+            "Inbound helps protect cover, but ETA, freshness, or confidence is imperfect.",
+        )
+    return (
+        "Weak protection",
+        "weak",
+        adjusted_confidence > Decimal("0"),
+        "Inbound exists physically, but confidence is too weak for strong protection.",
+    )
+
+
+def eta_status_for(continuity: ShipmentContinuityResult) -> str:
+    if continuity.eta is None:
+        return "unknown"
+    if continuity.eta_slip_days is None:
+        return "unknown"
+    if continuity.eta_slip_days <= 0:
+        return "stable"
+    if continuity.eta_slip_days <= Decimal("1"):
+        return "drifting"
+    return "degraded"
+
+
+def protection_explanation(
+    shipment: Shipment,
+    continuity: ShipmentContinuityResult,
+    *,
+    label: str,
+    trust_reason: str,
+    arrives_before_cover_loss: bool | None,
+    trusted: Decimal,
+) -> str:
+    movement = shipment.current_milestone or continuity.status
+    if label == "Strong protection":
+        return (
+            f"Inbound {shipment.shipment_id} provides strong protection: ETA is before "
+            f"projected cover loss and {trusted} MT is trusted for continuity cover."
+        )
+    if label == "Partial protection":
+        return (
+            f"Inbound {shipment.shipment_id} provides partial protection: {trust_reason}"
+        )
+    if label == "Weak protection":
+        return (
+            f"Inbound {shipment.shipment_id} is weak protection: {trust_reason}"
+        )
+    if label == "Not currently protective":
+        timing = (
+            " ETA is after projected cover loss."
+            if arrives_before_cover_loss is False
+            else ""
+        )
+        return (
+            f"Inbound {shipment.shipment_id} is not currently protective: "
+            f"{movement} is not reliable for continuity cover.{timing}"
+        )
+    return (
+        f"Inbound {shipment.shipment_id} has unknown protection: {trust_reason}"
+    )
+
+
+def ensure_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
 
 
 def enrich_candidates_with_latest_escalation(
@@ -667,7 +956,11 @@ def apply_operational_trust(
     if updated.explainability is not None:
         updated.explainability.reason_chain.extend(
             [
-                f"Operational trust score is {operational_trust.operational_trust_score}, mapped to {operational_trust.risk_precision_band}.",
+                (
+                    "Operational trust score is "
+                    f"{operational_trust.operational_trust_score}, mapped to "
+                    f"{operational_trust.risk_precision_band}."
+                ),
                 *operational_trust.trust_penalties,
                 *operational_trust.trust_boosts,
             ]
