@@ -95,7 +95,7 @@ export default async function CriticalRiskWorkspacePage({
   }
 
   return (
-    <main className="grid min-w-0 gap-2.5">
+    <main className="grid w-full min-w-0 max-w-full gap-2.5 overflow-x-hidden">
       <WorkspaceFilters
         searchParams={searchParams}
         walkthroughActive={walkthroughActive}
@@ -131,7 +131,7 @@ function ExposureSelector({
 }) {
   const ordered = [...risks].sort(riskSortKey);
   return (
-    <Card className="bg-card/90 shadow-panel">
+    <Card className="min-w-0 max-w-full overflow-hidden bg-card/90 shadow-panel">
       <CardHeader className="px-4 py-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <CardTitle>Active continuity exposures</CardTitle>
@@ -141,12 +141,12 @@ function ExposureSelector({
         </div>
       </CardHeader>
       <CardContent className="px-4 pb-4">
-        <div className="grid min-w-0 gap-1.5 lg:grid-cols-2 xl:grid-cols-4">
+        <div className="grid w-full min-w-0 max-w-full gap-1.5 lg:grid-cols-2 xl:grid-cols-4">
           {ordered.slice(0, 8).map((risk) => (
             <Link
               key={riskKey(risk)}
               href={riskWorkspaceHref(risk)}
-              className={`min-w-0 border-l-4 px-3 py-2 text-left ring-1 transition hover:bg-slate-50 ${
+              className={`block min-w-0 max-w-full overflow-hidden border-l-4 px-3 py-2 text-left ring-1 transition hover:bg-slate-50 ${
                 isSelectedExposure(risk, selected)
                   ? "border-slate-950 bg-slate-50 ring-slate-300"
                   : `${severityBorder(risk.severity)} bg-white ring-slate-900/5`
@@ -189,8 +189,8 @@ function WorkspaceContent({
 
   return (
     <>
-      <section className="grid gap-2.5 xl:grid-cols-[minmax(0,1.25fr)_minmax(310px,0.75fr)]">
-        <div className="grid gap-2.5">
+      <section className="grid min-w-0 gap-2.5 xl:grid-cols-[minmax(0,1.25fr)_minmax(0,0.75fr)]">
+        <div className="grid min-w-0 gap-2.5">
           {walkthroughActive ? (
             <WalkthroughNote>
               This shows the plant-material combination most likely to create
@@ -200,7 +200,7 @@ function WorkspaceContent({
           <OperationalRiskHero workspace={workspace} inventory={inventory} />
         </div>
 
-        <div className="grid content-start gap-2.5">
+        <div className="grid min-w-0 content-start gap-2.5">
           {walkthroughActive ? (
             <WalkthroughNote>
               This translates current signals into likely operational consequence.
@@ -216,8 +216,8 @@ function WorkspaceContent({
         </div>
       </section>
 
-      <section className="grid gap-2.5 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-        <div className="grid gap-2.5">
+      <section className="grid min-w-0 gap-2.5 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+        <div className="grid min-w-0 gap-2.5">
           {walkthroughActive ? (
             <WalkthroughNote>
               This explains the operational signals causing the risk, not just a
@@ -226,7 +226,7 @@ function WorkspaceContent({
           ) : null}
           <WhyThisMatters workspace={workspace} />
         </div>
-        <div className="grid gap-2.5">
+        <div className="grid min-w-0 gap-2.5">
           {walkthroughActive ? (
             <WalkthroughNote>
               This separates physical inbound from trusted inbound. An inbound
@@ -238,7 +238,7 @@ function WorkspaceContent({
         </div>
       </section>
 
-      <details className="rounded-lg border bg-white/70 p-3 text-sm ring-1 ring-slate-900/5">
+      <details className="min-w-0 max-w-full overflow-hidden rounded-lg border bg-white/70 p-3 text-sm ring-1 ring-slate-900/5">
         <summary className="cursor-pointer font-semibold text-slate-700">
           Deep operational context
           <span className="ml-2 text-xs font-normal text-mutedForeground">
@@ -282,9 +282,9 @@ function OperationalRiskHero({
     workspace.trust_summary?.lowest_confidence_score;
 
   return (
-    <Card className={`overflow-hidden ${workspaceTone(risk?.severity)}`}>
+    <Card className={`min-w-0 max-w-full overflow-hidden ${workspaceTone(risk?.severity)}`}>
       <CardContent className="p-4 text-white">
-        <div className="grid gap-4 lg:grid-cols-[minmax(210px,0.42fr)_minmax(0,0.58fr)]">
+        <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,0.42fr)_minmax(0,0.58fr)]">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <SeverityBadge value={risk?.severity ?? "unknown"} />
@@ -297,7 +297,7 @@ function OperationalRiskHero({
             <p className="mt-3 text-xs font-semibold uppercase tracking-wide text-white/55">
               Current usable cover
             </p>
-            <p className="mt-1 text-5xl font-semibold leading-none tracking-tight sm:text-6xl">
+            <p className="mt-1 break-words text-4xl font-semibold leading-none tracking-tight sm:text-5xl 2xl:text-6xl">
               {displayDays(coverDays)}
             </p>
             <p className="mt-2 text-sm leading-5 text-white/65">
@@ -305,8 +305,8 @@ function OperationalRiskHero({
             </p>
           </div>
 
-          <div className="grid content-between gap-3">
-            <div>
+          <div className="grid min-w-0 content-between gap-3">
+            <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
                 <Badge className="bg-white/12 text-white ring-1 ring-white/15">
                   {formatLabel(risk?.risk_type ?? "continuity risk")}
@@ -325,7 +325,7 @@ function OperationalRiskHero({
               </p>
             </div>
 
-            <div className="grid gap-2 sm:grid-cols-3">
+            <div className="grid min-w-0 gap-2 sm:grid-cols-3">
               <SignalMetric
                 icon={<AlertTriangle className="h-4 w-4" />}
                 label="Safe threshold"
@@ -371,7 +371,7 @@ function IfNothingChanges({
   ].filter(Boolean) as string[];
 
   return (
-    <Card>
+    <Card className="min-w-0 max-w-full overflow-hidden">
       <CardHeader className="px-4 py-3">
         <div className="flex items-center gap-2">
           <Clock3 className="h-5 w-5 text-pressure-red" />
@@ -409,7 +409,7 @@ function IfNothingChanges({
 function RecommendedActions({ risk }: { risk: SignalRiskCandidate | null }) {
   const actions = (risk?.operational_recommendations ?? []).slice(0, 4);
   return (
-    <Card>
+    <Card className="min-w-0 max-w-full overflow-hidden">
       <CardHeader className="px-4 py-3">
         <div className="flex items-center gap-2">
           <PackageCheck className="h-5 w-5 text-primary" />
@@ -456,10 +456,10 @@ function WorkspaceFilters({
   walkthroughActive: boolean;
 }) {
   return (
-    <Card className="bg-card/90 shadow-panel">
+    <Card className="min-w-0 max-w-full overflow-hidden bg-card/90 shadow-panel">
       <CardHeader className="px-4 py-3">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
+        <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
             <CardTitle>Continuity risk workspace</CardTitle>
             <p className="mt-1 text-sm text-mutedForeground">
               {searchParams?.plant_reference
@@ -469,11 +469,11 @@ function WorkspaceFilters({
                 : "Viewing continuity for All plants."}
             </p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
             {PILOT_SCENARIOS_ENABLED ? (
               <Link
                 href={walkthroughHref(searchParams, !walkthroughActive)}
-                className={`rounded-xl px-3 py-2 text-sm font-semibold ring-1 transition ${
+                className={`rounded-lg px-3 py-2 text-sm font-semibold ring-1 transition ${
                   walkthroughActive
                     ? "bg-slate-950 text-white ring-slate-950"
                     : "bg-white text-slate-700 ring-slate-900/10 hover:bg-slate-50"
@@ -487,12 +487,12 @@ function WorkspaceFilters({
         </div>
       </CardHeader>
       <CardContent className="px-4 pb-4">
-        <form className="grid gap-2 md:grid-cols-3 xl:grid-cols-[1.25fr_1fr_1fr_1fr_1fr_150px_auto]">
+        <form className="flex w-full min-w-0 max-w-full flex-wrap gap-2">
           {walkthroughActive ? (
             <input type="hidden" name="walkthrough" value="1" />
           ) : null}
           {PILOT_SCENARIOS_ENABLED ? (
-            <div className="grid gap-1">
+            <div className="grid min-w-0 flex-1 basis-56 gap-1">
               <label
                 htmlFor="scenario"
                 className="text-xs font-semibold uppercase tracking-wide text-mutedForeground"
@@ -503,7 +503,7 @@ function WorkspaceFilters({
                 id="scenario"
                 name="scenario"
                 defaultValue={searchParams?.scenario ?? ""}
-                className="rounded-xl border bg-card px-3 py-2 text-sm"
+                className="w-full min-w-0 rounded-lg border bg-card px-3 py-2 text-sm"
               >
                 <option value="">Live workspace</option>
                 {PILOT_SCENARIOS.map((scenario) => (
@@ -518,39 +518,40 @@ function WorkspaceFilters({
             name="plant_reference"
             defaultValue={searchParams?.plant_reference ?? ""}
             placeholder="Plant reference"
-            className="rounded-lg border bg-card px-3 py-2 text-sm"
+            className="min-w-0 flex-1 basis-36 rounded-lg border bg-card px-3 py-2 text-sm"
           />
           <input
             name="material_reference"
             defaultValue={searchParams?.material_reference ?? ""}
             placeholder="Material reference"
-            className="rounded-lg border bg-card px-3 py-2 text-sm"
+            className="min-w-0 flex-1 basis-36 rounded-lg border bg-card px-3 py-2 text-sm"
           />
           <input
             name="shipment_reference"
             defaultValue={searchParams?.shipment_reference ?? ""}
             placeholder="Inbound reference"
-            className="rounded-lg border bg-card px-3 py-2 text-sm"
+            className="min-w-0 flex-1 basis-36 rounded-lg border bg-card px-3 py-2 text-sm"
           />
           <input
             name="risk_type"
             defaultValue={searchParams?.risk_type ?? ""}
             placeholder="Continuity risk"
-            className="rounded-lg border bg-card px-3 py-2 text-sm"
+            className="min-w-0 flex-1 basis-36 rounded-lg border bg-card px-3 py-2 text-sm"
           />
           <select
             name="severity"
             defaultValue={searchParams?.severity ?? ""}
-            className="rounded-lg border bg-card px-3 py-2 text-sm"
+            className="min-w-0 flex-1 basis-32 rounded-lg border bg-card px-3 py-2 text-sm"
           >
             <option value="">Any severity</option>
             <option value="critical">Critical</option>
+            <option value="high">High</option>
             <option value="medium">Medium</option>
             <option value="low">Low</option>
           </select>
           <button
             type="submit"
-            className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primaryForeground"
+            className="shrink-0 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primaryForeground"
           >
             Apply
           </button>
@@ -609,7 +610,7 @@ function WhyThisMatters({ workspace }: { workspace: RiskWorkspaceResponse }) {
   const concreteSignals = escalatingSignals(workspace, reasonChain);
 
   return (
-    <Card>
+    <Card className="min-w-0 max-w-full overflow-hidden">
       <CardHeader className="px-4 py-3">
         <div className="flex items-center gap-2">
           <Activity className="h-5 w-5 text-pressure-red" />
@@ -685,7 +686,7 @@ function InboundProtectionQuality({
     inventory?.visibility_uncertain_quantity_mt ?? inventory?.uncertain_inbound_quantity;
 
   return (
-    <Card>
+    <Card className="min-w-0 max-w-full overflow-hidden">
       <CardHeader className="px-4 py-3">
         <div className="flex items-center gap-2">
           <Truck className="h-5 w-5 text-pressure-amber" />
@@ -805,7 +806,7 @@ function OperationalTrustSummary({
   const boosts = operationalTrust?.trust_boosts ?? [];
 
   return (
-    <Card>
+    <Card className="min-w-0 max-w-full overflow-hidden">
       <CardHeader className="px-4 py-3">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
@@ -916,7 +917,7 @@ function ContinuitySummary({
   shipments: SignalShipmentContinuity[];
 }) {
   return (
-    <Card>
+    <Card className="min-w-0 max-w-full overflow-hidden">
       <CardHeader className="px-4 py-3">
         <div className="flex items-center gap-2">
           <PackageCheck className="h-5 w-5 text-pressure-amber" />
@@ -974,7 +975,7 @@ function TimelinePanel({
   timeline: RiskWorkspaceResponse["timeline"];
 }) {
   return (
-    <Card>
+    <Card className="min-w-0 max-w-full overflow-hidden">
       <CardHeader className="px-4 py-3">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
@@ -1037,7 +1038,7 @@ function RelationshipPanel({
     .slice(0, 5);
 
   return (
-    <Card>
+    <Card className="min-w-0 max-w-full overflow-hidden">
       <CardHeader className="px-4 py-3">
         <div className="flex items-center gap-2">
           <GitBranch className="h-5 w-5 text-primary" />
@@ -1049,16 +1050,16 @@ function RelationshipPanel({
           {priorityNodes.map((group) => (
             <div
               key={group.type}
-              className="rounded-lg bg-slate-50 p-2.5 ring-1 ring-slate-900/5"
+              className="min-w-0 rounded-lg bg-slate-50 p-2.5 ring-1 ring-slate-900/5"
             >
               <p className="text-xs font-semibold text-mutedForeground">
                 {formatLabel(group.type)}
               </p>
-              <div className="mt-2 flex flex-wrap gap-2">
+              <div className="mt-2 flex min-w-0 flex-wrap gap-2">
                 {group.nodes.map((node) => (
                   <span
                     key={node.id}
-                    className="rounded-full bg-white px-2.5 py-1 text-xs font-medium text-slate-700 ring-1 ring-slate-900/5"
+                    className="max-w-full break-words rounded-full bg-white px-2.5 py-1 text-xs font-medium text-slate-700 ring-1 ring-slate-900/5"
                   >
                     {node.label}
                   </span>
@@ -1075,7 +1076,7 @@ function RelationshipPanel({
             {priorityEdges.map((edge) => (
               <div
                 key={`${edge.from_node_id}-${edge.relationship}-${edge.to_node_id}`}
-                className="rounded-xl bg-white px-3 py-2 text-sm ring-1 ring-slate-900/5"
+                className="min-w-0 break-words rounded-lg bg-white px-3 py-2 text-sm ring-1 ring-slate-900/5"
               >
                 <span className="font-medium">
                   {nodeById.get(edge.from_node_id)?.label ?? edge.from_node_id}
@@ -1225,10 +1226,10 @@ function SignalMetric({
   const helperClass =
     tone === "default" ? "text-slate-500" : "text-mutedForeground";
   return (
-    <div className={`rounded-lg p-2.5 ring-1 ${toneClass}`}>
-      <div className={`flex items-center gap-2 ${labelClass}`}>
+    <div className={`min-w-0 rounded-lg p-2.5 ring-1 ${toneClass}`}>
+      <div className={`flex min-w-0 items-center gap-2 ${labelClass}`}>
         {icon}
-        <p className="text-xs font-semibold">{label}</p>
+        <p className="min-w-0 truncate text-xs font-semibold">{label}</p>
       </div>
       <p className="mt-1 break-words text-base font-semibold">{value}</p>
       <p className={`mt-1 text-xs ${helperClass}`}>{helper}</p>
@@ -1238,7 +1239,7 @@ function SignalMetric({
 
 function ContextPill({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg bg-white px-3 py-1.5 ring-1 ring-slate-900/5">
+    <div className="min-w-0 rounded-lg bg-white px-3 py-1.5 ring-1 ring-slate-900/5">
       <p className="text-xs font-semibold text-mutedForeground">{label}</p>
       <p className="mt-0.5 break-words text-sm font-semibold">{value}</p>
     </div>
@@ -1610,7 +1611,7 @@ function causalDotClass(index: number, length: number) {
 
 function UnavailableState() {
   return (
-    <Card className="bg-card/90 shadow-panel">
+    <Card className="min-w-0 max-w-full overflow-hidden bg-card/90 shadow-panel">
       <CardHeader>
         <CardTitle>Risk workspace unavailable</CardTitle>
       </CardHeader>
@@ -1624,7 +1625,7 @@ function UnavailableState() {
 
 function EmptyWorkspace() {
   return (
-    <Card className="bg-card/90 shadow-panel">
+    <Card className="min-w-0 max-w-full overflow-hidden bg-card/90 shadow-panel">
       <CardHeader>
         <CardTitle>No active continuity risk matches this view</CardTitle>
       </CardHeader>
