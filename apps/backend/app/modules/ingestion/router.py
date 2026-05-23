@@ -14,8 +14,10 @@ from app.api.dependencies import (
 )
 from app.models import IngestionJob, UploadedFile, User
 from app.modules.ingestion.schemas import (
+    ImportJobDetailOut,
     IngestionJobOut,
     MappingPreviewOut,
+    RollbackSummary,
     UploadResult,
     WorkbookPreviewOut,
     WorkbookUploadResult,
@@ -23,11 +25,14 @@ from app.modules.ingestion.schemas import (
 from app.modules.ingestion.service import (
     SUPPORTED_FILE_TYPES,
     delete_uploaded_data,
+    get_import_job_detail,
     preview_header_mapping,
     preview_workbook_mapping,
     process_upload,
     process_upload_content,
     process_workbook_upload,
+    reprocess_import_job,
+    rollback_import_job,
 )
 from app.modules.ingestion.templates import TEMPLATES
 from app.modules.tenants.sync_service import fetch_remote_file_for_values
@@ -159,6 +164,37 @@ def list_ingestion_jobs(
         )
         for job, uploaded_file in jobs
     ]
+
+
+@router.get("/jobs/{job_id}", response_model=ImportJobDetailOut)
+def get_ingestion_job_detail(
+    job_id: int,
+    _: Annotated[RequestContext, Depends(require_operator_access)],
+    context: Annotated[RequestContext, Depends(get_request_context)],
+    db: Annotated[Session, Depends(get_db)],
+) -> ImportJobDetailOut:
+    return get_import_job_detail(db, context, job_id)
+
+
+@router.post("/jobs/{job_id}/rollback", response_model=RollbackSummary)
+def rollback_ingestion_job(
+    job_id: int,
+    _: Annotated[RequestContext, Depends(require_operator_access)],
+    context: Annotated[RequestContext, Depends(get_request_context)],
+    db: Annotated[Session, Depends(get_db)],
+) -> RollbackSummary:
+    return rollback_import_job(db, context, job_id)
+
+
+@router.post("/jobs/{job_id}/reprocess", response_model=UploadResult | WorkbookUploadResult)
+def reprocess_ingestion_job(
+    job_id: int,
+    _: Annotated[RequestContext, Depends(require_operator_access)],
+    context: Annotated[RequestContext, Depends(get_request_context)],
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> UploadResult | WorkbookUploadResult:
+    return reprocess_import_job(db, context, current_user.id, job_id)
 
 
 @router.delete("/uploads")

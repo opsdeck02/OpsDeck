@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.models import ExternalDataSource, Plant, Role, Tenant, TenantMembership, User
 from app.modules.auth.constants import TENANT_ADMIN
 from app.modules.auth.security import hash_password
+from app.modules.tenants.demo import add_demo_capabilities
 from app.modules.tenants.features import build_capabilities, normalize_plan_tier
 
 DEFAULT_PILOT_ACCESS_WEEKS = 10
@@ -45,6 +46,7 @@ def list_all_tenants(db: Session) -> list[dict]:
                 "max_users": tenant.max_users,
                 "max_plants": tenant.max_plants,
                 "is_active": tenant.is_active,
+                "is_demo_tenant": tenant.is_demo_tenant,
                 "access_weeks": tenant.access_weeks,
                 "access_expires_at": tenant.access_expires_at,
                 "active_user_count": int(user_count or 0),
@@ -62,6 +64,7 @@ def create_tenant(
     slug: str,
     max_users: int | None,
     max_plants: int | None,
+    is_demo_tenant: bool = False,
     plan_tier: str = "pilot",
     access_weeks: int | None = None,
     admin_user: TenantAdminPayload | None,
@@ -85,6 +88,7 @@ def create_tenant(
         plan_tier=normalized_plan_tier,
         max_users=max_users,
         max_plants=max_plants,
+        is_demo_tenant=is_demo_tenant,
         access_weeks=access_weeks,
         access_expires_at=access_expires_at,
     )
@@ -133,6 +137,7 @@ def create_tenant(
         "max_users": tenant.max_users,
         "max_plants": tenant.max_plants,
         "is_active": tenant.is_active,
+        "is_demo_tenant": tenant.is_demo_tenant,
         "access_weeks": tenant.access_weeks,
         "access_expires_at": tenant.access_expires_at,
         "created_at": tenant.created_at,
@@ -155,6 +160,7 @@ def activate_tenant(db: Session, tenant_id: int) -> dict:
         "name": tenant.name,
         "slug": tenant.slug,
         "is_active": tenant.is_active,
+        "is_demo_tenant": tenant.is_demo_tenant,
     }
 
 
@@ -171,6 +177,7 @@ def deactivate_tenant(db: Session, tenant_id: int) -> dict:
         "name": tenant.name,
         "slug": tenant.slug,
         "is_active": tenant.is_active,
+        "is_demo_tenant": tenant.is_demo_tenant,
     }
 
 
@@ -212,13 +219,17 @@ def get_tenant_details(db: Session, tenant_id: int) -> dict | None:
         "max_users": tenant.max_users,
         "max_plants": tenant.max_plants,
         "is_active": tenant.is_active,
+        "is_demo_tenant": tenant.is_demo_tenant,
         "access_weeks": tenant.access_weeks,
         "access_expires_at": tenant.access_expires_at,
         "days_until_expiry": days_until_expiry,
         "active_user_count": int(user_count or 0),
         "active_plant_count": int(plant_count or 0),
         "created_at": tenant.created_at,
-        "capabilities": build_capabilities(tenant.plan_tier),
+        "capabilities": add_demo_capabilities(
+            build_capabilities(tenant.plan_tier),
+            is_demo=tenant.is_demo_tenant,
+        ),
         "users": [
             {
                 "id": user.id,
@@ -315,10 +326,14 @@ def get_tenant_plan(db: Session, tenant_id: int) -> dict | None:
         "tenant_slug": tenant.slug,
         "plan_tier": tenant.plan_tier,
         "max_plants": tenant.max_plants,
+        "is_demo_tenant": tenant.is_demo_tenant,
         "active_plant_count": int(
             db.scalar(select(func.count(Plant.id)).where(Plant.tenant_id == tenant.id)) or 0
         ),
-        "capabilities": build_capabilities(tenant.plan_tier),
+        "capabilities": add_demo_capabilities(
+            build_capabilities(tenant.plan_tier),
+            is_demo=tenant.is_demo_tenant,
+        ),
     }
 
 
@@ -355,7 +370,11 @@ def update_tenant_plan(
         "plan_tier": tenant.plan_tier,
         "max_plants": tenant.max_plants,
         "active_plant_count": current_plant_count,
-        "capabilities": build_capabilities(tenant.plan_tier),
+        "is_demo_tenant": tenant.is_demo_tenant,
+        "capabilities": add_demo_capabilities(
+            build_capabilities(tenant.plan_tier),
+            is_demo=tenant.is_demo_tenant,
+        ),
     }
 
 
@@ -417,7 +436,11 @@ def classify_data_freshness(
     if last_synced_at is None:
         return "stale", None
     current_time = now or datetime.now(UTC)
-    synced_at = last_synced_at.astimezone(UTC) if last_synced_at.tzinfo else last_synced_at.replace(tzinfo=UTC)
+    synced_at = (
+        last_synced_at.astimezone(UTC)
+        if last_synced_at.tzinfo
+        else last_synced_at.replace(tzinfo=UTC)
+    )
     age_minutes = max(0, int((current_time - synced_at).total_seconds() // 60))
     if age_minutes <= sync_frequency_minutes:
         return "fresh", age_minutes

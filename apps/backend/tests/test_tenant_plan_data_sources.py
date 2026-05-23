@@ -34,7 +34,9 @@ def test_tenant_plan_defaults_and_gates_data_sources() -> None:
         )
         assert plan_response.status_code == 200
         assert plan_response.json()["plan_tier"] == "pilot"
+        assert plan_response.json()["is_demo_tenant"] is False
         assert plan_response.json()["capabilities"]["automated_data_sources"] is False
+        assert plan_response.json()["capabilities"]["pilot_scenarios"] is False
 
         create_response = client.post(
             "/api/v1/tenants/data-sources",
@@ -118,9 +120,31 @@ def test_superadmin_can_upgrade_tenant_in_place_and_paid_tenant_can_save_data_so
             assert refreshed is not None
             assert refreshed.id == original_tenant_id
             assert refreshed.plan_tier == "paid"
-            assert db.scalar(select(TenantMembership).where(TenantMembership.tenant_id == original_tenant_id)) is not None
-            assert db.scalar(select(Plant).where(Plant.tenant_id == original_tenant_id, Plant.code == "P1")) is not None
-            assert db.scalar(select(ExternalDataSource).where(ExternalDataSource.tenant_id == original_tenant_id)) is not None
+            assert (
+                db.scalar(
+                    select(TenantMembership).where(
+                        TenantMembership.tenant_id == original_tenant_id
+                    )
+                )
+                is not None
+            )
+            assert (
+                db.scalar(
+                    select(Plant).where(
+                        Plant.tenant_id == original_tenant_id,
+                        Plant.code == "P1",
+                    )
+                )
+                is not None
+            )
+            assert (
+                db.scalar(
+                    select(ExternalDataSource).where(
+                        ExternalDataSource.tenant_id == original_tenant_id
+                    )
+                )
+                is not None
+            )
     finally:
         cleanup_database(engine)
 

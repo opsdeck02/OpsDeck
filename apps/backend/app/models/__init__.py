@@ -6,7 +6,7 @@ from app.models.impact import (
     ProductionLine,
     ShipmentInboundTrustConfig,
 )
-from app.models.ingestion import IngestionJob, UploadedFile
+from app.models.ingestion import ImportJobRecord, IngestionJob, UploadedFile
 from app.models.material import Material
 from app.models.membership import TenantMembership
 from app.models.microsoft_connection import MicrosoftConnection
@@ -40,6 +40,7 @@ __all__ = [
     "ExceptionCase",
     "ExceptionComment",
     "IngestionJob",
+    "ImportJobRecord",
     "InlandMovement",
     "LineStopIncident",
     "Material",

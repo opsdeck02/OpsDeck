@@ -4,6 +4,7 @@ import io
 import json
 from collections.abc import Generator
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -32,6 +33,9 @@ from app.models import (
 from app.models.enums import OperationalEventFreshnessStatus, OperationalEventType
 from app.modules.auth.constants import LOGISTICS_USER
 from app.modules.auth.security import hash_password
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
+DEMO_DATA_DIR = REPO_ROOT / "docs" / "demo-data"
 
 
 @pytest.fixture()
@@ -104,6 +108,14 @@ def login(client: TestClient) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}", "X-Tenant-Slug": "tenant-a"}
 
 
+def enable_demo_tenant(SessionLocal: sessionmaker[Session]) -> None:
+    with SessionLocal() as db:
+        tenant = db.scalar(select(Tenant).where(Tenant.slug == "tenant-a"))
+        assert tenant is not None
+        tenant.is_demo_tenant = True
+        db.commit()
+
+
 def upload_csv(client: TestClient, headers: dict[str, str], file_type: str, csv_body: str):
     return client.post(
         "/api/v1/ingestion/uploads",
@@ -174,6 +186,11 @@ def test_valid_shipment_upload(
     assert body["rows_received"] == 1
     assert body["rows_accepted"] == 1
     assert body["summary_counts"]["created"] == 1
+    assert body["operational_summary"]["shipments_detected"] == ["SHP-001"]
+    assert body["operational_summary"]["plants_detected"] == ["JAM"]
+    assert body["operational_summary"]["materials_detected"] == ["COKING_COAL"]
+    assert body["operational_summary"]["refreshed_operational_visibility"] is True
+    assert body["operational_summary"]["next_recommended_action"]
 
     with SessionLocal() as db:
         assert db.scalar(select(func.count()).select_from(Shipment)) == 1
@@ -497,6 +514,8 @@ def test_rejected_row_includes_field_reason_and_suggested_fix(
     assert "could not be interpreted" in row_error["field_errors"][0]["reason"]
     assert row_error["field_errors"][0]["suggested_fix"]
     assert body["top_rejection_reasons"][0]["count"] == 1
+    assert body["operational_summary"]["rows_rejected"] == 1
+    assert body["operational_summary"]["next_recommended_action"].startswith("Fix rejected rows")
 
 
 def test_common_date_formats_and_numeric_strings_with_commas_parse(
@@ -609,6 +628,10 @@ def test_workbook_with_inventory_and_inbound_sheets_ingests_successfully(
     body = upload_response.json()
     assert body["file_type"] == "workbook"
     assert body["rows_accepted"] == 2
+    assert body["operational_summary"]["plants_detected"] == ["JAM"]
+    assert body["operational_summary"]["materials_detected"] == ["COKING_COAL"]
+    assert body["operational_summary"]["shipments_detected"] == ["WB-IN-1"]
+    assert body["operational_summary"]["refreshed_operational_visibility"] is True
     assert {sheet["sheet_name"] for sheet in body["sheet_results"]} == {
         "Current Stock",
         "Inbound ETA",
@@ -761,6 +784,193 @@ def test_upload_history_records_counts_and_rejection_summary(
     assert job["refreshed_operational_visibility"] is False
 
 
+def test_import_job_detail_returns_summary_records_and_row_errors(
+    client_and_session: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, _ = client_and_session
+    headers = login(client)
+    response = upload_csv(
+        client,
+        headers,
+        "stock",
+        "\n".join(
+            [
+                "plant_code,material_code,on_hand_mt,quality_held_mt,available_to_consume_mt,daily_consumption_mt,snapshot_time",
+                "JAM,COKING_COAL,10000,1000,9000,abc,14/05/2026",
+            ]
+        ),
+    )
+    assert response.status_code == 400
+    job_id = response.json()["detail"]["ingestion_job_id"]
+
+    detail_response = client.get(f"/api/v1/ingestion/jobs/{job_id}", headers=headers)
+
+    assert detail_response.status_code == 200, detail_response.json()
+    detail = detail_response.json()
+    assert detail["import_job_id"] == job_id
+    assert detail["status"] == "failed"
+    assert detail["operational_summary"]["rows_rejected"] == 1
+    assert detail["row_level_errors"][0]["row_number"] == 2
+    assert detail["record_references"] == []
+
+
+def test_import_job_rollback_deletes_only_records_created_by_that_job(
+    client_and_session: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, SessionLocal = client_and_session
+    headers = login(client)
+    first = upload_csv(client, headers, "shipment", shipment_csv("SHP-ROLLBACK-1"))
+    second = upload_csv(client, headers, "shipment", shipment_csv("SHP-ROLLBACK-2"))
+    assert first.status_code == 200
+    assert second.status_code == 200
+
+    rollback_response = client.post(
+        f"/api/v1/ingestion/jobs/{first.json()['ingestion_job_id']}/rollback",
+        headers=headers,
+    )
+
+    assert rollback_response.status_code == 200, rollback_response.json()
+    body = rollback_response.json()
+    assert body["rollback_status"] == "rolled_back"
+    assert body["records_deleted"] == 1
+    with SessionLocal() as db:
+        assert db.scalar(select(Shipment).where(Shipment.shipment_id == "SHP-ROLLBACK-1")) is None
+        assert (
+            db.scalar(select(Shipment).where(Shipment.shipment_id == "SHP-ROLLBACK-2"))
+            is not None
+        )
+
+
+def test_import_job_rollback_preserves_updated_preexisting_records(
+    client_and_session: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, SessionLocal = client_and_session
+    headers = login(client)
+    first = upload_csv(client, headers, "shipment", shipment_csv("SHP-UPDATE-PRESERVE"))
+    assert first.status_code == 200
+    update = upload_csv(
+        client,
+        headers,
+        "shipment",
+        "\n".join(
+            [
+                "shipment_id,plant_code,material_code,supplier_name,quantity_mt,"
+                "planned_eta,current_eta,current_state,latest_update_at",
+                "SHP-UPDATE-PRESERVE,JAM,COKING_COAL,Supplier A,74000,"
+                "2026-04-20T08:00:00Z,2026-04-24T08:00:00Z,"
+                "in_transit,2026-04-16T09:00:00Z",
+            ]
+        ),
+    )
+    assert update.status_code == 200
+
+    rollback_response = client.post(
+        f"/api/v1/ingestion/jobs/{update.json()['ingestion_job_id']}/rollback",
+        headers=headers,
+    )
+
+    assert rollback_response.status_code == 200
+    body = rollback_response.json()
+    assert body["records_deleted"] == 0
+    assert body["records_preserved"] == 1
+    assert "Exact update rollback is not available" in body["warnings"][0]
+    with SessionLocal() as db:
+        shipment = db.scalar(
+            select(Shipment).where(Shipment.shipment_id == "SHP-UPDATE-PRESERVE")
+        )
+        assert shipment is not None
+        assert shipment.current_eta.isoformat() == "2026-04-24T08:00:00"
+
+
+def test_import_job_reprocess_uses_stored_file_without_duplicate_explosion(
+    client_and_session: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, SessionLocal = client_and_session
+    headers = login(client)
+    response = upload_csv(client, headers, "shipment", shipment_csv("SHP-REPROCESS"))
+    assert response.status_code == 200
+
+    reprocess_response = client.post(
+        f"/api/v1/ingestion/jobs/{response.json()['ingestion_job_id']}/reprocess",
+        headers=headers,
+    )
+
+    assert reprocess_response.status_code == 200, reprocess_response.json()
+    assert reprocess_response.json()["summary_counts"]["unchanged"] == 1
+    with SessionLocal() as db:
+        assert (
+            db.scalar(
+                select(func.count())
+                .select_from(Shipment)
+                .where(Shipment.shipment_id == "SHP-REPROCESS")
+            )
+            == 1
+        )
+
+
+def test_import_job_rollback_is_tenant_scoped(
+    client_and_session: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, SessionLocal = client_and_session
+    tenant_a_headers = login(client)
+    upload_response = upload_csv(
+        client,
+        tenant_a_headers,
+        "shipment",
+        shipment_csv("SHP-TENANT-ROLLBACK"),
+    )
+    assert upload_response.status_code == 200
+    job_id = upload_response.json()["ingestion_job_id"]
+
+    with SessionLocal() as db:
+        role = db.scalar(select(Role).where(Role.name == LOGISTICS_USER))
+        assert role is not None
+        tenant_b = Tenant(name="Tenant B", slug="tenant-b")
+        user_b = User(
+            email="rollback-b@test.local",
+            full_name="Tenant B User",
+            password_hash=hash_password("Password123!"),
+            is_active=True,
+        )
+        db.add_all([tenant_b, user_b])
+        db.flush()
+        db.add(
+            TenantMembership(
+                tenant_id=tenant_b.id,
+                user_id=user_b.id,
+                role_id=role.id,
+                is_active=True,
+            )
+        )
+        db.commit()
+
+    login_response = client.post(
+        "/api/v1/auth/login",
+        json={"email": "rollback-b@test.local", "password": "Password123!"},
+    )
+    assert login_response.status_code == 200
+    tenant_b_headers = {
+        "Authorization": f"Bearer {login_response.json()['access_token']}",
+        "X-Tenant-Slug": "tenant-b",
+    }
+
+    rollback_response = client.post(
+        f"/api/v1/ingestion/jobs/{job_id}/rollback",
+        headers=tenant_b_headers,
+    )
+
+    assert rollback_response.status_code == 404
+    with SessionLocal() as db:
+        assert (
+            db.scalar(
+                select(func.count())
+                .select_from(Shipment)
+                .where(Shipment.shipment_id == "SHP-TENANT-ROLLBACK")
+            )
+            == 1
+        )
+
+
 def test_ingestion_history_does_not_leak_between_tenants(
     client_and_session: tuple[TestClient, sessionmaker[Session]],
 ) -> None:
@@ -822,8 +1032,34 @@ def test_threshold_upload(client_and_session: tuple[TestClient, sessionmaker[Ses
 
     assert response.status_code == 200
     assert response.json()["summary_counts"]["created"] == 1
+    assert response.json()["operational_summary"]["plants_detected"] == ["JAM"]
     with SessionLocal() as db:
         assert db.scalar(select(func.count()).select_from(PlantMaterialThreshold)) == 1
+
+
+def test_threshold_upload_rejects_warning_days_before_critical_threshold(
+    client_and_session: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, SessionLocal = client_and_session
+    response = upload_csv(
+        client,
+        login(client),
+        "threshold",
+        "\n".join(
+            [
+                "plant_code,material_code,threshold_days,warning_days",
+                "JAM,COKING_COAL,7,3",
+            ]
+        ),
+    )
+
+    assert response.status_code == 400
+    detail = response.json()["detail"]
+    assert detail["validation_errors"][0]["field_errors"][0]["field"] == "warning_days"
+    assert "cannot be earlier" in detail["validation_errors"][0]["field_errors"][0]["reason"]
+    assert detail["operational_summary"]["rows_rejected"] == 1
+    with SessionLocal() as db:
+        assert db.scalar(select(func.count()).select_from(PlantMaterialThreshold)) == 0
 
 
 def test_duplicate_shipment_reupload_is_idempotent(
@@ -996,6 +1232,141 @@ def test_mapping_preview_and_manual_override_support_nonstandard_headers(
         shipment = db.scalar(select(Shipment))
         assert shipment is not None
         assert shipment.source_of_truth == "manual_upload"
+
+
+def test_founder_demo_csv_files_ingest_and_are_import_auditable(
+    client_and_session: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, SessionLocal = client_and_session
+    enable_demo_tenant(SessionLocal)
+    headers = login(client)
+
+    stock_response = upload_csv(
+        client,
+        headers,
+        "stock",
+        (DEMO_DATA_DIR / "demo_stock_snapshots.csv").read_text(),
+    )
+    shipment_response = upload_csv(
+        client,
+        headers,
+        "shipment",
+        (DEMO_DATA_DIR / "demo_inbound_shipments.csv").read_text(),
+    )
+    threshold_response = upload_csv(
+        client,
+        headers,
+        "threshold",
+        (DEMO_DATA_DIR / "demo_continuity_thresholds.csv").read_text(),
+    )
+
+    assert stock_response.status_code == 200, stock_response.json()
+    assert shipment_response.status_code == 200, shipment_response.json()
+    assert threshold_response.status_code == 200, threshold_response.json()
+    assert stock_response.json()["rows_accepted"] == 4
+    assert shipment_response.json()["rows_accepted"] == 5
+    assert threshold_response.json()["rows_accepted"] == 4
+    assert "DEMO-JAMSHEDPUR-BF1" in stock_response.json()["operational_summary"][
+        "plants_detected"
+    ]
+    assert "DEMO-COKING-COAL" in shipment_response.json()["operational_summary"][
+        "materials_detected"
+    ]
+    assert "DEMO-MV-EASTERN-LINE-01" in shipment_response.json()["operational_summary"][
+        "shipments_detected"
+    ]
+    assert shipment_response.json()["operational_summary"]["warnings"]
+
+    detail_response = client.get(
+        f"/api/v1/ingestion/jobs/{shipment_response.json()['ingestion_job_id']}",
+        headers=headers,
+    )
+
+    assert detail_response.status_code == 200, detail_response.json()
+    detail = detail_response.json()
+    assert detail["created_records"] == 5
+    assert all(record["rollback_safe"] for record in detail["record_references"])
+    with SessionLocal() as db:
+        assert (
+            db.scalar(
+                select(func.count())
+                .select_from(Shipment)
+                .where(Shipment.shipment_id.like("DEMO-%"))
+            )
+            == 5
+        )
+        assert (
+            db.scalar(
+                select(func.count())
+                .select_from(StockSnapshot)
+                .join(Plant, Plant.id == StockSnapshot.plant_id)
+                .where(Plant.code.like("DEMO_%"))
+            )
+            == 4
+        )
+
+
+def test_founder_demo_import_rollback_only_removes_demo_job_records(
+    client_and_session: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, SessionLocal = client_and_session
+    enable_demo_tenant(SessionLocal)
+    headers = login(client)
+    stock_response = upload_csv(
+        client,
+        headers,
+        "stock",
+        (DEMO_DATA_DIR / "demo_stock_snapshots.csv").read_text(),
+    )
+    shipment_response = upload_csv(
+        client,
+        headers,
+        "shipment",
+        (DEMO_DATA_DIR / "demo_inbound_shipments.csv").read_text(),
+    )
+    assert stock_response.status_code == 200
+    assert shipment_response.status_code == 200
+
+    rollback_response = client.post(
+        f"/api/v1/ingestion/jobs/{shipment_response.json()['ingestion_job_id']}/rollback",
+        headers=headers,
+    )
+
+    assert rollback_response.status_code == 200, rollback_response.json()
+    assert rollback_response.json()["records_deleted"] == 5
+    with SessionLocal() as db:
+        assert (
+            db.scalar(
+                select(func.count())
+                .select_from(Shipment)
+                .where(Shipment.shipment_id.like("DEMO-%"))
+            )
+            == 0
+        )
+        assert db.scalar(select(func.count()).select_from(StockSnapshot)) == 4
+
+
+def test_demo_prefixed_upload_rejected_for_non_demo_tenant(
+    client_and_session: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, _ = client_and_session
+    headers = login(client)
+
+    response = upload_csv(
+        client,
+        headers,
+        "shipment",
+        (DEMO_DATA_DIR / "demo_inbound_shipments.csv").read_text(),
+    )
+
+    assert response.status_code == 400, response.json()
+    body = response.json()["detail"]
+    assert body["rows_accepted"] == 0
+    assert body["rows_rejected"] == 5
+    assert body["validation_errors"]
+    first_error = body["validation_errors"][0]["field_errors"][0]
+    assert "DEMO-" in first_error["reason"]
+    assert "demo-enabled tenant" in first_error["suggested_fix"]
 
 
 def shipment_csv(shipment_id: str) -> str:

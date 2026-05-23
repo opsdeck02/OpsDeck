@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 from app.models import (
     ExceptionCase,
     ExceptionComment,
+    ImportJobRecord,
     IngestionJob,
     Material,
     OperationalEvent,
@@ -29,6 +30,7 @@ from app.models import (
     Shipment,
     ShipmentUpdate,
     StockSnapshot,
+    Supplier,
     Tenant,
     UploadedFile,
 )
@@ -37,9 +39,13 @@ from app.modules.exceptions.service import create_audit_log
 from app.modules.ingestion.schemas import (
     FieldValidationError,
     HeaderMappingSuggestion,
+    ImportJobDetailOut,
+    ImportRecordReference,
     IngestionSummary,
     MappingPreviewOut,
+    OperationalUnderstandingSummary,
     RejectionSummary,
+    RollbackSummary,
     RowValidationError,
     SheetUploadResult,
     UploadResult,
@@ -52,6 +58,7 @@ from app.modules.operational_events.service import (
     emit_shipment_update_event,
 )
 from app.modules.suppliers.service import find_supplier_by_name
+from app.modules.tenants.demo import is_demo_tenant
 from app.schemas.context import RequestContext
 
 logger = logging.getLogger(__name__)
@@ -248,6 +255,17 @@ class FieldValueError(ValueError):
         super().__init__(reason)
 
 
+@dataclass
+class ImportRecordChange:
+    action: str
+    record_type: str
+    record_id: str
+    record_reference: str | None
+    rollback_safe: bool
+    previous_value: dict[str, Any] | None = None
+    new_value: dict[str, Any] | None = None
+
+
 def process_upload(
     db: Session,
     context: RequestContext,
@@ -320,15 +338,23 @@ def process_upload_content(
         uploaded_file_id=uploaded_file.id,
         source_type=file_type,
         status="running",
+        stage="parsing_file",
         started_at=datetime.now(UTC),
         records_total=0,
         records_succeeded=0,
         records_failed=0,
+        metadata_json={
+            "file_name": filename,
+            "content_type": content_type,
+            "mapping_overrides": mapping_overrides or {},
+            "source_of_truth": source_of_truth,
+        },
     )
     db.add(job)
     db.flush()
 
     try:
+        job.stage = "parsing_file"
         rows = parse_upload(
             file_type,
             filename,
@@ -339,19 +365,23 @@ def process_upload_content(
         if not rows:
             raise ValueError("No data rows found in uploaded file")
 
+        job.stage = "validating_rows"
         result = normalize_rows(
             db,
             context,
             file_type,
             rows,
             event_source_id=event_source_id or job.id,
+            import_job_id=job.id,
         )
         result = result.model_copy(
             update={"upload_id": uploaded_file.id, "ingestion_job_id": job.id}
         )
         job.status = "completed" if result.rows_rejected == 0 else "completed_with_errors"
+        job.stage = "completed"
         if result.rows_accepted == 0:
             job.status = "failed"
+            job.stage = "failed"
         job.records_total = result.rows_received
         job.records_succeeded = result.rows_accepted
         job.records_failed = result.rows_rejected
@@ -359,6 +389,12 @@ def process_upload_content(
             job.error_message = json.dumps(
                 [error.model_dump() for error in result.validation_errors]
             )
+        job.metadata_json = {
+            **(job.metadata_json or {}),
+            "operational_summary": result.operational_summary.model_dump(),
+            "blocking_errors": result.blocking_errors,
+            "warnings": result.operational_summary.warnings,
+        }
         uploaded_file.status = "failed" if result.rows_accepted == 0 else "processed"
         create_audit_log(
             db,
@@ -389,6 +425,7 @@ def process_upload_content(
         db.add(job)
         uploaded_file.status = "failed"
         job.status = "failed"
+        job.stage = "failed"
         job.error_message = str(exc)
         job.completed_at = datetime.now(UTC)
         db.commit()
@@ -431,10 +468,17 @@ def process_workbook_upload(
         uploaded_file_id=uploaded_file.id,
         source_type="workbook",
         status="running",
+        stage="parsing_workbook",
         started_at=datetime.now(UTC),
         records_total=0,
         records_succeeded=0,
         records_failed=0,
+        metadata_json={
+            "file_name": filename,
+            "content_type": content_type,
+            "sheet_configs": sheet_configs or [],
+            "source_of_truth": source_of_truth,
+        },
     )
     db.add(job)
     db.flush()
@@ -449,6 +493,7 @@ def process_workbook_upload(
     )
 
     try:
+        job.stage = "parsing_workbook"
         workbook = load_workbook(io.BytesIO(content), read_only=True, data_only=True)
         config_by_sheet = workbook_config_by_sheet(sheet_configs or [])
         sheet_results: list[SheetUploadResult] = []
@@ -469,6 +514,7 @@ def process_workbook_upload(
             file_type = config["file_type"]
             mapping_overrides = config.get("mapping_overrides") or {}
             try:
+                job.stage = f"validating_{sheet.title}"
                 parsed_rows = parse_xlsx_sheet_rows(
                     file_type,
                     rows,
@@ -482,6 +528,7 @@ def process_workbook_upload(
                         file_type,
                         parsed_rows,
                         event_source_id=job.id,
+                        import_job_id=job.id,
                     )
                 else:
                     result = empty_upload_result(file_type)
@@ -501,6 +548,7 @@ def process_workbook_upload(
                     top_rejection_reasons=result.top_rejection_reasons,
                     blocking_errors=result.blocking_errors,
                     summary_counts=result.summary_counts,
+                    operational_summary=result.operational_summary,
                 )
             )
             all_validation_errors.extend(prefix_sheet_errors(sheet.title, result.validation_errors))
@@ -527,6 +575,10 @@ def process_workbook_upload(
             top_rejection_reasons=top_rejections,
             blocking_errors=blocking_errors,
             summary_counts=total_summary,
+            operational_summary=aggregate_workbook_operational_summary(
+                sheet_results,
+                ignored_sheets,
+            ),
             sheet_results=sheet_results,
             ignored_sheets=ignored_sheets,
         )
@@ -534,8 +586,10 @@ def process_workbook_upload(
         job.status = (
             "completed" if rows_rejected == 0 and not blocking_errors else "completed_with_errors"
         )
+        job.stage = "completed"
         if rows_accepted == 0:
             job.status = "failed"
+            job.stage = "failed"
         job.records_total = rows_received
         job.records_succeeded = rows_accepted
         job.records_failed = rows_rejected
@@ -547,6 +601,13 @@ def process_workbook_upload(
                     "sheet_results": [sheet.model_dump() for sheet in sheet_results],
                 }
             )
+        job.metadata_json = {
+            **(job.metadata_json or {}),
+            "operational_summary": result.operational_summary.model_dump(),
+            "blocking_errors": blocking_errors,
+            "warnings": result.operational_summary.warnings,
+            "ignored_sheets": ignored_sheets,
+        }
         uploaded_file.status = "failed" if rows_accepted == 0 else "processed"
         job.completed_at = datetime.now(UTC)
         create_audit_log(
@@ -576,6 +637,7 @@ def process_workbook_upload(
         db.add(job)
         uploaded_file.status = "failed"
         job.status = "failed"
+        job.stage = "failed"
         job.error_message = str(exc)
         job.completed_at = datetime.now(UTC)
         db.commit()
@@ -749,6 +811,304 @@ def delete_uploaded_data(db: Session, tenant_id: int) -> dict[str, int]:
     db.execute(delete(UploadedFile).where(UploadedFile.tenant_id == tenant_id))
     db.commit()
     return deleted_counts
+
+
+def get_import_job_detail(
+    db: Session,
+    context: RequestContext,
+    import_job_id: int,
+) -> ImportJobDetailOut:
+    job = get_import_job_or_404(db, context.tenant_id, import_job_id)
+    uploaded_file = db.get(UploadedFile, job.uploaded_file_id) if job.uploaded_file_id else None
+    records = import_job_records(db, context.tenant_id, job.id)
+    metadata = job.metadata_json or {}
+    row_errors = row_errors_from_job(job)
+    summary = operational_summary_from_metadata(metadata)
+    return ImportJobDetailOut(
+        import_job_id=job.id,
+        upload_id=job.uploaded_file_id,
+        file_name=uploaded_file.original_filename if uploaded_file else None,
+        import_type=job.source_type,
+        status=job.status,
+        stage=job.stage,
+        total_rows=job.records_total,
+        accepted_rows=job.records_succeeded,
+        rejected_rows=job.records_failed,
+        created_records=sum(1 for record in records if record.action == "created"),
+        updated_records=sum(1 for record in records if record.action == "updated"),
+        unchanged_records=sum(1 for record in records if record.action == "unchanged"),
+        warnings=list(metadata.get("warnings") or []),
+        row_level_errors=row_errors,
+        operational_summary=summary,
+        record_references=[
+            ImportRecordReference(
+                record_type=record.record_type,
+                record_id=record.record_id,
+                record_reference=record.record_reference,
+                action=record.action,
+                rollback_safe=record.rollback_safe,
+                rollback_status=record.rollback_status,
+            )
+            for record in records
+        ],
+        started_at=job.started_at.isoformat() if job.started_at else None,
+        completed_at=job.completed_at.isoformat() if job.completed_at else None,
+        uploaded_at=uploaded_file.created_at.isoformat() if uploaded_file else None,
+        source_metadata={
+            key: value
+            for key, value in metadata.items()
+            if key
+            not in {
+                "operational_summary",
+                "warnings",
+                "blocking_errors",
+            }
+        },
+    )
+
+
+def rollback_import_job(
+    db: Session,
+    context: RequestContext,
+    import_job_id: int,
+) -> RollbackSummary:
+    job = get_import_job_or_404(db, context.tenant_id, import_job_id)
+    if job.status == "rolled_back":
+        return RollbackSummary(
+            import_job_id=job.id,
+            rollback_status="already_rolled_back",
+            warnings=["This import job was already rolled back."],
+        )
+
+    records = import_job_records(db, context.tenant_id, job.id)
+    deleted = 0
+    skipped = 0
+    preserved = 0
+    skipped_reasons: list[str] = []
+    warnings: list[str] = []
+
+    for record in records:
+        if record.action != "created" or not record.rollback_safe:
+            preserved += 1
+            record.rollback_status = "preserved"
+            skipped_reasons.append(
+                f"{record.record_type} {record.record_reference or record.record_id} was "
+                "not created by this import or cannot be safely reverted."
+            )
+            continue
+        if was_record_touched_after_import(db, context.tenant_id, record):
+            skipped += 1
+            record.rollback_status = "skipped_later_import"
+            skipped_reasons.append(
+                f"{record.record_type} {record.record_reference or record.record_id} was "
+                "preserved because another import also touched it."
+            )
+            continue
+        if delete_import_created_record(db, context.tenant_id, job.id, record):
+            deleted += 1
+            record.rollback_status = "deleted"
+        else:
+            skipped += 1
+            record.rollback_status = "skipped_missing"
+            skipped_reasons.append(
+                f"{record.record_type} {record.record_reference or record.record_id} was "
+                "not found during rollback."
+            )
+
+    if preserved:
+        warnings.append(
+            "Updated pre-existing records were preserved. Exact update rollback is not "
+            "available; re-upload corrected data if needed."
+        )
+    job.status = "rolled_back"
+    job.stage = "rolled_back"
+    job.metadata_json = {
+        **(job.metadata_json or {}),
+        "rollback_summary": {
+            "records_deleted": deleted,
+            "records_skipped": skipped,
+            "records_preserved": preserved,
+            "skipped_reasons": skipped_reasons,
+            "warnings": warnings,
+        },
+    }
+    db.commit()
+    return RollbackSummary(
+        import_job_id=job.id,
+        rollback_status="rolled_back",
+        records_deleted=deleted,
+        records_skipped=skipped,
+        records_preserved=preserved,
+        skipped_reasons=skipped_reasons,
+        warnings=warnings,
+    )
+
+
+def reprocess_import_job(
+    db: Session,
+    context: RequestContext,
+    current_user_id: int | None,
+    import_job_id: int,
+) -> UploadResult | WorkbookUploadResult:
+    job = get_import_job_or_404(db, context.tenant_id, import_job_id)
+    uploaded_file = db.get(UploadedFile, job.uploaded_file_id) if job.uploaded_file_id else None
+    if uploaded_file is None or not uploaded_file.storage_uri:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "This import job cannot be reprocessed because its uploaded file is "
+                "unavailable."
+            ),
+        )
+    path = Path(uploaded_file.storage_uri)
+    if not path.exists():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This import job cannot be reprocessed because its stored file is missing.",
+        )
+    metadata = job.metadata_json or {}
+    content = path.read_bytes()
+    if job.source_type == "workbook":
+        sheet_configs = metadata.get("sheet_configs")
+        if not isinstance(sheet_configs, list):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Workbook reprocess requires the original sheet configuration.",
+            )
+        return process_workbook_upload(
+            db=db,
+            context=context,
+            current_user_id=current_user_id,
+            filename=uploaded_file.original_filename,
+            content=content,
+            content_type=uploaded_file.content_type,
+            sheet_configs=sheet_configs,
+            source_of_truth=metadata.get("source_of_truth") or "manual_upload",
+        )
+    return process_upload_content(
+        db=db,
+        context=context,
+        current_user_id=current_user_id,
+        file_type=job.source_type,
+        filename=uploaded_file.original_filename,
+        content=content,
+        content_type=uploaded_file.content_type,
+        mapping_overrides=metadata.get("mapping_overrides") or {},
+        source_of_truth=metadata.get("source_of_truth") or "manual_upload",
+    )
+
+
+def get_import_job_or_404(db: Session, tenant_id: int, import_job_id: int) -> IngestionJob:
+    job = db.get(IngestionJob, import_job_id)
+    if job is None or job.tenant_id != tenant_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Import job not found")
+    return job
+
+
+def import_job_records(
+    db: Session,
+    tenant_id: int,
+    import_job_id: int,
+) -> list[ImportJobRecord]:
+    return list(
+        db.scalars(
+            select(ImportJobRecord)
+            .where(
+                ImportJobRecord.tenant_id == tenant_id,
+                ImportJobRecord.import_job_id == import_job_id,
+            )
+            .order_by(ImportJobRecord.id)
+        )
+    )
+
+
+def row_errors_from_job(job: IngestionJob) -> list[RowValidationError]:
+    if not job.error_message:
+        return []
+    try:
+        parsed = json.loads(job.error_message)
+    except json.JSONDecodeError:
+        return [
+            RowValidationError(
+                row_number=0,
+                errors=[job.error_message],
+                field_errors=[],
+            )
+        ]
+    if isinstance(parsed, dict):
+        parsed = parsed.get("validation_errors") or []
+    if not isinstance(parsed, list):
+        return []
+    return [RowValidationError(**item) for item in parsed if isinstance(item, dict)]
+
+
+def operational_summary_from_metadata(
+    metadata: dict[str, Any],
+) -> OperationalUnderstandingSummary | None:
+    summary = metadata.get("operational_summary")
+    if not isinstance(summary, dict):
+        return None
+    return OperationalUnderstandingSummary(**summary)
+
+
+def was_record_touched_after_import(
+    db: Session,
+    tenant_id: int,
+    record: ImportJobRecord,
+) -> bool:
+    later_record = db.scalar(
+        select(ImportJobRecord)
+        .where(
+            ImportJobRecord.tenant_id == tenant_id,
+            ImportJobRecord.record_type == record.record_type,
+            ImportJobRecord.record_id == record.record_id,
+            ImportJobRecord.id > record.id,
+        )
+        .limit(1)
+    )
+    return later_record is not None
+
+
+def delete_import_created_record(
+    db: Session,
+    tenant_id: int,
+    import_job_id: int,
+    record: ImportJobRecord,
+) -> bool:
+    if record.record_type == "shipment":
+        shipment = db.get(Shipment, int(record.record_id))
+        if shipment is None or shipment.tenant_id != tenant_id:
+            return False
+        db.execute(
+            delete(OperationalEvent).where(
+                OperationalEvent.tenant_id == tenant_id,
+                OperationalEvent.source_id == import_job_id,
+                OperationalEvent.shipment_id == shipment.id,
+            )
+        )
+        db.delete(shipment)
+        return True
+    if record.record_type == "stock_snapshot":
+        snapshot = db.get(StockSnapshot, int(record.record_id))
+        if snapshot is None or snapshot.tenant_id != tenant_id:
+            return False
+        db.execute(
+            delete(OperationalEvent).where(
+                OperationalEvent.tenant_id == tenant_id,
+                OperationalEvent.source_id == import_job_id,
+                OperationalEvent.plant_id == snapshot.plant_id,
+                OperationalEvent.material_id == snapshot.material_id,
+            )
+        )
+        db.delete(snapshot)
+        return True
+    if record.record_type == "threshold":
+        threshold = db.get(PlantMaterialThreshold, int(record.record_id))
+        if threshold is None or threshold.tenant_id != tenant_id:
+            return False
+        db.delete(threshold)
+        return True
+    return False
 
 
 def parse_upload(
@@ -1087,11 +1447,19 @@ def normalize_rows(
     file_type: str,
     rows: list[ParsedRow],
     event_source_id: int | None = None,
+    import_job_id: int | None = None,
 ) -> UploadResult:
     validation_errors: list[RowValidationError] = []
     summary = IngestionSummary()
+    demo_upload_allowed = is_demo_tenant(db, context.tenant_id)
 
     for row in rows:
+        if not demo_upload_allowed:
+            demo_errors = demo_prefix_field_errors(row.data)
+            if demo_errors:
+                validation_errors.append(build_row_validation_error(row.row_number, demo_errors))
+                continue
+
         field_errors = missing_required_field_errors(file_type, row.data)
         if field_errors:
             validation_errors.append(build_row_validation_error(row.row_number, field_errors))
@@ -1099,23 +1467,23 @@ def normalize_rows(
 
         try:
             if file_type == "shipment":
-                outcome = upsert_shipment(db, context, row.data, event_source_id=event_source_id)
+                change = upsert_shipment(db, context, row.data, event_source_id=event_source_id)
             elif file_type == "stock":
-                outcome = upsert_stock_snapshot(
+                change = upsert_stock_snapshot(
                     db,
                     context,
                     row.data,
                     event_source_id=event_source_id,
                 )
             elif file_type == "consumption":
-                outcome = upsert_consumption(
+                change = upsert_consumption(
                     db,
                     context,
                     row.data,
                     event_source_id=event_source_id,
                 )
             else:
-                outcome = upsert_threshold(db, context, row.data)
+                change = upsert_threshold(db, context, row.data)
         except FieldValueError as exc:
             validation_errors.append(
                 build_row_validation_error(
@@ -1136,18 +1504,31 @@ def normalize_rows(
             )
             continue
 
-        setattr(summary, outcome, getattr(summary, outcome) + 1)
+        if import_job_id is not None:
+            record_import_change(db, context.tenant_id, import_job_id, change)
+        setattr(summary, change.action, getattr(summary, change.action) + 1)
 
+    rows_accepted = summary.created + summary.updated + summary.unchanged
+    rows_rejected = len(validation_errors)
     return UploadResult(
         upload_id=0,
         ingestion_job_id=0,
         file_type=file_type,
         rows_received=len(rows),
-        rows_accepted=summary.created + summary.updated + summary.unchanged,
-        rows_rejected=len(validation_errors),
+        rows_accepted=rows_accepted,
+        rows_rejected=rows_rejected,
         validation_errors=validation_errors,
         top_rejection_reasons=top_rejection_reasons(validation_errors),
         summary_counts=summary,
+        operational_summary=build_operational_summary(
+            file_type=file_type,
+            rows=rows,
+            rows_received=len(rows),
+            rows_accepted=rows_accepted,
+            rows_rejected=rows_rejected,
+            summary=summary,
+            warnings=upload_warnings(db, context, file_type, rows),
+        ),
     )
 
 
@@ -1161,6 +1542,12 @@ def empty_upload_result(file_type: str) -> UploadResult:
         rows_rejected=0,
         validation_errors=[],
         summary_counts=IngestionSummary(),
+        operational_summary=OperationalUnderstandingSummary(
+            file_received=True,
+            next_recommended_action=(
+                "No continuity rows were detected. Check the sheet and upload again."
+            ),
+        ),
     )
 
 
@@ -1176,6 +1563,14 @@ def blocking_sheet_result(sheet_name: str, file_type: str, error: str) -> Upload
         blocking_errors=[error],
         top_rejection_reasons=[RejectionSummary(reason=error, count=1)],
         summary_counts=IngestionSummary(),
+        operational_summary=OperationalUnderstandingSummary(
+            file_received=True,
+            rows_rejected=1,
+            warnings=[f"{sheet_name}: {error}"],
+            next_recommended_action=(
+                "Fix the blocking mapping or sheet issue, then reprocess the workbook."
+            ),
+        ),
     )
 
 
@@ -1210,6 +1605,172 @@ def prefix_sheet_errors(
     return prefixed
 
 
+def build_operational_summary(
+    *,
+    file_type: str,
+    rows: list[ParsedRow],
+    rows_received: int,
+    rows_accepted: int,
+    rows_rejected: int,
+    summary: IngestionSummary,
+    warnings: list[str] | None = None,
+) -> OperationalUnderstandingSummary:
+    warnings = warnings or []
+    return OperationalUnderstandingSummary(
+        file_received=True,
+        rows_detected=rows_received,
+        rows_accepted=rows_accepted,
+        rows_rejected=rows_rejected,
+        records_created=summary.created,
+        records_updated=summary.updated,
+        records_unchanged=summary.unchanged,
+        plants_detected=unique_row_values(rows, "plant_code"),
+        materials_detected=unique_row_values(rows, "material_code"),
+        shipments_detected=(
+            unique_row_values(rows, "shipment_id") if file_type == "shipment" else []
+        ),
+        suppliers_detected=(
+            unique_row_values(rows, "supplier_name") if file_type == "shipment" else []
+        ),
+        risks_or_exposures_generated=None,
+        refreshed_operational_visibility=rows_accepted > 0,
+        warnings=warnings,
+        next_recommended_action=next_upload_action(rows_accepted, rows_rejected, warnings),
+    )
+
+
+def record_import_change(
+    db: Session,
+    tenant_id: int,
+    import_job_id: int,
+    change: ImportRecordChange,
+) -> None:
+    db.add(
+        ImportJobRecord(
+            tenant_id=tenant_id,
+            import_job_id=import_job_id,
+            record_type=change.record_type,
+            record_id=change.record_id,
+            record_reference=change.record_reference,
+            action=change.action,
+            rollback_safe=change.rollback_safe,
+            previous_value=change.previous_value,
+            new_value=change.new_value,
+        )
+    )
+
+
+def aggregate_workbook_operational_summary(
+    sheet_results: list[SheetUploadResult],
+    ignored_sheets: list[str],
+) -> OperationalUnderstandingSummary:
+    summaries = [sheet.operational_summary for sheet in sheet_results]
+    rows_received = sum(summary.rows_detected for summary in summaries)
+    rows_accepted = sum(summary.rows_accepted for summary in summaries)
+    rows_rejected = sum(summary.rows_rejected for summary in summaries)
+    warnings = [warning for summary in summaries for warning in summary.warnings]
+    if ignored_sheets:
+        warnings.append(
+            "Ignored workbook sheets: " + ", ".join(sorted(set(ignored_sheets)))
+        )
+    return OperationalUnderstandingSummary(
+        file_received=True,
+        rows_detected=rows_received,
+        rows_accepted=rows_accepted,
+        rows_rejected=rows_rejected,
+        records_created=sum(summary.records_created for summary in summaries),
+        records_updated=sum(summary.records_updated for summary in summaries),
+        records_unchanged=sum(summary.records_unchanged for summary in summaries),
+        plants_detected=unique_values(
+            value for summary in summaries for value in summary.plants_detected
+        ),
+        materials_detected=unique_values(
+            value for summary in summaries for value in summary.materials_detected
+        ),
+        shipments_detected=unique_values(
+            value for summary in summaries for value in summary.shipments_detected
+        ),
+        suppliers_detected=unique_values(
+            value for summary in summaries for value in summary.suppliers_detected
+        ),
+        risks_or_exposures_generated=None,
+        refreshed_operational_visibility=rows_accepted > 0,
+        warnings=warnings,
+        next_recommended_action=next_upload_action(rows_accepted, rows_rejected, warnings),
+    )
+
+
+def unique_row_values(rows: list[ParsedRow], field: str) -> list[str]:
+    return unique_values(row.data.get(field) for row in rows)
+
+
+def unique_values(values: Iterable[str | None]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        normalized = (value or "").strip()
+        if not normalized:
+            continue
+        key = normalize_text_token(normalized)
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(normalized)
+    return result[:12]
+
+
+def upload_warnings(
+    db: Session,
+    context: RequestContext,
+    file_type: str,
+    rows: list[ParsedRow],
+) -> list[str]:
+    warnings: list[str] = []
+    if file_type == "shipment":
+        known_suppliers = {
+            normalize_text_token(name)
+            for name in db.scalars(
+                select(Supplier.name)
+                .where(Supplier.tenant_id == context.tenant_id)
+                .where(Supplier.is_active.is_(True))
+            )
+            if name
+        }
+        unknown_supplier_names = [
+            supplier
+            for supplier in unique_row_values(rows, "supplier_name")
+            if normalize_text_token(supplier) not in known_suppliers
+        ]
+        if unknown_supplier_names:
+            warnings.append(
+                "Reliability source was accepted from the upload but is not linked to "
+                f"an existing supplier record: {', '.join(unknown_supplier_names[:5])}."
+            )
+    return warnings
+
+
+def next_upload_action(
+    rows_accepted: int,
+    rows_rejected: int,
+    warnings: list[str],
+) -> str:
+    if rows_accepted == 0 and rows_rejected > 0:
+        return "Fix rejected rows or required mappings, then upload again."
+    if rows_rejected > 0:
+        return (
+            "Review rejected rows, correct the file, and re-upload if those records "
+            "should contribute to continuity visibility."
+        )
+    if warnings:
+        return (
+            "Review upload warnings, then check the Risk Workspace once the "
+            "continuity signal chain refreshes."
+        )
+    if rows_accepted > 0:
+        return "Check the Risk Workspace to confirm the refreshed continuity signals."
+    return "Upload a continuity signal file with operational rows."
+
+
 def workbook_config_by_sheet(configs: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     parsed: dict[str, dict[str, Any]] = {}
     for config in configs:
@@ -1240,10 +1801,8 @@ def missing_required_field_errors(
     errors = [
         FieldValidationError(
             field=field,
-            reason=f"{field_label(field)} is required but was blank or unmapped.",
-            suggested_fix=(
-                f"Map a column to {field_label(field)} and make sure each row has a value."
-            ),
+            reason=missing_required_reason(field),
+            suggested_fix=missing_required_fix(field),
         )
         for field in sorted(REQUIRED_FIELDS[file_type])
         if not data.get(field)
@@ -1259,6 +1818,50 @@ def missing_required_field_errors(
     return errors
 
 
+def missing_required_reason(field: str) -> str:
+    if field == "plant_code":
+        return (
+            "Plant code/name is missing. OpsDeck cannot link this row to a "
+            "plant-material continuity record."
+        )
+    if field == "material_code":
+        return (
+            "Material code/name is missing. OpsDeck cannot identify which material "
+            "this operational signal belongs to."
+        )
+    if field == "shipment_id":
+        return (
+            "Inbound reference is missing. OpsDeck cannot safely deduplicate or update "
+            "this inbound row."
+        )
+    if field == "supplier_name":
+        return (
+            "Reliability source is missing. OpsDeck cannot explain which external "
+            "dependency produced this inbound signal."
+        )
+    if field in {"planned_eta", "current_eta", "latest_update_at", "snapshot_time"}:
+        return (
+            f"{field_label(field)} is missing. OpsDeck needs this timing to assess "
+            "continuity freshness."
+        )
+    if field in {
+        "quantity_mt",
+        "on_hand_mt",
+        "quality_held_mt",
+        "available_to_consume_mt",
+        "daily_consumption_mt",
+    }:
+        return (
+            f"{field_label(field)} is missing. OpsDeck needs this quantity to calculate "
+            "operating cover."
+        )
+    return f"{field_label(field)} is required but was blank or unmapped."
+
+
+def missing_required_fix(field: str) -> str:
+    return f"Map a column to {field_label(field)} and make sure every operational row has a value."
+
+
 def build_row_validation_error(
     row_number: int,
     field_errors: list[FieldValidationError],
@@ -1268,6 +1871,33 @@ def build_row_validation_error(
         errors=[error.reason for error in field_errors],
         field_errors=field_errors,
     )
+
+
+def demo_prefix_field_errors(data: dict[str, str]) -> list[FieldValidationError]:
+    fields_to_check = (
+        "plant_code",
+        "material_code",
+        "shipment_id",
+        "supplier_name",
+    )
+    errors: list[FieldValidationError] = []
+    for field in fields_to_check:
+        value = data.get(field)
+        if value and value.strip().upper().startswith("DEMO-"):
+            errors.append(
+                FieldValidationError(
+                    field=field,
+                    reason=(
+                        f"{field_label(field)} uses a DEMO- reference reserved for "
+                        "demo-enabled tenants."
+                    ),
+                    suggested_fix=(
+                        "Use a demo-enabled tenant for pilot sample files, or remove "
+                        "DEMO- references before uploading real customer data."
+                    ),
+                )
+            )
+    return errors
 
 
 def generic_field_error(exc: ValueError) -> FieldValidationError:
@@ -1575,7 +2205,7 @@ def upsert_shipment(
     context: RequestContext,
     data: dict[str, str],
     event_source_id: int | None = None,
-) -> str:
+) -> ImportRecordChange:
     plant = resolve_plant(db, context.tenant_id, data["plant_code"])
     material = resolve_material(db, context.tenant_id, data["material_code"])
     state = parse_state(data["current_state"])
@@ -1640,14 +2270,30 @@ def upsert_shipment(
             source_id=event_source_id,
             metadata={"ingestion_file_type": "shipment", "change_type": "created"},
         )
-        return "created"
+        return ImportRecordChange(
+            action="created",
+            record_type="shipment",
+            record_id=str(shipment.id),
+            record_reference=shipment.shipment_id,
+            rollback_safe=True,
+            previous_value=None,
+            new_value=new_value,
+        )
 
     changed_eta_or_state = (
         not values_equal(shipment.current_eta, current_eta) or shipment.current_state != state
     )
     changed = any(not values_equal(getattr(shipment, key), value) for key, value in attrs.items())
     if not changed:
-        return "unchanged"
+        return ImportRecordChange(
+            action="unchanged",
+            record_type="shipment",
+            record_id=str(shipment.id),
+            record_reference=shipment.shipment_id,
+            rollback_safe=False,
+            previous_value=None,
+            new_value=new_value,
+        )
 
     previous_value = shipment_event_value({key: getattr(shipment, key) for key in attrs})
     for key, value in attrs.items():
@@ -1691,7 +2337,15 @@ def upsert_shipment(
             source_id=event_source_id,
             metadata={"ingestion_file_type": "shipment", "change_type": "updated"},
         )
-    return "updated"
+    return ImportRecordChange(
+        action="updated",
+        record_type="shipment",
+        record_id=str(shipment.id),
+        record_reference=shipment.shipment_id,
+        rollback_safe=False,
+        previous_value=previous_value,
+        new_value=new_value,
+    )
 
 
 def upsert_stock_snapshot(
@@ -1699,7 +2353,7 @@ def upsert_stock_snapshot(
     context: RequestContext,
     data: dict[str, str],
     event_source_id: int | None = None,
-) -> str:
+) -> ImportRecordChange:
     plant = resolve_plant(db, context.tenant_id, data["plant_code"])
     material = resolve_material(db, context.tenant_id, data["material_code"])
     daily_consumption = parse_decimal(
@@ -1744,6 +2398,7 @@ def upsert_stock_snapshot(
             **attrs,
         )
         db.add(snapshot)
+        db.flush()
         emit_inventory_stock_updated(
             db,
             tenant_id=context.tenant_id,
@@ -1759,11 +2414,27 @@ def upsert_stock_snapshot(
             source_id=event_source_id,
             metadata={"ingestion_file_type": "stock", "change_type": "created"},
         )
-        return "created"
+        return ImportRecordChange(
+            action="created",
+            record_type="stock_snapshot",
+            record_id=str(snapshot.id),
+            record_reference=f"{plant.code}/{material.code}/{snapshot_time.isoformat()}",
+            rollback_safe=True,
+            previous_value=None,
+            new_value=stock_event_value(attrs, snapshot_time),
+        )
 
     changed = any(not values_equal(getattr(snapshot, key), value) for key, value in attrs.items())
     if not changed:
-        return "unchanged"
+        return ImportRecordChange(
+            action="unchanged",
+            record_type="stock_snapshot",
+            record_id=str(snapshot.id),
+            record_reference=f"{plant.code}/{material.code}/{snapshot.snapshot_time.isoformat()}",
+            rollback_safe=False,
+            previous_value=None,
+            new_value=stock_event_value(attrs, snapshot.snapshot_time),
+        )
     previous_value = stock_event_value(
         {key: getattr(snapshot, key) for key in attrs},
         snapshot.snapshot_time,
@@ -1785,7 +2456,23 @@ def upsert_stock_snapshot(
         source_id=event_source_id,
         metadata={"ingestion_file_type": "stock", "change_type": "updated"},
     )
-    return "updated"
+    return ImportRecordChange(
+        action="updated",
+        record_type="stock_snapshot",
+        record_id=str(snapshot.id),
+        record_reference=f"{plant.code}/{material.code}/{snapshot.snapshot_time.isoformat()}",
+        rollback_safe=False,
+        previous_value=previous_value,
+        new_value=stock_event_value(
+            {
+                "on_hand_mt": snapshot.on_hand_mt,
+                "quality_held_mt": snapshot.quality_held_mt,
+                "available_to_consume_mt": snapshot.available_to_consume_mt,
+                "daily_consumption_mt": snapshot.daily_consumption_mt,
+            },
+            snapshot_time,
+        ),
+    )
 
 
 def upsert_consumption(
@@ -1793,7 +2480,7 @@ def upsert_consumption(
     context: RequestContext,
     data: dict[str, str],
     event_source_id: int | None = None,
-) -> str:
+) -> ImportRecordChange:
     plant = resolve_plant(db, context.tenant_id, data["plant_code"])
     material = resolve_material(db, context.tenant_id, data["material_code"])
     snapshot_time = parse_datetime(data["snapshot_time"], "snapshot_time")
@@ -1816,9 +2503,25 @@ def upsert_consumption(
             "Consumption could not be linked to an inventory snapshot for this "
             "plant/material/time.",
             "Load the matching inventory sheet in the same workbook or upload inventory first.",
-        )
+    )
     if values_equal(snapshot.daily_consumption_mt, daily_consumption):
-        return "unchanged"
+        return ImportRecordChange(
+            action="unchanged",
+            record_type="stock_snapshot",
+            record_id=str(snapshot.id),
+            record_reference=f"{plant.code}/{material.code}/{snapshot.snapshot_time.isoformat()}",
+            rollback_safe=False,
+            previous_value=None,
+            new_value=stock_event_value(
+                {
+                    "on_hand_mt": snapshot.on_hand_mt,
+                    "quality_held_mt": snapshot.quality_held_mt,
+                    "available_to_consume_mt": snapshot.available_to_consume_mt,
+                    "daily_consumption_mt": snapshot.daily_consumption_mt,
+                },
+                snapshot.snapshot_time,
+            ),
+        )
     previous_value = stock_event_value(
         {
             "on_hand_mt": snapshot.on_hand_mt,
@@ -1852,15 +2555,43 @@ def upsert_consumption(
         source_id=event_source_id,
         metadata={"ingestion_file_type": "consumption", "change_type": "updated"},
     )
-    return "updated"
+    return ImportRecordChange(
+        action="updated",
+        record_type="stock_snapshot",
+        record_id=str(snapshot.id),
+        record_reference=f"{plant.code}/{material.code}/{snapshot.snapshot_time.isoformat()}",
+        rollback_safe=False,
+        previous_value=previous_value,
+        new_value=stock_event_value(
+            {
+                "on_hand_mt": snapshot.on_hand_mt,
+                "quality_held_mt": snapshot.quality_held_mt,
+                "available_to_consume_mt": snapshot.available_to_consume_mt,
+                "daily_consumption_mt": daily_consumption,
+            },
+            snapshot_time,
+        ),
+    )
 
 
-def upsert_threshold(db: Session, context: RequestContext, data: dict[str, str]) -> str:
+def upsert_threshold(
+    db: Session,
+    context: RequestContext,
+    data: dict[str, str],
+) -> ImportRecordChange:
     plant = resolve_plant(db, context.tenant_id, data["plant_code"])
     material = resolve_material(db, context.tenant_id, data["material_code"])
+    threshold_days = parse_decimal(data["threshold_days"], "threshold_days", positive=True)
+    warning_days = parse_decimal(data["warning_days"], "warning_days", positive=True)
+    if warning_days < threshold_days:
+        raise FieldValueError(
+            "warning_days",
+            "Warning days cannot be earlier than the critical threshold.",
+            "Set Warning days greater than or equal to Critical threshold days.",
+        )
     attrs = {
-        "threshold_days": parse_decimal(data["threshold_days"], "threshold_days", positive=True),
-        "warning_days": parse_decimal(data["warning_days"], "warning_days", positive=True),
+        "threshold_days": threshold_days,
+        "warning_days": warning_days,
     }
     threshold = db.scalar(
         select(PlantMaterialThreshold).where(
@@ -1870,19 +2601,47 @@ def upsert_threshold(db: Session, context: RequestContext, data: dict[str, str])
         )
     )
     if threshold is None:
-        db.add(
-            PlantMaterialThreshold(
-                tenant_id=context.tenant_id,
-                plant_id=plant.id,
-                material_id=material.id,
-                **attrs,
-            )
+        threshold = PlantMaterialThreshold(
+            tenant_id=context.tenant_id,
+            plant_id=plant.id,
+            material_id=material.id,
+            **attrs,
         )
-        return "created"
+        db.add(threshold)
+        db.flush()
+        return ImportRecordChange(
+            action="created",
+            record_type="threshold",
+            record_id=str(threshold.id),
+            record_reference=f"{plant.code}/{material.code}",
+            rollback_safe=True,
+            previous_value=None,
+            new_value={key: json_value(value) for key, value in attrs.items()},
+        )
 
     changed = any(not values_equal(getattr(threshold, key), value) for key, value in attrs.items())
     if not changed:
-        return "unchanged"
+        return ImportRecordChange(
+            action="unchanged",
+            record_type="threshold",
+            record_id=str(threshold.id),
+            record_reference=f"{plant.code}/{material.code}",
+            rollback_safe=False,
+            previous_value=None,
+            new_value={key: json_value(value) for key, value in attrs.items()},
+        )
+    previous_value = {
+        "threshold_days": json_value(threshold.threshold_days),
+        "warning_days": json_value(threshold.warning_days),
+    }
     for key, value in attrs.items():
         setattr(threshold, key, value)
-    return "updated"
+    return ImportRecordChange(
+        action="updated",
+        record_type="threshold",
+        record_id=str(threshold.id),
+        record_reference=f"{plant.code}/{material.code}",
+        rollback_safe=False,
+        previous_value=previous_value,
+        new_value={key: json_value(value) for key, value in attrs.items()},
+    )

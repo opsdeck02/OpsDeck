@@ -17,6 +17,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   getRiskWorkspace,
   getSignalRisks,
+  getTenantPlan,
   type RiskWorkspaceResponse,
   type SignalInventoryContinuity,
   type SignalRelationshipGraph,
@@ -74,8 +75,16 @@ export default async function CriticalRiskWorkspacePage({
 }: {
   searchParams?: SearchParams;
 }) {
-  const activeScenario = PILOT_SCENARIOS_ENABLED ? searchParams?.scenario : undefined;
-  const walkthroughActive = isWalkthroughActive(searchParams);
+  const tenantPlan = await getTenantPlan();
+  const demoControlsEnabled =
+    PILOT_SCENARIOS_ENABLED &&
+    Boolean(
+      tenantPlan?.is_demo_tenant &&
+        tenantPlan.capabilities?.pilot_scenarios,
+    );
+  const activeScenario = demoControlsEnabled ? searchParams?.scenario : undefined;
+  const walkthroughActive =
+    demoControlsEnabled && isWalkthroughActive(searchParams);
   const workspace = await getRiskWorkspace({
     scenario: activeScenario,
     risk_type: searchParams?.risk_type,
@@ -99,6 +108,7 @@ export default async function CriticalRiskWorkspacePage({
       <WorkspaceFilters
         searchParams={searchParams}
         walkthroughActive={walkthroughActive}
+        demoControlsEnabled={demoControlsEnabled}
       />
       {risks.length > 0 ? (
         <ExposureSelector risks={risks} selected={workspace.selected_risk} />
@@ -451,9 +461,11 @@ function RecommendedActions({ risk }: { risk: SignalRiskCandidate | null }) {
 function WorkspaceFilters({
   searchParams,
   walkthroughActive,
+  demoControlsEnabled,
 }: {
   searchParams?: SearchParams;
   walkthroughActive: boolean;
+  demoControlsEnabled: boolean;
 }) {
   return (
     <Card className="min-w-0 max-w-full overflow-hidden bg-card/90 shadow-panel">
@@ -464,13 +476,13 @@ function WorkspaceFilters({
             <p className="mt-1 text-sm text-mutedForeground">
               {searchParams?.plant_reference
                 ? `Viewing continuity for ${searchParams.plant_reference}.`
-                : PILOT_SCENARIOS_ENABLED && searchParams?.scenario
+                : demoControlsEnabled && searchParams?.scenario
                   ? "Viewing a controlled pilot scenario."
                 : "Viewing continuity for All plants."}
             </p>
           </div>
           <div className="flex min-w-0 flex-wrap items-center gap-2">
-            {PILOT_SCENARIOS_ENABLED ? (
+            {demoControlsEnabled ? (
               <Link
                 href={walkthroughHref(searchParams, !walkthroughActive)}
                 className={`rounded-lg px-3 py-2 text-sm font-semibold ring-1 transition ${
@@ -491,7 +503,7 @@ function WorkspaceFilters({
           {walkthroughActive ? (
             <input type="hidden" name="walkthrough" value="1" />
           ) : null}
-          {PILOT_SCENARIOS_ENABLED ? (
+          {demoControlsEnabled ? (
             <div className="grid min-w-0 flex-1 basis-56 gap-1">
               <label
                 htmlFor="scenario"

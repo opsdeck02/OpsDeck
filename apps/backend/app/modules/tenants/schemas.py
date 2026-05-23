@@ -3,7 +3,6 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-
 TenantPlanTier = Literal["pilot", "paid", "enterprise"]
 DataSourceType = Literal["google_sheets", "excel_online"]
 DatasetType = Literal["shipments", "stock", "thresholds"]
@@ -21,7 +20,12 @@ class TenantCreateRequest(BaseModel):
     plan_tier: TenantPlanTier = "pilot"
     max_users: int | None = Field(default=None, ge=1)
     max_plants: int | None = Field(default=None, ge=1)
-    access_weeks: int | None = Field(default=None, ge=1, description="Number of weeks of access for the tenant")
+    is_demo_tenant: bool = False
+    access_weeks: int | None = Field(
+        default=None,
+        ge=1,
+        description="Number of weeks of access for the tenant",
+    )
     admin_user: TenantAdminUserPayload | None = None
 
 
@@ -33,6 +37,7 @@ class TenantSummaryOut(BaseModel):
     max_users: int | None
     max_plants: int | None
     is_active: bool = True
+    is_demo_tenant: bool = False
     access_weeks: int | None = None
     access_expires_at: datetime | None = None
     active_user_count: int | None = None
@@ -47,6 +52,7 @@ class TenantCreatedResponse(BaseModel):
     plan_tier: TenantPlanTier = "pilot"
     max_users: int | None
     max_plants: int | None
+    is_demo_tenant: bool = False
     access_weeks: int | None = None
     created_at: datetime
     admin_user: dict | None = None
@@ -59,6 +65,7 @@ class TenantPlanSummaryOut(BaseModel):
     plan_tier: TenantPlanTier
     max_plants: int | None = None
     active_plant_count: int | None = None
+    is_demo_tenant: bool = False
     capabilities: dict[str, bool]
 
 

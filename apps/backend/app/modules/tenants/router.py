@@ -25,23 +25,23 @@ from app.modules.tenants.schemas import (
     TenantPlanUpdateRequest,
     TenantSummaryOut,
 )
-from app.modules.tenants.sync_service import sync_data_source_now
 from app.modules.tenants.service import (
     TenantAdminPayload,
     activate_tenant,
-    create_tenant,
     create_data_source,
+    create_tenant,
     deactivate_tenant,
     delete_data_source,
     delete_tenant,
     ensure_numbered_plants,
     get_tenant_details,
     get_tenant_plan,
-    list_data_sources,
     list_all_tenants,
+    list_data_sources,
     update_data_source,
     update_tenant_plan,
 )
+from app.modules.tenants.sync_service import sync_data_source_now
 from app.schemas.context import RequestContext
 
 
@@ -54,6 +54,7 @@ class TenantDetailOut(BaseModel):
     max_users: int | None
     max_plants: int | None
     is_active: bool
+    is_demo_tenant: bool = False
     access_weeks: int | None
     access_expires_at: str | None
     days_until_expiry: int | None
@@ -271,6 +272,7 @@ def create_tenant_for_superadmin(
             plan_tier=payload.plan_tier,
             max_users=payload.max_users,
             max_plants=payload.max_plants,
+            is_demo_tenant=payload.is_demo_tenant,
             access_weeks=payload.access_weeks,
             admin_user=(
                 TenantAdminPayload(
@@ -327,7 +329,11 @@ def get_tenant_details_for_superadmin(
         details["days_until_expiry"] = None
 
     # Convert datetime to string
-    details["access_expires_at"] = details["access_expires_at"].isoformat() if details["access_expires_at"] else None
+    details["access_expires_at"] = (
+        details["access_expires_at"].isoformat()
+        if details["access_expires_at"]
+        else None
+    )
     details["created_at"] = details["created_at"].isoformat()
     return TenantDetailOut(**details)
 

@@ -24,6 +24,24 @@ class IngestionSummary(BaseModel):
     unchanged: int = 0
 
 
+class OperationalUnderstandingSummary(BaseModel):
+    file_received: bool = True
+    rows_detected: int = 0
+    rows_accepted: int = 0
+    rows_rejected: int = 0
+    records_created: int = 0
+    records_updated: int = 0
+    records_unchanged: int = 0
+    plants_detected: list[str] = []
+    materials_detected: list[str] = []
+    shipments_detected: list[str] = []
+    suppliers_detected: list[str] = []
+    risks_or_exposures_generated: int | None = None
+    refreshed_operational_visibility: bool = False
+    warnings: list[str] = []
+    next_recommended_action: str | None = None
+
+
 class UploadResult(BaseModel):
     upload_id: int
     ingestion_job_id: int
@@ -35,6 +53,7 @@ class UploadResult(BaseModel):
     top_rejection_reasons: list[RejectionSummary] = []
     blocking_errors: list[str] = []
     summary_counts: IngestionSummary
+    operational_summary: OperationalUnderstandingSummary
     platform_detected: str | None = None
     transformed_url: str | None = None
 
@@ -50,6 +69,7 @@ class SheetUploadResult(BaseModel):
     top_rejection_reasons: list[RejectionSummary] = []
     blocking_errors: list[str] = []
     summary_counts: IngestionSummary
+    operational_summary: OperationalUnderstandingSummary
 
 
 class WorkbookUploadResult(BaseModel):
@@ -63,6 +83,7 @@ class WorkbookUploadResult(BaseModel):
     top_rejection_reasons: list[RejectionSummary] = []
     blocking_errors: list[str] = []
     summary_counts: IngestionSummary
+    operational_summary: OperationalUnderstandingSummary
     sheet_results: list[SheetUploadResult]
     ignored_sheets: list[str] = []
     platform_detected: str | None = None
@@ -84,6 +105,47 @@ class IngestionJobOut(BaseModel):
     top_rejection_summary: str | None = None
     refreshed_operational_visibility: bool = False
 
+
+class ImportRecordReference(BaseModel):
+    record_type: str
+    record_id: str
+    record_reference: str | None = None
+    action: str
+    rollback_safe: bool = False
+    rollback_status: str | None = None
+
+
+class ImportJobDetailOut(BaseModel):
+    import_job_id: int
+    upload_id: int | None
+    file_name: str | None = None
+    import_type: str
+    status: str
+    stage: str | None = None
+    total_rows: int
+    accepted_rows: int
+    rejected_rows: int
+    created_records: int
+    updated_records: int
+    unchanged_records: int
+    warnings: list[str] = []
+    row_level_errors: list[RowValidationError] = []
+    operational_summary: OperationalUnderstandingSummary | None = None
+    record_references: list[ImportRecordReference] = []
+    started_at: str | None = None
+    completed_at: str | None = None
+    uploaded_at: str | None = None
+    source_metadata: dict = {}
+
+
+class RollbackSummary(BaseModel):
+    import_job_id: int
+    rollback_status: str
+    records_deleted: int = 0
+    records_skipped: int = 0
+    records_preserved: int = 0
+    skipped_reasons: list[str] = []
+    warnings: list[str] = []
 
 class HeaderMappingSuggestion(BaseModel):
     source_header: str

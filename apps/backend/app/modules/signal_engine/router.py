@@ -28,6 +28,7 @@ from app.modules.signal_engine.service import (
     list_signal_timeline,
 )
 from app.modules.stock.schemas import InventoryContinuityResult
+from app.modules.tenants.demo import is_demo_tenant
 from app.schemas.context import RequestContext
 
 router = APIRouter(prefix="/signal-engine", tags=["signal-engine"])
@@ -73,6 +74,11 @@ def signal_risk_workspace(
         raise HTTPException(
             status_code=403,
             detail="Pilot scenarios are disabled for this environment.",
+        )
+    if scenario is not None and not is_demo_tenant(db, context.tenant_id):
+        raise HTTPException(
+            status_code=403,
+            detail="Pilot scenarios are available only for demo-enabled tenants.",
         )
     if scenario is not None and scenario not in SUPPORTED_PILOT_SCENARIOS:
         raise HTTPException(

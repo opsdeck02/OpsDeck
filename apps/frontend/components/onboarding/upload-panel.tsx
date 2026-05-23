@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 
 import type {
   ExternalDataSource,
   ExternalDataSourceSyncResult,
   MappingPreview,
   IngestionJob,
+  ImportJobDetail,
+  RollbackSummary,
   UploadResult,
   WorkbookPreview,
   WorkbookUploadResult,
@@ -74,6 +76,8 @@ export function UploadPanel({
     UploadResult | WorkbookUploadResult | null
   >(null);
   const [history, setHistory] = useState<IngestionJob[]>([]);
+  const [selectedJobDetail, setSelectedJobDetail] =
+    useState<ImportJobDetail | null>(null);
   const [mappingPreview, setMappingPreview] = useState<MappingPreview | null>(
     null,
   );
@@ -99,6 +103,8 @@ export function UploadPanel({
   const [error, setError] = useState<string | null>(null);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  const sourceUrlRef = useRef(sourceUrl);
+  const sourceTypeRef = useRef(sourceType);
   const uploadUrlDetection = describeUrl(sourceUrl);
   const dataSourceUrlDetection = describeUrl(dataSourceForm.source_url);
   const mappedRequiredFields = mappingPreview
@@ -151,32 +157,14 @@ export function UploadPanel({
     : [];
 
   useEffect(() => {
-    void loadHistory();
-    if (automatedSourcesEnabled) {
-      void loadDataSources();
-    } else {
-      setDataSources([]);
-    }
-  }, [automatedSourcesEnabled]);
+    sourceUrlRef.current = sourceUrl;
+  }, [sourceUrl]);
 
   useEffect(() => {
-    if (!automatedSourcesEnabled && uploadMode === "url") {
-      setUploadMode("file");
-      setMappingPreview(null);
-      setMappingOverrides({});
-    }
-  }, [automatedSourcesEnabled, uploadMode]);
+    sourceTypeRef.current = sourceType;
+  }, [sourceType]);
 
-  useEffect(() => {
-    if (uploadMode === "file" && file) {
-      void previewMapping(fileType, file);
-    }
-    if (automatedSourcesEnabled && uploadMode === "url" && sourceUrl.trim()) {
-      void previewUrlMapping();
-    }
-  }, [automatedSourcesEnabled, fileType, uploadMode]);
-
-  async function loadHistory() {
+  const loadHistory = useCallback(async () => {
     const response = await fetch("/api/ingestion/history", {
       cache: "no-store",
     });
@@ -186,9 +174,9 @@ export function UploadPanel({
       return;
     }
     setHistoryError("Ingestion history could not be loaded.");
-  }
+  }, []);
 
-  async function loadDataSources() {
+  const loadDataSources = useCallback(async () => {
     if (!automatedSourcesEnabled) {
       setDataSources([]);
       return;
@@ -201,39 +189,9 @@ export function UploadPanel({
       return;
     }
     setDataSources((await response.json()) as ExternalDataSource[]);
-  }
+  }, [automatedSourcesEnabled]);
 
-  async function previewMapping(selectedFileType: string, selectedFile: File) {
-    const formData = new FormData();
-    formData.append("file_type", selectedFileType);
-    formData.append("file", selectedFile);
-    const response = await fetch("/api/ingestion/mapping-preview", {
-      method: "POST",
-      body: formData,
-    });
-    if (!response.ok) {
-      setMappingPreview(null);
-      setMappingOverrides({});
-      return;
-    }
-    const body = (await response.json()) as MappingPreview;
-    setMappingPreview(body);
-    setMappingOverrides(
-      Object.fromEntries(
-        body.suggestions
-          .filter((item) => item.suggested_field)
-          .map((item) => [item.source_header, item.suggested_field as string]),
-      ),
-    );
-    if (isWorkbookFile(selectedFile)) {
-      await previewWorkbook(selectedFile);
-    } else {
-      setWorkbookPreview(null);
-      setWorkbookSheets({});
-    }
-  }
-
-  async function previewWorkbook(selectedFile: File) {
+  const previewWorkbook = useCallback(async (selectedFile: File) => {
     const formData = new FormData();
     formData.append("file", selectedFile);
     const response = await fetch("/api/ingestion/workbook-preview", {
@@ -273,46 +231,207 @@ export function UploadPanel({
         }),
       ),
     );
-  }
+  }, []);
 
-  async function previewUrlMapping() {
-    if (!sourceUrl.trim()) {
-      setError("Paste a Google Sheets or Excel/OneDrive URL first.");
-      return;
+  const previewMapping = useCallback(
+    async (selectedFileType: string, selectedFile: File) => {
+      const formData = new FormData();
+      formData.append("file_type", selectedFileType);
+      formData.append("file", selectedFile);
+      const response = await fetch("/api/ingestion/mapping-preview", {
+        method: "POST",
+        body: formData,
+      });
+      if (!response.ok) {
+        setMappingPreview(null);
+        setMappingOverrides({});
+        return;
+      }
+      const body = (await response.json()) as MappingPreview;
+      setMappingPreview(body);
+      setMappingOverrides(
+        Object.fromEntries(
+          body.suggestions
+            .filter((item) => item.suggested_field)
+            .map((item) => [
+              item.source_header,
+              item.suggested_field as string,
+            ]),
+        ),
+      );
+      if (isWorkbookFile(selectedFile)) {
+        await previewWorkbook(selectedFile);
+      } else {
+        setWorkbookPreview(null);
+        setWorkbookSheets({});
+      }
+    },
+    [previewWorkbook],
+  );
+
+  const previewUrlMappingForValues = useCallback(
+    async (
+      selectedFileType: string,
+      selectedSourceType: "google_sheets" | "excel_online",
+      selectedSourceUrl: string,
+    ) => {
+      if (!selectedSourceUrl.trim()) {
+        setError("Paste a Google Sheets or Excel/OneDrive URL first.");
+        return;
+      }
+      setError(null);
+      const formData = new FormData();
+      formData.append("file_type", selectedFileType);
+      formData.append("source_type", selectedSourceType);
+      formData.append("source_url", selectedSourceUrl.trim());
+      const response = await fetch("/api/ingestion/url-mapping-preview", {
+        method: "POST",
+        body: formData,
+      });
+      const body = await response.json();
+      if (!response.ok) {
+        setMappingPreview(null);
+        setMappingOverrides({});
+        setWorkbookPreview(null);
+        setWorkbookSheets({});
+        setError(
+          typeof body.detail === "string"
+            ? body.detail
+            : "URL mapping preview failed.",
+        );
+        return;
+      }
+      const preview = body as MappingPreview;
+      setMappingPreview(preview);
+      setWorkbookPreview(null);
+      setWorkbookSheets({});
+      setMappingOverrides(
+        Object.fromEntries(
+          preview.suggestions
+            .filter((item) => item.suggested_field)
+            .map((item) => [
+              item.source_header,
+              item.suggested_field as string,
+            ]),
+        ),
+      );
+    },
+    [],
+  );
+
+  useEffect(() => {
+    void loadHistory();
+    if (automatedSourcesEnabled) {
+      void loadDataSources();
+    } else {
+      setDataSources([]);
     }
-    setError(null);
-    const formData = new FormData();
-    formData.append("file_type", fileType);
-    formData.append("source_type", sourceType);
-    formData.append("source_url", sourceUrl.trim());
-    const response = await fetch("/api/ingestion/url-mapping-preview", {
-      method: "POST",
-      body: formData,
+  }, [automatedSourcesEnabled, loadDataSources, loadHistory]);
+
+  useEffect(() => {
+    if (!automatedSourcesEnabled && uploadMode === "url") {
+      setUploadMode("file");
+      setMappingPreview(null);
+      setMappingOverrides({});
+    }
+  }, [automatedSourcesEnabled, uploadMode]);
+
+  useEffect(() => {
+    if (uploadMode === "file" && file) {
+      void previewMapping(fileType, file);
+    }
+    if (
+      automatedSourcesEnabled &&
+      uploadMode === "url" &&
+      sourceUrlRef.current.trim()
+    ) {
+      void previewUrlMappingForValues(
+        fileType,
+        sourceTypeRef.current,
+        sourceUrlRef.current,
+      );
+    }
+  }, [
+    automatedSourcesEnabled,
+    file,
+    fileType,
+    previewMapping,
+    previewUrlMappingForValues,
+    uploadMode,
+  ]);
+
+  async function loadJobDetail(jobId: number) {
+    const response = await fetch(`/api/ingestion/jobs/${jobId}`, {
+      cache: "no-store",
     });
     const body = await response.json();
     if (!response.ok) {
-      setMappingPreview(null);
-      setMappingOverrides({});
-      setWorkbookPreview(null);
-      setWorkbookSheets({});
       setError(
         typeof body.detail === "string"
           ? body.detail
-          : "URL mapping preview failed.",
+          : "Import job detail could not be loaded.",
       );
       return;
     }
-    const preview = body as MappingPreview;
-    setMappingPreview(preview);
-    setWorkbookPreview(null);
-    setWorkbookSheets({});
-    setMappingOverrides(
-      Object.fromEntries(
-        preview.suggestions
-          .filter((item) => item.suggested_field)
-          .map((item) => [item.source_header, item.suggested_field as string]),
-      ),
+    setSelectedJobDetail(body as ImportJobDetail);
+  }
+
+  function rollbackJob(jobId: number) {
+    const confirmed = window.confirm(
+      "Rollback only this import job? OpsDeck will delete records created by this import where ownership is safe, and preserve updated pre-existing records.",
     );
+    if (!confirmed) {
+      return;
+    }
+    setError(null);
+    startTransition(async () => {
+      const response = await fetch(`/api/ingestion/jobs/${jobId}/rollback`, {
+        method: "POST",
+      });
+      const body = (await response.json()) as RollbackSummary & {
+        detail?: string;
+      };
+      if (!response.ok) {
+        setError(
+          typeof body.detail === "string"
+            ? body.detail
+            : "Import rollback could not be completed.",
+        );
+        return;
+      }
+      setError(
+        `Rollback ${body.rollback_status}. Deleted ${body.records_deleted}, preserved ${body.records_preserved}, skipped ${body.records_skipped}.`,
+      );
+      await loadHistory();
+      await loadJobDetail(jobId);
+    });
+  }
+
+  function reprocessJob(jobId: number) {
+    const confirmed = window.confirm(
+      "Reprocess this import file? OpsDeck will create a new import job using the stored file and mappings.",
+    );
+    if (!confirmed) {
+      return;
+    }
+    setError(null);
+    startTransition(async () => {
+      const response = await fetch(`/api/ingestion/jobs/${jobId}/reprocess`, {
+        method: "POST",
+      });
+      const body = await response.json();
+      if (!response.ok) {
+        setError(
+          typeof body.detail === "string"
+            ? body.detail
+            : "Import reprocess could not be completed.",
+        );
+        return;
+      }
+      setResult(body as UploadResult | WorkbookUploadResult);
+      setError("Import reprocessed from the stored source file.");
+      await loadHistory();
+    });
   }
 
   function clearUploadedData() {
@@ -722,7 +841,13 @@ export function UploadPanel({
                     />
                     <button
                       type="button"
-                      onClick={previewUrlMapping}
+                      onClick={() =>
+                        void previewUrlMappingForValues(
+                          fileType,
+                          sourceType,
+                          sourceUrl,
+                        )
+                      }
                       disabled={isPending}
                       className="rounded-xl border px-3 py-2.5 text-sm font-medium disabled:opacity-60"
                     >
@@ -1274,14 +1399,87 @@ export function UploadPanel({
                 ? "Operational workbook processed"
                 : "Signal load summary"}
             </p>
-            <p>Rows received: {result.rows_received}</p>
-            <p>Accepted: {result.rows_accepted}</p>
-            <p>Rejected: {result.rows_rejected}</p>
-            <p>
-              Created {result.summary_counts.created}, updated{" "}
-              {result.summary_counts.updated}, unchanged{" "}
-              {result.summary_counts.unchanged}
+            <p className="mt-1 text-mutedForeground">
+              OpsDeck received the file, mapped continuity fields, validated
+              rows, and normalized accepted records into the operational signal
+              chain.
             </p>
+            <div className="mt-3 grid gap-2 md:grid-cols-4">
+              <ResultMetric label="Rows detected" value={result.rows_received} />
+              <ResultMetric label="Accepted" value={result.rows_accepted} />
+              <ResultMetric label="Rejected" value={result.rows_rejected} />
+              <ResultMetric
+                label="Visibility refreshed"
+                value={
+                  result.operational_summary?.refreshed_operational_visibility
+                    ? "Yes"
+                    : "No"
+                }
+              />
+            </div>
+            <div className="mt-3 rounded-xl bg-card p-3">
+              <p className="font-medium">OpsDeck understood</p>
+              <div className="mt-2 grid gap-2 text-mutedForeground md:grid-cols-2">
+                <p>
+                  Plants detected:{" "}
+                  {displayDetected(result.operational_summary?.plants_detected)}
+                </p>
+                <p>
+                  Materials detected:{" "}
+                  {displayDetected(
+                    result.operational_summary?.materials_detected,
+                  )}
+                </p>
+                <p>
+                  Inbound rows detected:{" "}
+                  {displayDetected(
+                    result.operational_summary?.shipments_detected,
+                  )}
+                </p>
+                <p>
+                  Reliability sources:{" "}
+                  {displayDetected(
+                    result.operational_summary?.suppliers_detected,
+                  )}
+                </p>
+              </div>
+              <p className="mt-2 text-mutedForeground">
+                Records: created {result.summary_counts.created}, updated{" "}
+                {result.summary_counts.updated}, unchanged{" "}
+                {result.summary_counts.unchanged}
+              </p>
+              {result.operational_summary?.next_recommended_action ? (
+                <p className="mt-2 rounded-lg bg-muted p-2 text-xs">
+                  Next: {result.operational_summary.next_recommended_action}
+                </p>
+              ) : null}
+              {(result.operational_summary?.warnings ?? []).length > 0 ? (
+                <div className="mt-2 space-y-1 text-xs text-primary">
+                  {result.operational_summary?.warnings.map((warning) => (
+                    <p key={warning}>{warning}</p>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+            <div className="mt-3 grid gap-2 md:grid-cols-6">
+              {[
+                "Upload received",
+                "Parsing file",
+                "Mapping columns",
+                "Validating rows",
+                "Normalizing records",
+                result.rows_rejected > 0
+                  ? "Completed with warnings"
+                  : "Completed",
+              ].map((step) => (
+                <span
+                  key={step}
+                  className="rounded-full bg-card px-3 py-1 text-center text-xs text-mutedForeground"
+                >
+                  {step}
+                </span>
+              ))}
+            </div>
             {isWorkbookResult(result) ? (
               <div className="mt-3 rounded-xl bg-card p-3">
                 <p className="font-medium">Per-sheet continuity refresh</p>
@@ -1417,8 +1615,94 @@ export function UploadPanel({
                   {job.top_rejection_summary ?? job.error_message}
                 </p>
               ) : null}
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => void loadJobDetail(job.id)}
+                  className="rounded-xl border px-3 py-1.5 text-xs font-medium"
+                >
+                  View import detail
+                </button>
+                <button
+                  type="button"
+                  onClick={() => rollbackJob(job.id)}
+                  disabled={isPending || job.status === "rolled_back"}
+                  className="rounded-xl border border-accent px-3 py-1.5 text-xs font-medium text-primary disabled:opacity-60"
+                >
+                  Rollback this import
+                </button>
+                <button
+                  type="button"
+                  onClick={() => reprocessJob(job.id)}
+                  disabled={isPending}
+                  className="rounded-xl border px-3 py-1.5 text-xs font-medium disabled:opacity-60"
+                >
+                  Reprocess
+                </button>
+              </div>
             </div>
           ))}
+          {selectedJobDetail ? (
+            <div className="rounded-xl bg-slate-50 p-3 text-sm ring-1 ring-slate-900/5">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="font-semibold">
+                    Import job {selectedJobDetail.import_job_id}
+                  </p>
+                  <p className="text-xs text-mutedForeground">
+                    {selectedJobDetail.file_name ?? selectedJobDetail.import_type} ·{" "}
+                    {selectedJobDetail.status}
+                    {selectedJobDetail.stage ? ` · ${selectedJobDetail.stage}` : ""}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSelectedJobDetail(null)}
+                  className="rounded-xl border px-2 py-1 text-xs"
+                >
+                  Close
+                </button>
+              </div>
+              <div className="mt-3 grid gap-2 md:grid-cols-3">
+                <ResultMetric label="Created" value={selectedJobDetail.created_records} />
+                <ResultMetric label="Updated" value={selectedJobDetail.updated_records} />
+                <ResultMetric label="Rejected" value={selectedJobDetail.rejected_rows} />
+              </div>
+              {(selectedJobDetail.warnings ?? []).length > 0 ? (
+                <div className="mt-3 rounded-xl bg-card p-2 text-xs text-primary">
+                  {selectedJobDetail.warnings.map((warning) => (
+                    <p key={warning}>{warning}</p>
+                  ))}
+                </div>
+              ) : null}
+              {selectedJobDetail.record_references.length > 0 ? (
+                <div className="mt-3 rounded-xl bg-card p-2">
+                  <p className="font-medium">Records touched</p>
+                  <div className="mt-2 space-y-1 text-xs text-mutedForeground">
+                    {selectedJobDetail.record_references.slice(0, 8).map((record) => (
+                      <p key={`${record.record_type}-${record.record_id}-${record.action}`}>
+                        {record.action} {record.record_type}:{" "}
+                        {record.record_reference ?? record.record_id}
+                        {record.rollback_safe ? " · rollback-safe" : " · preserved"}
+                      </p>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              {selectedJobDetail.row_level_errors.length > 0 ? (
+                <div className="mt-3 rounded-xl bg-card p-2">
+                  <p className="font-medium">Rejected rows</p>
+                  <div className="mt-2 space-y-2 text-xs text-mutedForeground">
+                    {selectedJobDetail.row_level_errors.slice(0, 5).map((row) => (
+                      <p key={row.row_number}>
+                        Row {row.row_number}: {row.errors.join("; ")}
+                      </p>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
           {history.length === 0 ? (
             <div className="rounded-xl bg-slate-50 p-3 text-sm text-mutedForeground ring-1 ring-slate-900/5">
               No source ingestion has contributed to the continuity signal chain
@@ -1494,6 +1778,22 @@ function isWorkbookResult(
   result: UploadResult | WorkbookUploadResult,
 ): result is WorkbookUploadResult {
   return result.file_type === "workbook";
+}
+
+function ResultMetric({ label, value }: { label: string; value: number | string }) {
+  return (
+    <div className="rounded-xl bg-card p-2">
+      <p className="text-xs text-mutedForeground">{label}</p>
+      <p className="mt-1 font-semibold">{value}</p>
+    </div>
+  );
+}
+
+function displayDetected(values?: string[]): string {
+  if (!values || values.length === 0) {
+    return "none detected";
+  }
+  return values.join(", ");
 }
 
 function confidenceClass(confidence: string): string {

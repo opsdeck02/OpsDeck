@@ -302,6 +302,7 @@ export interface TenantSummary {
   max_users: number | null;
   max_plants: number | null;
   is_active: boolean;
+  is_demo_tenant: boolean;
   access_weeks: number | null;
   access_expires_at: string | null;
   active_user_count: number | null;
@@ -323,6 +324,7 @@ export interface TenantDetail {
   active_plant_count: number;
   created_at: string;
   users: TenantUser[];
+  is_demo_tenant: boolean;
   capabilities: Record<string, boolean>;
 }
 
@@ -332,6 +334,7 @@ export interface TenantCreatePayload {
   plan_tier?: "pilot" | "paid" | "enterprise";
   max_users: number | null;
   max_plants?: number | null;
+  is_demo_tenant?: boolean;
   access_weeks?: number | null;
   admin_user?: {
     email: string;
@@ -432,6 +435,7 @@ export interface UploadResult {
   top_rejection_reasons: RejectionSummary[];
   blocking_errors: string[];
   summary_counts: IngestionSummary;
+  operational_summary: OperationalUnderstandingSummary;
   platform_detected: string | null;
   transformed_url: string | null;
 }
@@ -447,6 +451,7 @@ export interface SheetUploadResult {
   top_rejection_reasons: RejectionSummary[];
   blocking_errors: string[];
   summary_counts: IngestionSummary;
+  operational_summary: OperationalUnderstandingSummary;
 }
 
 export interface WorkbookUploadResult {
@@ -460,10 +465,29 @@ export interface WorkbookUploadResult {
   top_rejection_reasons: RejectionSummary[];
   blocking_errors: string[];
   summary_counts: IngestionSummary;
+  operational_summary: OperationalUnderstandingSummary;
   sheet_results: SheetUploadResult[];
   ignored_sheets: string[];
   platform_detected: string | null;
   transformed_url: string | null;
+}
+
+export interface OperationalUnderstandingSummary {
+  file_received: boolean;
+  rows_detected: number;
+  rows_accepted: number;
+  rows_rejected: number;
+  records_created: number;
+  records_updated: number;
+  records_unchanged: number;
+  plants_detected: string[];
+  materials_detected: string[];
+  shipments_detected: string[];
+  suppliers_detected: string[];
+  risks_or_exposures_generated: number | null;
+  refreshed_operational_visibility: boolean;
+  warnings: string[];
+  next_recommended_action: string | null;
 }
 
 export interface IngestionJob {
@@ -480,6 +504,48 @@ export interface IngestionJob {
   uploaded_at: string | null;
   top_rejection_summary: string | null;
   refreshed_operational_visibility: boolean;
+}
+
+export interface ImportRecordReference {
+  record_type: string;
+  record_id: string;
+  record_reference: string | null;
+  action: string;
+  rollback_safe: boolean;
+  rollback_status: string | null;
+}
+
+export interface ImportJobDetail {
+  import_job_id: number;
+  upload_id: number | null;
+  file_name: string | null;
+  import_type: string;
+  status: string;
+  stage: string | null;
+  total_rows: number;
+  accepted_rows: number;
+  rejected_rows: number;
+  created_records: number;
+  updated_records: number;
+  unchanged_records: number;
+  warnings: string[];
+  row_level_errors: RowValidationError[];
+  operational_summary: OperationalUnderstandingSummary | null;
+  record_references: ImportRecordReference[];
+  started_at: string | null;
+  completed_at: string | null;
+  uploaded_at: string | null;
+  source_metadata: Record<string, unknown>;
+}
+
+export interface RollbackSummary {
+  import_job_id: number;
+  rollback_status: string;
+  records_deleted: number;
+  records_skipped: number;
+  records_preserved: number;
+  skipped_reasons: string[];
+  warnings: string[];
 }
 
 export interface CarrierOption {
@@ -891,6 +957,7 @@ export interface TenantCreateResponse {
   plan_tier: "pilot" | "paid" | "enterprise";
   max_users: number | null;
   max_plants: number | null;
+  is_demo_tenant: boolean;
   created_at: string;
   admin_user: TenantUser | null;
 }
@@ -902,6 +969,7 @@ export interface TenantPlanSummary {
   plan_tier: "pilot" | "paid" | "enterprise";
   max_plants: number | null;
   active_plant_count: number | null;
+  is_demo_tenant: boolean;
   capabilities: Record<string, boolean>;
 }
 

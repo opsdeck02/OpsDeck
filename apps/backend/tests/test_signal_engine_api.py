@@ -110,6 +110,24 @@ def test_risk_workspace_default_mode_does_not_require_scenario(
     assert body["is_demo_scenario"] is False
 
 
+def test_risk_workspace_default_mode_works_when_pilot_flag_enabled_for_non_demo_tenant(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "enable_pilot_scenarios", True)
+
+    response = client.get(
+        "/api/v1/signal-engine/risk-workspace",
+        headers=auth_headers(client),
+        params={"plant_reference": "P1", "material_reference": "M1"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["empty"] is False
+    assert body["is_demo_scenario"] is False
+
+
 def test_risk_workspace_scenario_rejected_when_pilot_mode_disabled(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
@@ -124,6 +142,29 @@ def test_risk_workspace_scenario_rejected_when_pilot_mode_disabled(
 
     assert response.status_code == 403
     assert "disabled" in response.json()["detail"]
+
+
+def test_risk_workspace_scenario_rejected_for_non_demo_tenant(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "enable_pilot_scenarios", True)
+
+    response = client.get(
+        "/api/v1/signal-engine/risk-workspace",
+        headers=auth_headers(client),
+        params={"scenario": "ocean_vessel_delay"},
+    )
+
+    assert response.status_code == 403
+    assert "demo-enabled tenants" in response.json()["detail"]
+    with next(app.dependency_overrides[get_db]()) as db:
+        assert (
+            db.scalar(
+                select(Shipment).where(Shipment.shipment_id == "DEMO-MV-EASTERN-LINE-01")
+            )
+            is None
+        )
 
 
 @pytest.mark.parametrize(
@@ -152,6 +193,7 @@ def test_risk_workspace_demo_scenario_selector_returns_operational_context(
     expected_labels: set[str],
 ) -> None:
     monkeypatch.setattr(settings, "enable_pilot_scenarios", True)
+    enable_demo_tenant()
 
     response = client.get(
         "/api/v1/signal-engine/risk-workspace",
@@ -197,6 +239,7 @@ def test_risk_workspace_multi_inbound_demo_has_distinct_protection_values(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(settings, "enable_pilot_scenarios", True)
+    enable_demo_tenant()
 
     response = client.get(
         "/api/v1/signal-engine/risk-workspace",
@@ -219,6 +262,7 @@ def test_risk_workspace_demo_records_are_marked_and_upserted(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(settings, "enable_pilot_scenarios", True)
+    enable_demo_tenant()
 
     headers = auth_headers(client)
     for _ in range(2):
@@ -254,6 +298,7 @@ def test_risk_workspace_unknown_demo_scenario_returns_validation_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(settings, "enable_pilot_scenarios", True)
+    enable_demo_tenant()
 
     response = client.get(
         "/api/v1/signal-engine/risk-workspace",
@@ -646,6 +691,14 @@ def seed_signal_engine_data(db: Session) -> None:
 def auth_headers(client: TestClient) -> dict[str, str]:
     token = login(client)
     return {"Authorization": f"Bearer {token}", "X-Tenant-Slug": "tenant-a"}
+
+
+def enable_demo_tenant(slug: str = "tenant-a") -> None:
+    with next(app.dependency_overrides[get_db]()) as db:
+        tenant = db.scalar(select(Tenant).where(Tenant.slug == slug))
+        assert tenant is not None
+        tenant.is_demo_tenant = True
+        db.commit()
 
 
 def login(client: TestClient) -> str:

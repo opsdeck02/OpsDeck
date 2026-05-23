@@ -17,6 +17,7 @@ class Tenant(TimestampMixin, Base):
     max_users: Mapped[int | None] = mapped_column(Integer, nullable=True)
     max_plants: Mapped[int | None] = mapped_column(Integer, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    is_demo_tenant: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     access_weeks: Mapped[int | None] = mapped_column(Integer, nullable=True)
     access_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
