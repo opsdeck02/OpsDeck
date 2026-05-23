@@ -95,7 +95,7 @@ export default async function CriticalRiskWorkspacePage({
   }
 
   return (
-    <main className="grid min-w-0 gap-3">
+    <main className="grid min-w-0 gap-2.5">
       <WorkspaceFilters
         searchParams={searchParams}
         walkthroughActive={walkthroughActive}
@@ -132,7 +132,7 @@ function ExposureSelector({
   const ordered = [...risks].sort(riskSortKey);
   return (
     <Card className="bg-card/90 shadow-panel">
-      <CardHeader className="pb-2">
+      <CardHeader className="px-4 py-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <CardTitle>Active continuity exposures</CardTitle>
           <span className="text-xs font-semibold text-mutedForeground">
@@ -140,16 +140,16 @@ function ExposureSelector({
           </span>
         </div>
       </CardHeader>
-      <CardContent>
-        <div className="grid min-w-0 gap-2 md:grid-cols-2 xl:grid-cols-4">
+      <CardContent className="px-4 pb-4">
+        <div className="grid min-w-0 gap-1.5 lg:grid-cols-2 xl:grid-cols-4">
           {ordered.slice(0, 8).map((risk) => (
             <Link
               key={riskKey(risk)}
               href={riskWorkspaceHref(risk)}
-              className={`min-w-0 rounded-xl px-3 py-2.5 text-left ring-1 transition hover:bg-slate-50 ${
+              className={`min-w-0 border-l-4 px-3 py-2 text-left ring-1 transition hover:bg-slate-50 ${
                 isSelectedExposure(risk, selected)
-                  ? "bg-blue-50 ring-blue-300"
-                  : "bg-white ring-slate-900/5"
+                  ? "border-slate-950 bg-slate-50 ring-slate-300"
+                  : `${severityBorder(risk.severity)} bg-white ring-slate-900/5`
               }`}
             >
               <div className="flex min-w-0 items-center justify-between gap-2">
@@ -158,13 +158,15 @@ function ExposureSelector({
                   {exposureTiming(risk)}
                 </span>
               </div>
-              <p className="mt-2 truncate text-sm font-semibold">
-                {risk.material_reference ?? "Unknown material"}
-              </p>
-              <p className="mt-0.5 truncate text-xs text-mutedForeground">
-                {risk.plant_reference ?? "Unknown plant"}
-              </p>
-              <p className="mt-2 truncate text-xs font-medium text-slate-700">
+              <div className="mt-1.5 flex min-w-0 items-center justify-between gap-2">
+                <p className="truncate text-sm font-semibold">
+                  {risk.material_reference ?? "Unknown material"}
+                </p>
+                <p className="shrink-0 text-xs text-mutedForeground">
+                  {risk.plant_reference ?? "Unknown plant"}
+                </p>
+              </div>
+              <p className="mt-1 truncate text-xs font-medium text-slate-600">
                 {formatLabel(risk.risk_type)}
               </p>
             </Link>
@@ -187,8 +189,8 @@ function WorkspaceContent({
 
   return (
     <>
-      <section className="grid gap-3 xl:grid-cols-[minmax(0,1.45fr)_minmax(300px,0.55fr)]">
-        <div className="grid gap-3">
+      <section className="grid gap-2.5 xl:grid-cols-[minmax(0,1.25fr)_minmax(310px,0.75fr)]">
+        <div className="grid gap-2.5">
           {walkthroughActive ? (
             <WalkthroughNote>
               This shows the plant-material combination most likely to create
@@ -198,7 +200,7 @@ function WorkspaceContent({
           <OperationalRiskHero workspace={workspace} inventory={inventory} />
         </div>
 
-        <div className="grid gap-3">
+        <div className="grid content-start gap-2.5">
           {walkthroughActive ? (
             <WalkthroughNote>
               This translates current signals into likely operational consequence.
@@ -214,8 +216,8 @@ function WorkspaceContent({
         </div>
       </section>
 
-      <section className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-        <div className="grid gap-3">
+      <section className="grid gap-2.5 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+        <div className="grid gap-2.5">
           {walkthroughActive ? (
             <WalkthroughNote>
               This explains the operational signals causing the risk, not just a
@@ -224,7 +226,7 @@ function WorkspaceContent({
           ) : null}
           <WhyThisMatters workspace={workspace} />
         </div>
-        <div className="grid gap-3">
+        <div className="grid gap-2.5">
           {walkthroughActive ? (
             <WalkthroughNote>
               This separates physical inbound from trusted inbound. An inbound
@@ -236,18 +238,25 @@ function WorkspaceContent({
         </div>
       </section>
 
-      <section className="grid gap-3 xl:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
-        <OperationalTrustSummary risk={risk} />
-        <ContinuitySummary
-          inventory={workspace.inventory_continuity}
-          shipments={workspace.shipment_continuity}
-        />
-      </section>
-
-      <section className="grid gap-3 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
-        <TimelinePanel timeline={workspace.timeline} />
-        <RelationshipPanel graph={workspace.context_graph} />
-      </section>
+      <details className="rounded-lg border bg-white/70 p-3 text-sm ring-1 ring-slate-900/5">
+        <summary className="cursor-pointer font-semibold text-slate-700">
+          Deep operational context
+          <span className="ml-2 text-xs font-normal text-mutedForeground">
+            trust, signal chain, and connected dependencies
+          </span>
+        </summary>
+        <div className="mt-3 grid gap-2.5 xl:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
+          <OperationalTrustSummary risk={risk} />
+          <ContinuitySummary
+            inventory={workspace.inventory_continuity}
+            shipments={workspace.shipment_continuity}
+          />
+        </div>
+        <div className="mt-2.5 grid gap-2.5 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
+          <TimelinePanel timeline={workspace.timeline} />
+          <RelationshipPanel graph={workspace.context_graph} />
+        </div>
+      </details>
     </>
   );
 }
@@ -265,6 +274,8 @@ function OperationalRiskHero({
   const threshold = inventory?.threshold_days ?? null;
   const trustedInbound = inventory?.trusted_inbound_protection_mt ?? inventory?.trusted_inbound_quantity;
   const physicalInbound = inventory?.physical_inbound_quantity_mt ?? inventory?.inbound_committed_quantity;
+  const coverDays = risk?.days_of_cover ?? inventory?.days_of_cover;
+  const usableStock = displayQuantity(inventory?.usable_quantity, inventory?.unit);
   const confidence =
     risk?.operational_trust?.operational_trust_score ??
     inventory?.visibility_confidence ??
@@ -272,54 +283,71 @@ function OperationalRiskHero({
 
   return (
     <Card className={`overflow-hidden ${workspaceTone(risk?.severity)}`}>
-      <CardHeader className="pb-3 text-white">
-        <div className="flex flex-wrap items-center gap-2">
-          <SeverityBadge value={risk?.severity ?? "unknown"} />
-          <Badge className="bg-white/12 text-white ring-1 ring-white/15">
-            {formatLabel(risk?.risk_type ?? "continuity risk")}
-          </Badge>
-          {exposure ? (
-            <Badge className="bg-white/12 text-white ring-1 ring-white/15">
-              {formatLabel(exposure.exposure_level)}
-            </Badge>
-          ) : null}
-        </div>
-        <CardTitle className="mt-3 max-w-4xl text-3xl tracking-tight">
-          {operationalHeadline(risk, exposure)}
-        </CardTitle>
-        <p className="max-w-3xl text-sm leading-5 text-white/70">
-          {contextTitle(risk?.material_reference, risk?.plant_reference)}
-          {risk?.shipment_reference ? ` · Inbound ${risk.shipment_reference}` : ""}
-        </p>
-      </CardHeader>
-      <CardContent>
-        <div className="grid gap-2.5 md:grid-cols-2 2xl:grid-cols-4">
-          <SignalMetric
-            icon={<Boxes className="h-4 w-4" />}
-            label="Current usable cover"
-            value={displayDays(risk?.days_of_cover ?? inventory?.days_of_cover)}
-            helper={`${displayQuantity(inventory?.usable_quantity, inventory?.unit)} usable stock`}
-          />
-          <SignalMetric
-            icon={<AlertTriangle className="h-4 w-4" />}
-            label="Safe threshold"
-            value={displayDays(threshold)}
-            helper={safeCoverHelper(breachDays)}
-            tone="warning"
-          />
-          <SignalMetric
-            icon={<Truck className="h-4 w-4" />}
-            label="Trusted inbound protection"
-            value={displayQuantity(trustedInbound, inventory?.unit)}
-            helper={`${displayQuantity(physicalInbound, inventory?.unit)} physical inbound exists`}
-            tone={trustedInboundTone(inventory)}
-          />
-          <SignalMetric
-            icon={<ShieldCheck className="h-4 w-4" />}
-            label="Operational confidence"
-            value={displayPercent(confidence)}
-            helper={formatLabel(risk?.operational_trust?.risk_precision_band ?? "calibrated context")}
-          />
+      <CardContent className="p-4 text-white">
+        <div className="grid gap-4 lg:grid-cols-[minmax(210px,0.42fr)_minmax(0,0.58fr)]">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <SeverityBadge value={risk?.severity ?? "unknown"} />
+              {exposure ? (
+                <Badge className="bg-white/12 text-white ring-1 ring-white/15">
+                  {formatLabel(exposure.exposure_level)}
+                </Badge>
+              ) : null}
+            </div>
+            <p className="mt-3 text-xs font-semibold uppercase tracking-wide text-white/55">
+              Current usable cover
+            </p>
+            <p className="mt-1 text-5xl font-semibold leading-none tracking-tight sm:text-6xl">
+              {displayDays(coverDays)}
+            </p>
+            <p className="mt-2 text-sm leading-5 text-white/65">
+              {usableStock} usable stock
+            </p>
+          </div>
+
+          <div className="grid content-between gap-3">
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge className="bg-white/12 text-white ring-1 ring-white/15">
+                  {formatLabel(risk?.risk_type ?? "continuity risk")}
+                </Badge>
+                {risk?.shipment_reference ? (
+                  <Badge className="bg-white/12 text-white ring-1 ring-white/15">
+                    Inbound {risk.shipment_reference}
+                  </Badge>
+                ) : null}
+              </div>
+              <CardTitle className="mt-2 max-w-3xl text-2xl tracking-tight">
+                {operationalHeadline(risk, exposure)}
+              </CardTitle>
+              <p className="mt-1 max-w-3xl text-sm leading-5 text-white/65">
+                {contextTitle(risk?.material_reference, risk?.plant_reference)}
+              </p>
+            </div>
+
+            <div className="grid gap-2 sm:grid-cols-3">
+              <SignalMetric
+                icon={<AlertTriangle className="h-4 w-4" />}
+                label="Safe threshold"
+                value={displayDays(threshold)}
+                helper={safeCoverHelper(breachDays)}
+                tone="warning"
+              />
+              <SignalMetric
+                icon={<Truck className="h-4 w-4" />}
+                label="Trusted inbound"
+                value={displayQuantity(trustedInbound, inventory?.unit)}
+                helper={`${displayQuantity(physicalInbound, inventory?.unit)} physical`}
+                tone={trustedInboundTone(inventory)}
+              />
+              <SignalMetric
+                icon={<ShieldCheck className="h-4 w-4" />}
+                label="Confidence"
+                value={displayPercent(confidence)}
+                helper={formatLabel(risk?.operational_trust?.risk_precision_band ?? "calibrated context")}
+              />
+            </div>
+          </div>
         </div>
       </CardContent>
     </Card>
@@ -344,25 +372,25 @@ function IfNothingChanges({
 
   return (
     <Card>
-      <CardHeader className="pb-2">
+      <CardHeader className="px-4 py-3">
         <div className="flex items-center gap-2">
           <Clock3 className="h-5 w-5 text-pressure-red" />
           <CardTitle>If nothing changes</CardTitle>
         </div>
       </CardHeader>
-      <CardContent>
-        <div className="grid gap-2">
+      <CardContent className="px-4 pb-4">
+        <div className="grid gap-1.5">
           {items.length > 0 ? (
             items.map((item) => (
               <div
                 key={item}
-                className="rounded-xl bg-slate-50 px-3 py-2.5 text-sm font-medium leading-5 ring-1 ring-slate-900/5"
+                className="rounded-lg bg-slate-50 px-3 py-2 text-sm font-medium leading-5 ring-1 ring-slate-900/5"
               >
                 {item}
               </div>
             ))
           ) : (
-            <p className="rounded-xl bg-slate-50 px-3 py-3 text-sm text-mutedForeground ring-1 ring-slate-900/5">
+            <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-mutedForeground ring-1 ring-slate-900/5">
               Future consequence is not available for this risk yet.
             </p>
           )}
@@ -382,7 +410,7 @@ function RecommendedActions({ risk }: { risk: SignalRiskCandidate | null }) {
   const actions = (risk?.operational_recommendations ?? []).slice(0, 4);
   return (
     <Card>
-      <CardHeader className="pb-2">
+      <CardHeader className="px-4 py-3">
         <div className="flex items-center gap-2">
           <PackageCheck className="h-5 w-5 text-primary" />
           <CardTitle>Recommended next actions</CardTitle>
@@ -392,25 +420,25 @@ function RecommendedActions({ risk }: { risk: SignalRiskCandidate | null }) {
           replace suppliers automatically.
         </p>
       </CardHeader>
-      <CardContent>
-        <div className="grid gap-2">
+      <CardContent className="px-4 pb-4">
+        <div className="grid gap-1.5">
           {actions.length > 0 ? (
             actions.map((action) => (
               <div
                 key={`${action.action_type}-${action.urgency}`}
-                className="rounded-xl bg-slate-50 p-3 ring-1 ring-slate-900/5"
+                className="rounded-lg bg-slate-50 p-2.5 ring-1 ring-slate-900/5"
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <p className="font-semibold">{actionLabel(action.action_type)}</p>
                   <Badge variant="outline">{formatLabel(action.urgency)}</Badge>
                 </div>
-                <p className="mt-2 text-sm leading-5 text-mutedForeground">
+                <p className="mt-1.5 text-sm leading-5 text-mutedForeground">
                   {action.operational_reason}
                 </p>
               </div>
             ))
           ) : (
-            <p className="rounded-xl bg-slate-50 px-3 py-3 text-sm text-mutedForeground ring-1 ring-slate-900/5">
+            <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-mutedForeground ring-1 ring-slate-900/5">
               No operational action guidance returned for this selected risk.
             </p>
           )}
@@ -429,7 +457,7 @@ function WorkspaceFilters({
 }) {
   return (
     <Card className="bg-card/90 shadow-panel">
-      <CardHeader>
+      <CardHeader className="px-4 py-3">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <CardTitle>Continuity risk workspace</CardTitle>
@@ -458,8 +486,8 @@ function WorkspaceFilters({
           </div>
         </div>
       </CardHeader>
-      <CardContent>
-        <form className="grid gap-3 md:grid-cols-3 xl:grid-cols-[1.25fr_1fr_1fr_1fr_1fr_160px_auto]">
+      <CardContent className="px-4 pb-4">
+        <form className="grid gap-2 md:grid-cols-3 xl:grid-cols-[1.25fr_1fr_1fr_1fr_1fr_150px_auto]">
           {walkthroughActive ? (
             <input type="hidden" name="walkthrough" value="1" />
           ) : null}
@@ -490,40 +518,39 @@ function WorkspaceFilters({
             name="plant_reference"
             defaultValue={searchParams?.plant_reference ?? ""}
             placeholder="Plant reference"
-            className="rounded-xl border bg-card px-3 py-2 text-sm"
+            className="rounded-lg border bg-card px-3 py-2 text-sm"
           />
           <input
             name="material_reference"
             defaultValue={searchParams?.material_reference ?? ""}
             placeholder="Material reference"
-            className="rounded-xl border bg-card px-3 py-2 text-sm"
+            className="rounded-lg border bg-card px-3 py-2 text-sm"
           />
           <input
             name="shipment_reference"
             defaultValue={searchParams?.shipment_reference ?? ""}
             placeholder="Inbound reference"
-            className="rounded-xl border bg-card px-3 py-2 text-sm"
+            className="rounded-lg border bg-card px-3 py-2 text-sm"
           />
           <input
             name="risk_type"
             defaultValue={searchParams?.risk_type ?? ""}
             placeholder="Continuity risk"
-            className="rounded-xl border bg-card px-3 py-2 text-sm"
+            className="rounded-lg border bg-card px-3 py-2 text-sm"
           />
           <select
             name="severity"
             defaultValue={searchParams?.severity ?? ""}
-            className="rounded-xl border bg-card px-3 py-2 text-sm"
+            className="rounded-lg border bg-card px-3 py-2 text-sm"
           >
             <option value="">Any severity</option>
             <option value="critical">Critical</option>
-            <option value="high">High</option>
             <option value="medium">Medium</option>
             <option value="low">Low</option>
           </select>
           <button
             type="submit"
-            className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primaryForeground"
+            className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primaryForeground"
           >
             Apply
           </button>
@@ -543,7 +570,7 @@ function DemoScenarioNotice({
   const scenarioNote = scenarioWalkthroughNote(workspace.scenario_key);
 
   return (
-    <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+    <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-950">
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-semibold">
           {workspace.scenario_label ?? "Pilot demo scenario"}
@@ -557,7 +584,7 @@ function DemoScenarioNotice({
           "Pilot demo scenario - seeded demo data, not live customer operations."}
       </p>
       {walkthroughActive && scenarioNote ? (
-        <p className="mt-2 rounded-lg bg-white/60 px-3 py-2 leading-5 ring-1 ring-amber-200/70">
+        <p className="mt-2 rounded-md bg-white/60 px-2.5 py-1.5 text-xs leading-5 ring-1 ring-amber-200/70">
           You are viewing a controlled pilot scenario designed to demonstrate:
           {" "}
           {scenarioNote}
@@ -569,7 +596,7 @@ function DemoScenarioNotice({
 
 function WalkthroughNote({ children }: { children: ReactNode }) {
   return (
-    <div className="rounded-xl border border-sky-100 bg-sky-50 px-3 py-2 text-sm leading-5 text-slate-700">
+    <div className="rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs leading-5 text-slate-600">
       {children}
     </div>
   );
@@ -583,7 +610,7 @@ function WhyThisMatters({ workspace }: { workspace: RiskWorkspaceResponse }) {
 
   return (
     <Card>
-      <CardHeader>
+      <CardHeader className="px-4 py-3">
         <div className="flex items-center gap-2">
           <Activity className="h-5 w-5 text-pressure-red" />
           <CardTitle>Why this is escalating</CardTitle>
@@ -593,8 +620,8 @@ function WhyThisMatters({ workspace }: { workspace: RiskWorkspaceResponse }) {
           fragile.
         </p>
       </CardHeader>
-      <CardContent>
-        <div className="mb-3 grid gap-2 sm:grid-cols-2">
+      <CardContent className="px-4 pb-4">
+        <div className="mb-2 grid gap-1.5 sm:grid-cols-2">
           <ContextPill
             label="Primary driver"
             value={driverLabel(explainability?.primary_driver)}
@@ -604,11 +631,11 @@ function WhyThisMatters({ workspace }: { workspace: RiskWorkspaceResponse }) {
             value={formatLabel(workspace.selected_risk?.risk_type)}
           />
         </div>
-        <div className="mb-4 grid gap-2 sm:grid-cols-2">
+        <div className="mb-3 grid gap-1.5 sm:grid-cols-2">
           {concreteSignals.slice(0, 6).map((signal) => (
             <div
               key={signal}
-              className="rounded-xl bg-white px-3 py-2.5 text-sm font-medium leading-5 ring-1 ring-slate-900/5"
+              className="rounded-lg bg-white px-3 py-2 text-sm font-medium leading-5 ring-1 ring-slate-900/5"
             >
               {signal}
             </div>
@@ -619,20 +646,20 @@ function WhyThisMatters({ workspace }: { workspace: RiskWorkspaceResponse }) {
           {reasonChain.slice(0, 6).map((reason, index) => (
             <div
               key={`${reason}-${index}`}
-              className="relative flex gap-3 pb-4"
+              className="relative flex gap-2.5 pb-3"
             >
               <span
                 className={`z-10 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${causalDotClass(index, reasonChain.length)}`}
               >
                 {index + 1}
               </span>
-              <div className="min-w-0 rounded-xl bg-slate-50 px-3 py-2.5 ring-1 ring-slate-900/5">
+              <div className="min-w-0 rounded-lg bg-slate-50 px-3 py-2 ring-1 ring-slate-900/5">
                 <p className="text-sm font-medium leading-5">{reason}</p>
               </div>
             </div>
           ))}
           {reasonChain.length === 0 ? (
-            <p className="rounded-xl bg-slate-50 px-3 py-3 text-sm text-mutedForeground ring-1 ring-slate-900/5">
+            <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-mutedForeground ring-1 ring-slate-900/5">
               No causal signal chain was returned for this selected exposure.
             </p>
           ) : null}
@@ -659,7 +686,7 @@ function InboundProtectionQuality({
 
   return (
     <Card>
-      <CardHeader>
+      <CardHeader className="px-4 py-3">
         <div className="flex items-center gap-2">
           <Truck className="h-5 w-5 text-pressure-amber" />
           <CardTitle>Inbound protection quality</CardTitle>
@@ -669,8 +696,8 @@ function InboundProtectionQuality({
           protection.
         </p>
       </CardHeader>
-      <CardContent>
-        <div className="mb-3 grid gap-2 sm:grid-cols-3">
+      <CardContent className="px-4 pb-4">
+        <div className="mb-2 grid gap-1.5 sm:grid-cols-3">
           <ContextPill
             label="Physical inbound exists"
             value={displayQuantity(aggregatePhysical, inventory?.unit)}
@@ -684,7 +711,7 @@ function InboundProtectionQuality({
             value={displayQuantity(aggregateUncertain, inventory?.unit)}
           />
         </div>
-        <div className="space-y-2">
+        <div className="space-y-1.5">
           {workspace.shipment_continuity.slice(0, 4).map((shipment) => (
             <InboundProtectionRow
               key={shipment.shipment_reference}
@@ -695,7 +722,7 @@ function InboundProtectionQuality({
             />
           ))}
           {workspace.shipment_continuity.length === 0 ? (
-            <p className="rounded-xl bg-slate-50 px-3 py-3 text-sm text-mutedForeground ring-1 ring-slate-900/5">
+            <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-mutedForeground ring-1 ring-slate-900/5">
               No linked inbound movement returned for this selected risk.
             </p>
           ) : null}
@@ -726,7 +753,7 @@ function InboundProtectionRow({
       : null);
 
   return (
-    <div className={`rounded-xl p-3 ring-1 ${quality.className}`}>
+    <div className={`rounded-lg p-2.5 ring-1 ${quality.className}`}>
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <p className="font-semibold">{shipment.shipment_reference}</p>
@@ -736,12 +763,12 @@ function InboundProtectionRow({
         </div>
         <Badge variant="outline">{quality.label}</Badge>
       </div>
-      <div className="mt-3 grid gap-2 text-sm sm:grid-cols-3">
+      <div className="mt-2 grid gap-1.5 text-sm sm:grid-cols-3">
         <span>Trust {formatLabel(shipment.trust_level ?? "unknown")}</span>
         <span>ETA {formatLabel(shipment.eta_status ?? "unknown")}</span>
         <span>Freshness {formatLabel(shipment.freshness_status ?? shipment.tracking_freshness_status)}</span>
       </div>
-      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+      <div className="mt-2 grid gap-1.5 sm:grid-cols-2">
         <ContextPill
           label="Physical inbound"
           value={displayQuantity(physicalValue, inventory?.unit)}
@@ -756,7 +783,7 @@ function InboundProtectionRow({
         />
       </div>
       {shipment.protection_explanation ?? quality.reason ? (
-        <p className="mt-3 text-sm leading-5 text-mutedForeground">
+        <p className="mt-2 text-sm leading-5 text-mutedForeground">
           {shipment.protection_explanation ?? quality.reason}
         </p>
       ) : null}
@@ -779,7 +806,7 @@ function OperationalTrustSummary({
 
   return (
     <Card>
-      <CardHeader className="pb-2">
+      <CardHeader className="px-4 py-3">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <ShieldCheck className="h-5 w-5 text-primary" />
@@ -795,10 +822,10 @@ function OperationalTrustSummary({
           calibrated context.
         </p>
       </CardHeader>
-      <CardContent>
+      <CardContent className="px-4 pb-4">
         {hasTrustContext ? (
-          <div className="grid gap-2.5">
-            <div className="grid gap-2 sm:grid-cols-2">
+          <div className="grid gap-2">
+            <div className="grid gap-1.5 sm:grid-cols-2">
               <ContextPill
                 label="Operational Trust"
                 value={
@@ -866,7 +893,7 @@ function CompactSignalList({
 }) {
   const visible = items.filter(Boolean).slice(0, 3);
   return (
-    <div className="rounded-xl bg-slate-50 p-3 ring-1 ring-slate-900/5">
+    <div className="rounded-lg bg-slate-50 p-2.5 ring-1 ring-slate-900/5">
       <p className="text-xs font-semibold text-mutedForeground">{title}</p>
       {visible.length > 0 ? (
         <ul className="mt-2 space-y-1.5 text-sm leading-5">
@@ -890,22 +917,22 @@ function ContinuitySummary({
 }) {
   return (
     <Card>
-      <CardHeader>
+      <CardHeader className="px-4 py-3">
         <div className="flex items-center gap-2">
           <PackageCheck className="h-5 w-5 text-pressure-amber" />
           <CardTitle>Operational dependency context</CardTitle>
         </div>
       </CardHeader>
-      <CardContent>
-        <div className="grid gap-2.5">
-          <div className="rounded-xl bg-slate-50 p-3 ring-1 ring-slate-900/5">
+      <CardContent className="px-4 pb-4">
+        <div className="grid gap-2">
+          <div className="rounded-lg bg-slate-50 p-2.5 ring-1 ring-slate-900/5">
             <div className="flex items-center justify-between gap-3">
               <h3 className="font-semibold">Available cover</h3>
               <span className="text-xs font-semibold text-mutedForeground">
                 {inventory.length} material contexts
               </span>
             </div>
-            <div className="mt-3 grid gap-2 sm:grid-cols-3">
+            <div className="mt-2 grid gap-1.5 sm:grid-cols-3">
               {inventory.slice(0, 2).map((item) => (
                 <InventoryBlock
                   key={`${item.plant_reference}-${item.material_reference}`}
@@ -919,9 +946,9 @@ function ContinuitySummary({
               ) : null}
             </div>
           </div>
-          <div className="rounded-xl bg-slate-50 p-3 ring-1 ring-slate-900/5">
+          <div className="rounded-lg bg-slate-50 p-2.5 ring-1 ring-slate-900/5">
             <h3 className="font-semibold">Inbound continuity condition</h3>
-            <div className="mt-3 space-y-2">
+            <div className="mt-2 space-y-1.5">
               {shipments.slice(0, 3).map((shipment) => (
                 <ShipmentBlock
                   key={shipment.shipment_reference}
@@ -948,7 +975,7 @@ function TimelinePanel({
 }) {
   return (
     <Card>
-      <CardHeader>
+      <CardHeader className="px-4 py-3">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <Clock3 className="h-5 w-5 text-primary" />
@@ -957,13 +984,13 @@ function TimelinePanel({
           <Badge variant="outline">{timeline.total} signals</Badge>
         </div>
       </CardHeader>
-      <CardContent>
-        <div className="space-y-2">
+      <CardContent className="px-4 pb-4">
+        <div className="space-y-1.5">
           {timeline.items.map((entry) => (
             <TimelineEntry key={entry.event_id} entry={entry} />
           ))}
           {timeline.items.length === 0 ? (
-            <p className="rounded-xl bg-slate-50 px-3 py-3 text-sm text-mutedForeground ring-1 ring-slate-900/5">
+            <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-mutedForeground ring-1 ring-slate-900/5">
               No historical continuity signal chain detected.
             </p>
           ) : null}
@@ -1011,18 +1038,18 @@ function RelationshipPanel({
 
   return (
     <Card>
-      <CardHeader>
+      <CardHeader className="px-4 py-3">
         <div className="flex items-center gap-2">
           <GitBranch className="h-5 w-5 text-primary" />
           <CardTitle>Connected operational context</CardTitle>
         </div>
       </CardHeader>
-      <CardContent>
-        <div className="grid gap-2.5">
+      <CardContent className="px-4 pb-4">
+        <div className="grid gap-2">
           {priorityNodes.map((group) => (
             <div
               key={group.type}
-              className="rounded-xl bg-slate-50 p-3 ring-1 ring-slate-900/5"
+              className="rounded-lg bg-slate-50 p-2.5 ring-1 ring-slate-900/5"
             >
               <p className="text-xs font-semibold text-mutedForeground">
                 {formatLabel(group.type)}
@@ -1040,7 +1067,7 @@ function RelationshipPanel({
             </div>
           ))}
           {priorityNodes.length === 0 ? (
-            <p className="rounded-xl bg-slate-50 px-3 py-3 text-sm text-mutedForeground ring-1 ring-slate-900/5">
+            <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-mutedForeground ring-1 ring-slate-900/5">
               No connected operational dependency records returned.
             </p>
           ) : null}
@@ -1104,7 +1131,7 @@ function InventoryBlock({ item }: { item: SignalInventoryContinuity }) {
         value={`${formatNumber(item.daily_consumption_rate)} ${item.unit}`}
       />
       {item.trust_warnings.length > 0 ? (
-        <div className="rounded-xl bg-amber-50 p-3 text-sm text-amber-900 ring-1 ring-amber-200 sm:col-span-3">
+    <div className="rounded-lg bg-amber-50 p-2.5 text-sm text-amber-900 ring-1 ring-amber-200 sm:col-span-3">
           <p className="font-semibold">Visibility weak</p>
           <ul className="mt-1 space-y-1">
             {item.trust_warnings.slice(0, 2).map((warning) => (
@@ -1120,20 +1147,20 @@ function InventoryBlock({ item }: { item: SignalInventoryContinuity }) {
 function ShipmentBlock({ shipment }: { shipment: SignalShipmentContinuity }) {
   return (
     <div
-      className={`rounded-xl p-3 ring-1 ${shipment.status === "degraded" ? "bg-red-50 ring-red-200" : shipment.status === "watch" ? "bg-amber-50 ring-amber-200" : "bg-white ring-slate-900/5"}`}
+      className={`rounded-lg p-2.5 ring-1 ${shipment.status === "degraded" ? "bg-red-50 ring-red-200" : shipment.status === "watch" ? "bg-amber-50 ring-amber-200" : "bg-white ring-slate-900/5"}`}
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="font-semibold">{shipment.shipment_reference}</p>
         <Badge variant="outline">{formatLabel(shipment.status)}</Badge>
       </div>
-      <div className="mt-3 grid gap-2 text-sm sm:grid-cols-3">
+      <div className="mt-2 grid gap-1.5 text-sm sm:grid-cols-3">
         <span>ETA {formatDate(shipment.eta)}</span>
         <span>Slip {displayDays(shipment.eta_slip_days)}</span>
         <span>
           Visibility freshness {formatLabel(shipment.tracking_freshness_status)}
         </span>
       </div>
-      <ul className="mt-3 space-y-1 text-sm text-mutedForeground">
+      <ul className="mt-2 space-y-1 text-sm text-mutedForeground">
         {shipment.continuity_reasons.slice(0, 3).map((reason) => (
           <li key={reason}>{reason}</li>
         ))}
@@ -1144,11 +1171,11 @@ function ShipmentBlock({ shipment }: { shipment: SignalShipmentContinuity }) {
 
 function TimelineEntry({ entry }: { entry: SignalTimelineEntry }) {
   return (
-    <div className="rounded-xl bg-slate-50 p-3 ring-1 ring-slate-900/5">
+    <div className="rounded-lg bg-slate-50 p-2.5 ring-1 ring-slate-900/5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="font-semibold">{entry.title}</p>
-          <p className="mt-1 text-sm leading-6 text-mutedForeground">
+          <p className="mt-1 text-sm leading-5 text-mutedForeground">
             {entry.description}
           </p>
         </div>
@@ -1156,17 +1183,17 @@ function TimelineEntry({ entry }: { entry: SignalTimelineEntry }) {
           {formatDate(entry.timestamp)}
         </span>
       </div>
-      <div className="mt-3 flex flex-wrap gap-2 text-xs">
-        <span className="rounded-full bg-white px-3 py-1 ring-1 ring-slate-900/5">
+      <div className="mt-2 flex flex-wrap gap-1.5 text-xs">
+        <span className="rounded-full bg-white px-2.5 py-1 ring-1 ring-slate-900/5">
           {formatLabel(entry.event_category)}
         </span>
-        <span className="rounded-full bg-white px-3 py-1 ring-1 ring-slate-900/5">
+        <span className="rounded-full bg-white px-2.5 py-1 ring-1 ring-slate-900/5">
           Signal reliability {displayPercent(entry.confidence_score)}
         </span>
-        <span className="rounded-full bg-white px-3 py-1 ring-1 ring-slate-900/5">
+        <span className="rounded-full bg-white px-2.5 py-1 ring-1 ring-slate-900/5">
           Freshness {formatLabel(entry.freshness_status)}
         </span>
-        <span className="rounded-full bg-white px-3 py-1 ring-1 ring-slate-900/5">
+        <span className="rounded-full bg-white px-2.5 py-1 ring-1 ring-slate-900/5">
           {formatLabel(entry.source_type)}
         </span>
       </div>
@@ -1181,7 +1208,7 @@ function SignalMetric({
   helper,
   tone = "default",
 }: {
-  icon: React.ReactNode;
+  icon: ReactNode;
   label: string;
   value: string;
   helper: string;
@@ -1198,12 +1225,12 @@ function SignalMetric({
   const helperClass =
     tone === "default" ? "text-slate-500" : "text-mutedForeground";
   return (
-    <div className={`rounded-xl p-2.5 ring-1 ${toneClass}`}>
+    <div className={`rounded-lg p-2.5 ring-1 ${toneClass}`}>
       <div className={`flex items-center gap-2 ${labelClass}`}>
         {icon}
         <p className="text-xs font-semibold">{label}</p>
       </div>
-      <p className="mt-1.5 break-words text-lg font-semibold">{value}</p>
+      <p className="mt-1 break-words text-base font-semibold">{value}</p>
       <p className={`mt-1 text-xs ${helperClass}`}>{helper}</p>
     </div>
   );
@@ -1211,9 +1238,9 @@ function SignalMetric({
 
 function ContextPill({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-xl bg-white px-3 py-2 ring-1 ring-slate-900/5">
+    <div className="rounded-lg bg-white px-3 py-1.5 ring-1 ring-slate-900/5">
       <p className="text-xs font-semibold text-mutedForeground">{label}</p>
-      <p className="mt-1 break-words text-sm font-semibold">{value}</p>
+      <p className="mt-0.5 break-words text-sm font-semibold">{value}</p>
     </div>
   );
 }
@@ -1566,6 +1593,13 @@ function workspaceTone(severity?: string | null) {
   if (severity === "critical") return "bg-slate-950 shadow-nerve";
   if (severity === "high") return "bg-slate-950 shadow-panel";
   return "bg-slate-900 shadow-panel";
+}
+
+function severityBorder(severity?: string | null) {
+  if (severity === "critical") return "border-red-500";
+  if (severity === "high") return "border-amber-500";
+  if (severity === "medium") return "border-blue-500";
+  return "border-slate-300";
 }
 
 function causalDotClass(index: number, length: number) {
