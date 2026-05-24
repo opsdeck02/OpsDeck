@@ -202,7 +202,7 @@ function WorkspaceContent({
   return (
     <>
       <section className="grid min-w-0 items-start gap-2.5 xl:grid-cols-[minmax(0,1.25fr)_minmax(0,0.75fr)]">
-        <div className="grid min-w-0 gap-2.5">
+        <div className="grid h-fit min-w-0 content-start gap-2.5">
           {walkthroughActive ? (
             <WalkthroughNote>
               This shows the plant-material combination most likely to create
@@ -210,9 +210,16 @@ function WorkspaceContent({
             </WalkthroughNote>
           ) : null}
           <OperationalRiskHero workspace={workspace} inventory={inventory} />
+          {walkthroughActive ? (
+            <WalkthroughNote>
+              This explains the operational signals causing the risk, not just a
+              generic score.
+            </WalkthroughNote>
+          ) : null}
+          <WhyThisMatters workspace={workspace} />
         </div>
 
-        <div className="grid min-w-0 content-start gap-2.5">
+        <div className="grid h-fit min-w-0 content-start gap-2.5">
           {walkthroughActive ? (
             <WalkthroughNote>
               This translates current signals into likely operational consequence.
@@ -225,20 +232,6 @@ function WorkspaceContent({
             </WalkthroughNote>
           ) : null}
           <RecommendedActions risk={risk} />
-        </div>
-      </section>
-
-      <section className="grid min-w-0 gap-2.5 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-        <div className="grid min-w-0 gap-2.5">
-          {walkthroughActive ? (
-            <WalkthroughNote>
-              This explains the operational signals causing the risk, not just a
-              generic score.
-            </WalkthroughNote>
-          ) : null}
-          <WhyThisMatters workspace={workspace} />
-        </div>
-        <div className="grid min-w-0 gap-2.5">
           {walkthroughActive ? (
             <WalkthroughNote>
               This separates physical inbound from trusted inbound. An inbound
@@ -294,9 +287,7 @@ function OperationalRiskHero({
     workspace.trust_summary?.lowest_confidence_score;
 
   return (
-    <Card
-      className={`min-w-0 max-w-full self-start overflow-hidden ${workspaceTone(risk?.severity)}`}
-    >
+    <Card className={`h-fit min-w-0 max-w-full self-start overflow-hidden ${workspaceTone(risk?.severity)}`}>
       <CardContent className="p-4 text-white">
         <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,0.42fr)_minmax(0,0.58fr)]">
           <div className="min-w-0">
