@@ -23,17 +23,13 @@ def upgrade() -> None:
         "select id from plants where tenant_id in ({tenant_filter}) "
         "and code in ('JAM', 'KAL')"
     ).format(tenant_filter=tenant_filter)
-    legacy_materials = (
-        "select id from materials where tenant_id in ({tenant_filter}) "
-        "and code in ('COKING_COAL', 'IRON_ORE_FINES', 'PELLETS', 'LIMESTONE', 'DOLOMITE')"
-    ).format(tenant_filter=tenant_filter)
     legacy_shipments = (
         "select id from shipments where tenant_id in ({tenant_filter}) "
-        "and shipment_id in ("
+        "and (shipment_id in ("
         "'INB-PDP-COAL-117', 'RAKE-BRB-ORE-042', 'RAKE-DHM-LIME-014', "
         "'INB-HLD-DOLO-026', 'INB-VZG-PELLET-022'"
-        ")"
-    ).format(tenant_filter=tenant_filter)
+        ") or plant_id in ({legacy_plants}))"
+    ).format(tenant_filter=tenant_filter, legacy_plants=legacy_plants)
 
     statements = [
         "delete from exception_comments where tenant_id in ({tenant_filter})".format(
@@ -78,14 +74,6 @@ def upgrade() -> None:
         "delete from external_data_sources where tenant_id in ({tenant_filter}) "
         "and source_name in ('Demo ERP inbound feed', 'Continuity inbound source feed')".format(
             tenant_filter=tenant_filter
-        ),
-        "delete from suppliers where tenant_id in ({tenant_filter}) "
-        "and code in ('QCL', 'OMC', 'EFM', 'VPOS')".format(tenant_filter=tenant_filter),
-        "delete from materials where id in ({legacy_materials})".format(
-            legacy_materials=legacy_materials
-        ),
-        "delete from plants where id in ({legacy_plants})".format(
-            legacy_plants=legacy_plants
         ),
     ]
     for statement in statements:

@@ -10,7 +10,6 @@ from app.models import (
     ExternalDataSource,
     InlandMovement,
     LineStopIncident,
-    Material,
     OperationalEvent,
     Plant,
     PlantMaterialThreshold,
@@ -20,7 +19,6 @@ from app.models import (
     Shipment,
     ShipmentUpdate,
     StockSnapshot,
-    Supplier,
     Tenant,
     TenantMembership,
     User,
@@ -127,13 +125,10 @@ def cleanup_legacy_demo_operational_data(db: Session, tenant_id: int) -> None:
         Plant.tenant_id == tenant_id,
         Plant.code.in_(LEGACY_PLANT_CODES),
     )
-    legacy_materials = select(Material.id).where(
-        Material.tenant_id == tenant_id,
-        Material.code.in_(LEGACY_MATERIAL_CODES),
-    )
     legacy_shipments = select(Shipment.id).where(
         Shipment.tenant_id == tenant_id,
-        Shipment.shipment_id.in_(LEGACY_SHIPMENT_REFS),
+        (Shipment.shipment_id.in_(LEGACY_SHIPMENT_REFS))
+        | (Shipment.plant_id.in_(legacy_plants)),
     )
 
     db.execute(
@@ -175,14 +170,6 @@ def cleanup_legacy_demo_operational_data(db: Session, tenant_id: int) -> None:
             ExternalDataSource.source_name.in_(LEGACY_SOURCE_NAMES),
         )
     )
-    db.execute(
-        delete(Supplier).where(
-            Supplier.tenant_id == tenant_id,
-            Supplier.code.in_(LEGACY_SUPPLIER_CODES),
-        )
-    )
-    db.execute(delete(Material).where(Material.id.in_(legacy_materials)))
-    db.execute(delete(Plant).where(Plant.id.in_(legacy_plants)))
 
 
 def seed() -> None:
