@@ -15,7 +15,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   getCurrentUser,
   getExecutiveDashboard,
+  getSignalRisks,
   getStockCoverSummary,
+  type SignalRiskCandidate,
 } from "@/lib/api";
 import { selectedPlantContext } from "@/lib/plant-context";
 
@@ -56,6 +58,11 @@ export default async function DashboardPage({
       : (executive?.top_risks ?? []).filter(
           (row) => row.plant_id === selectedPlantId,
         );
+  const signalRisks = await getSignalRisks({
+    plant_reference: selectedPlant?.reference,
+  });
+  const orderedSignalRisks = [...signalRisks].sort(signalRiskSortKey);
+  const leadSignalRisk = orderedSignalRisks[0] ?? null;
   const kpis = selectedPlant
     ? {
         critical_risks: filteredStockRows.filter(
@@ -67,9 +74,30 @@ export default async function DashboardPage({
       }
     : executive?.kpis;
   const topRisks = filteredExecutiveRisks;
-  const criticalRisks = kpis?.critical_risks ?? 0;
-  const shortestDaysToLineStop = shortestDays(topRisks);
+  const criticalRisks =
+    orderedSignalRisks.length > 0
+      ? orderedSignalRisks.filter((risk) => risk.severity === "critical").length
+      : (kpis?.critical_risks ?? 0);
+  const warningRisks =
+    orderedSignalRisks.length > 0
+      ? orderedSignalRisks.filter((risk) =>
+          ["high", "medium", "warning"].includes(risk.severity),
+        ).length
+      : (kpis?.warning_risks ?? 0);
+  const shortestDaysToLineStop =
+    leadSignalRisk?.days_of_cover ?? shortestDays(topRisks);
   const leadRisk = topRisks[0] ?? null;
+  const leadMaterial =
+    leadSignalRisk?.material_reference ??
+    leadRisk?.material_name ??
+    "No critical exposure";
+  const leadPlant =
+    leadSignalRisk?.plant_reference ?? leadRisk?.plant_name ?? plantContextLabel;
+  const leadDriver = leadSignalRisk
+    ? formatRiskType(leadSignalRisk.risk_type)
+    : leadRisk
+      ? rootCauseFor(leadRisk)
+      : "Stable cover";
   const dataFreshnessLabel =
     executive?.automated_data_freshness?.data_freshness_status ??
     executive?.stock_freshness.freshness_label ??
@@ -101,22 +129,28 @@ export default async function DashboardPage({
                 <DailyBriefButton compact />
               </div>
               <h1 className="mt-3 max-w-3xl text-3xl font-semibold leading-tight tracking-tight lg:text-[2.4rem]">
-                {leadRisk
-                  ? `${leadRisk.material_name} exposure at ${leadRisk.plant_name}`
+                {leadSignalRisk || leadRisk
+                  ? `${leadMaterial} exposure at ${leadPlant}`
                   : "No critical exposure detected"}
               </h1>
               <p className="text-white/68 mt-2 max-w-2xl text-sm leading-5">
-                {leadRisk
-                  ? `${rootCauseFor(leadRisk)}. Available cover is ${displayDays(leadRisk.days_of_cover)} with next inbound ${formatDate(leadRisk.next_inbound_eta)}.`
+                {leadSignalRisk
+                  ? `${leadDriver}. Available cover is ${displayDays(leadSignalRisk.days_of_cover)}.`
+                  : leadRisk
+                    ? `${leadDriver}. Available cover is ${displayDays(leadRisk.days_of_cover)} with next inbound ${formatDate(leadRisk.next_inbound_eta)}.`
                   : selectedPlant
                     ? `Operational continuity remains stable for ${plantContextLabel}.`
                     : "Operational continuity remains stable across monitored inbound dependencies."}
               </p>
               <Link
-                href={dashboardHref(
-                  "/dashboard/risk-workspace",
-                  searchParams?.plant_reference,
-                )}
+                href={
+                  leadSignalRisk
+                    ? signalRiskWorkspaceHref(leadSignalRisk)
+                    : dashboardHref(
+                        "/dashboard/risk-workspace",
+                        searchParams?.plant_reference,
+                      )
+                }
                 className="mt-4 inline-flex items-center gap-2 rounded-xl bg-white px-3.5 py-2 text-sm font-semibold text-slate-950"
               >
                 Open risk workspace
@@ -133,15 +167,17 @@ export default async function DashboardPage({
               />
               <PressureMetric
                 label="Exposed operation"
-                value={leadRisk?.material_name ?? "None"}
-                helper={leadRisk?.plant_name ?? "Loaded context"}
+                value={leadSignalRisk || leadRisk ? leadMaterial : "None"}
+                helper={leadPlant}
                 tone={criticalRisks > 0 ? "critical" : "info"}
               />
               <PressureMetric
                 label="Why"
-                value={leadRisk ? rootCauseFor(leadRisk) : "Stable cover"}
+                value={leadDriver}
                 helper="continuity driver"
                 tone={
+                  leadSignalRisk?.severity === "high" ||
+                  leadSignalRisk?.severity === "medium" ||
                   leadRisk?.status === "warning"
                     ? "warning"
                     : criticalRisks > 0
@@ -208,12 +244,12 @@ export default async function DashboardPage({
           {[
             {
               label: "Critical exposure",
-              value: String(kpis?.critical_risks ?? 0),
+              value: String(criticalRisks),
               trend: "immediate continuity threat",
             },
             {
               label: "Degrading cover",
-              value: String(kpis?.warning_risks ?? 0),
+              value: String(warningRisks),
               trend: "continuity pressure building",
             },
             {
@@ -281,76 +317,85 @@ export default async function DashboardPage({
             </CardHeader>
             <CardContent>
               <div className="space-y-2">
-                {topRisks.map((row) => (
-                  <div
-                    key={`${row.plant_id}-${row.material_id}`}
-                    className={`min-w-0 rounded-2xl p-3 ring-1 ${signalRowClass(row.status)}`}
-                  >
-                    <div className="flex min-w-0 flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
-                      <div className="min-w-0">
-                        <Link
-                          href={`/dashboard/stock-cover/${row.plant_id}/${row.material_id}`}
-                          className="break-words text-base font-semibold text-foreground hover:text-primary"
-                        >
-                          {row.material_name}
-                        </Link>
-                        <p className="mt-1 break-words text-sm text-mutedForeground">
-                          {row.plant_name}
-                        </p>
+                {orderedSignalRisks.length > 0
+                  ? orderedSignalRisks.slice(0, 8).map((risk) => (
+                      <SignalRiskRow key={signalRiskKey(risk)} risk={risk} />
+                    ))
+                  : topRisks.map((row) => (
+                      <div
+                        key={`${row.plant_id}-${row.material_id}`}
+                        className={`min-w-0 rounded-2xl p-3 ring-1 ${signalRowClass(row.status)}`}
+                      >
+                        <div className="flex min-w-0 flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+                          <div className="min-w-0">
+                            <Link
+                              href={`/dashboard/stock-cover/${row.plant_id}/${row.material_id}`}
+                              className="break-words text-base font-semibold text-foreground hover:text-primary"
+                            >
+                              {row.material_name}
+                            </Link>
+                            <p className="mt-1 break-words text-sm text-mutedForeground">
+                              {row.plant_name}
+                            </p>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <StatusBadge status={row.status} />
+                            <span className="rounded-full bg-white/70 px-2.5 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-900/10">
+                              {rootCauseFor(row)}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="mt-3 grid min-w-0 gap-2 sm:grid-cols-2 xl:grid-cols-[1.15fr_0.9fr_0.9fr_1.2fr]">
+                          <RiskMetric
+                            label="Projected failure"
+                            value={displayDays(row.days_of_cover)}
+                            helper={`threshold ${displayDays(row.threshold_days)}`}
+                            prominent
+                            tone="critical"
+                          />
+                          <RiskMetric
+                            label="Usable now"
+                            value={displayTonnes(row.usable_stock_mt)}
+                            helper="available cover"
+                          />
+                          <RiskMetric
+                            label="Blocked"
+                            value={displayTonnes(row.blocked_stock_mt)}
+                            tone="warning"
+                          />
+                          <RiskMetric
+                            label="Incoming"
+                            value={displayTonnes(row.raw_inbound_pipeline_mt)}
+                            helper={`next ${formatDate(row.next_inbound_eta)}`}
+                          />
+                        </div>
+                        <div className="mt-3 grid min-w-0 gap-3 border-t border-slate-900/10 pt-3 md:grid-cols-[minmax(0,1fr)_minmax(0,0.85fr)]">
+                          <DecisionField
+                            label="Signal"
+                            value={rootCauseFor(row)}
+                          />
+                          <div className="min-w-0">
+                            <p className="text-xs font-semibold text-mutedForeground">
+                              Exposure value
+                            </p>
+                            <p className="mt-1 font-semibold text-foreground">
+                              {displayCurrency(row.estimated_value_at_risk)}
+                            </p>
+                            <p className="mt-1 break-words text-xs text-mutedForeground">
+                              {displayTonnes(
+                                row.estimated_production_exposure_mt,
+                              )}{" "}
+                              exposed ·{" "}
+                              {formatAssumptionLine(
+                                row.value_per_mt_used,
+                                row.criticality_multiplier_used,
+                              )}
+                            </p>
+                          </div>
+                        </div>
                       </div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <StatusBadge status={row.status} />
-                        <span className="rounded-full bg-white/70 px-2.5 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-900/10">
-                          {rootCauseFor(row)}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="mt-3 grid min-w-0 gap-2 sm:grid-cols-2 xl:grid-cols-[1.15fr_0.9fr_0.9fr_1.2fr]">
-                      <RiskMetric
-                        label="Projected failure"
-                        value={displayDays(row.days_of_cover)}
-                        helper={`threshold ${displayDays(row.threshold_days)}`}
-                        prominent
-                        tone="critical"
-                      />
-                      <RiskMetric
-                        label="Usable now"
-                        value={displayTonnes(row.usable_stock_mt)}
-                        helper="available cover"
-                      />
-                      <RiskMetric
-                        label="Blocked"
-                        value={displayTonnes(row.blocked_stock_mt)}
-                        tone="warning"
-                      />
-                      <RiskMetric
-                        label="Incoming"
-                        value={displayTonnes(row.raw_inbound_pipeline_mt)}
-                        helper={`next ${formatDate(row.next_inbound_eta)}`}
-                      />
-                    </div>
-                    <div className="mt-3 grid min-w-0 gap-3 border-t border-slate-900/10 pt-3 md:grid-cols-[minmax(0,1fr)_minmax(0,0.85fr)]">
-                      <DecisionField label="Signal" value={rootCauseFor(row)} />
-                      <div className="min-w-0">
-                        <p className="text-xs font-semibold text-mutedForeground">
-                          Exposure value
-                        </p>
-                        <p className="mt-1 font-semibold text-foreground">
-                          {displayCurrency(row.estimated_value_at_risk)}
-                        </p>
-                        <p className="mt-1 break-words text-xs text-mutedForeground">
-                          {displayTonnes(row.estimated_production_exposure_mt)}{" "}
-                          exposed ·{" "}
-                          {formatAssumptionLine(
-                            row.value_per_mt_used,
-                            row.criticality_multiplier_used,
-                          )}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-                {topRisks.length === 0 ? (
+                    ))}
+                {orderedSignalRisks.length === 0 && topRisks.length === 0 ? (
                   <div className="rounded-2xl bg-slate-50 px-4 py-8 text-center text-sm text-mutedForeground ring-1 ring-slate-900/5">
                     {filteredStockRows.length > 0
                       ? `${filteredStockRows.length} operating contexts loaded. No continuity exposure is currently flagged.`
@@ -358,7 +403,9 @@ export default async function DashboardPage({
                   </div>
                 ) : null}
               </div>
-              {topRisks.length === 0 && filteredStockRows.length > 0 ? (
+              {orderedSignalRisks.length === 0 &&
+              topRisks.length === 0 &&
+              filteredStockRows.length > 0 ? (
                 <div className="mt-3 rounded-2xl bg-slate-50 p-3 text-sm ring-1 ring-slate-900/5">
                   <p className="font-semibold">Continuity signals loaded</p>
                   <p className="mt-1 text-mutedForeground">
@@ -446,6 +493,146 @@ function uniquePlantOptionsFromStock(
 function dashboardHref(href: string, plantReference?: string) {
   if (!plantReference) return href;
   return `${href}?${new URLSearchParams({ plant_reference: plantReference }).toString()}`;
+}
+
+function SignalRiskRow({ risk }: { risk: SignalRiskCandidate }) {
+  return (
+    <Link
+      href={signalRiskWorkspaceHref(risk)}
+      className={`block min-w-0 rounded-2xl border-l-4 p-3 ring-1 transition hover:bg-slate-50 ${signalRiskRowClass(risk.severity)}`}
+    >
+      <div className="flex min-w-0 flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+        <div className="min-w-0">
+          <p className="break-words text-base font-semibold text-foreground">
+            {risk.material_reference ?? "Unknown material"}
+          </p>
+          <p className="mt-1 break-words text-sm text-mutedForeground">
+            {risk.plant_reference ?? "Unknown plant"}
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <StatusBadge status={risk.severity} />
+          <span className="rounded-full bg-white/70 px-2.5 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-900/10">
+            {formatRiskType(risk.risk_type)}
+          </span>
+        </div>
+      </div>
+      <div className="mt-3 grid min-w-0 gap-2 sm:grid-cols-2 xl:grid-cols-4">
+        <RiskMetric
+          label="Current cover"
+          value={displayDays(risk.days_of_cover)}
+          helper={exposureTiming(risk)}
+          prominent
+          tone={risk.severity === "critical" ? "critical" : "warning"}
+        />
+        <RiskMetric
+          label="Risk type"
+          value={formatRiskType(risk.risk_type)}
+          helper={risk.continuity_status ?? "continuity signal"}
+        />
+        <RiskMetric
+          label="Trust"
+          value={risk.freshness_status ?? "unknown"}
+          helper={displayPercent(risk.confidence_score)}
+          tone={risk.freshness_status === "stale" ? "warning" : "default"}
+        />
+        <RiskMetric
+          label="Inbound"
+          value={risk.shipment_reference ?? "Context level"}
+          helper={risk.supplier_reference ?? "plant-material risk"}
+        />
+      </div>
+      <div className="mt-3 grid min-w-0 gap-3 border-t border-slate-900/10 pt-3 md:grid-cols-[minmax(0,1fr)_minmax(0,0.85fr)]">
+        <DecisionField
+          label="Why"
+          value={
+            risk.explainability?.primary_driver ??
+            risk.rule_reasons[0] ??
+            formatRiskType(risk.risk_type)
+          }
+        />
+        <DecisionField
+          label="Next check"
+          value={
+            risk.operational_recommendations[0]?.operational_reason ??
+            risk.recommended_owner_role ??
+            "Review in Risk Workspace"
+          }
+        />
+      </div>
+    </Link>
+  );
+}
+
+function signalRiskWorkspaceHref(risk: SignalRiskCandidate) {
+  const params = new URLSearchParams();
+  if (risk.risk_type) params.set("risk_type", risk.risk_type);
+  if (risk.plant_reference) params.set("plant_reference", risk.plant_reference);
+  if (risk.material_reference)
+    params.set("material_reference", risk.material_reference);
+  if (risk.shipment_reference)
+    params.set("shipment_reference", risk.shipment_reference);
+  if (risk.severity) params.set("severity", risk.severity);
+  return `/dashboard/risk-workspace?${params.toString()}`;
+}
+
+function signalRiskKey(risk: SignalRiskCandidate) {
+  return [
+    risk.risk_type,
+    risk.severity,
+    risk.plant_reference ?? "",
+    risk.material_reference ?? "",
+    risk.shipment_reference ?? "",
+  ].join(":");
+}
+
+function signalRiskSortKey(a: SignalRiskCandidate, b: SignalRiskCandidate) {
+  return (
+    severityRank(a.severity) - severityRank(b.severity) ||
+    timingRank(a.days_of_cover) - timingRank(b.days_of_cover) ||
+    a.risk_type.localeCompare(b.risk_type) ||
+    (a.material_reference ?? "").localeCompare(b.material_reference ?? "") ||
+    (a.shipment_reference ?? "").localeCompare(b.shipment_reference ?? "")
+  );
+}
+
+function severityRank(severity: string) {
+  if (severity === "critical") return 0;
+  if (severity === "high") return 1;
+  if (severity === "medium" || severity === "warning") return 2;
+  if (severity === "low") return 3;
+  return 4;
+}
+
+function timingRank(value: string | null) {
+  return parseNumeric(value) ?? 9999;
+}
+
+function signalRiskRowClass(severity: string) {
+  if (severity === "critical") return "border-red-500 bg-red-50/90 ring-red-200";
+  if (severity === "high") return "border-amber-500 bg-amber-50/90 ring-amber-200";
+  if (severity === "medium" || severity === "warning") {
+    return "border-yellow-500 bg-yellow-50/90 ring-yellow-200";
+  }
+  return "border-slate-300 bg-slate-50 ring-slate-200/70";
+}
+
+function formatRiskType(value: string) {
+  return value.replaceAll("_", " ");
+}
+
+function exposureTiming(risk: SignalRiskCandidate) {
+  if (risk.days_of_cover) return `${displayDays(risk.days_of_cover)} cover`;
+  if (risk.projected_exhaustion_date) {
+    return `breach ${formatDate(risk.projected_exhaustion_date)}`;
+  }
+  return "timing unknown";
+}
+
+function displayPercent(value: string | null) {
+  const numeric = parseNumeric(value);
+  if (numeric === null) return "confidence unknown";
+  return `${Math.round(numeric * 100)}% confidence`;
 }
 
 function RiskMetric({
