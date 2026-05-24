@@ -1,6 +1,6 @@
-"""cleanup legacy demo seed data
+"""cleanup legacy demo data
 
-Revision ID: 0022_cleanup_legacy_demo_seed_data
+Revision ID: 0022_cleanup_demo_data
 Revises: 0021_mark_demo_steel_tenant
 Create Date: 2026-05-24
 """
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 from alembic import op
 
-revision: str = "0022_cleanup_legacy_demo_seed_data"
+revision: str = "0022_cleanup_demo_data"
 down_revision: str | None = "0021_mark_demo_steel_tenant"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
