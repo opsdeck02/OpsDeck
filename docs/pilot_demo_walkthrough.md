@@ -72,6 +72,10 @@ DEMO-prefixed sample files are intended for demo tenants. Non-demo tenants
 reject rows containing `DEMO-` plant, material, supplier, or inbound references
 so sample data cannot quietly mix into live customer operations.
 
+The Risk Workspace walkthrough is available for live tenants too. It explains
+the existing workspace sections only; it does not enable pilot scenarios or seed
+demo data.
+
 Run migrations:
 
 ```bash

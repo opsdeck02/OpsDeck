@@ -82,9 +82,10 @@ export default async function CriticalRiskWorkspacePage({
       tenantPlan?.is_demo_tenant &&
         tenantPlan.capabilities?.pilot_scenarios,
     );
+  const walkthroughControlsEnabled = true;
   const activeScenario = demoControlsEnabled ? searchParams?.scenario : undefined;
   const walkthroughActive =
-    demoControlsEnabled && isWalkthroughActive(searchParams);
+    walkthroughControlsEnabled && isWalkthroughActive(searchParams);
   const workspace = await getRiskWorkspace({
     scenario: activeScenario,
     risk_type: searchParams?.risk_type,
@@ -109,6 +110,7 @@ export default async function CriticalRiskWorkspacePage({
         searchParams={searchParams}
         walkthroughActive={walkthroughActive}
         demoControlsEnabled={demoControlsEnabled}
+        walkthroughControlsEnabled={walkthroughControlsEnabled}
       />
       {risks.length > 0 ? (
         <ExposureSelector risks={risks} selected={workspace.selected_risk} />
@@ -199,7 +201,7 @@ function WorkspaceContent({
 
   return (
     <>
-      <section className="grid min-w-0 gap-2.5 xl:grid-cols-[minmax(0,1.25fr)_minmax(0,0.75fr)]">
+      <section className="grid min-w-0 items-start gap-2.5 xl:grid-cols-[minmax(0,1.25fr)_minmax(0,0.75fr)]">
         <div className="grid min-w-0 gap-2.5">
           {walkthroughActive ? (
             <WalkthroughNote>
@@ -292,7 +294,9 @@ function OperationalRiskHero({
     workspace.trust_summary?.lowest_confidence_score;
 
   return (
-    <Card className={`min-w-0 max-w-full overflow-hidden ${workspaceTone(risk?.severity)}`}>
+    <Card
+      className={`min-w-0 max-w-full self-start overflow-hidden ${workspaceTone(risk?.severity)}`}
+    >
       <CardContent className="p-4 text-white">
         <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,0.42fr)_minmax(0,0.58fr)]">
           <div className="min-w-0">
@@ -462,10 +466,12 @@ function WorkspaceFilters({
   searchParams,
   walkthroughActive,
   demoControlsEnabled,
+  walkthroughControlsEnabled,
 }: {
   searchParams?: SearchParams;
   walkthroughActive: boolean;
   demoControlsEnabled: boolean;
+  walkthroughControlsEnabled: boolean;
 }) {
   return (
     <Card className="min-w-0 max-w-full overflow-hidden bg-card/90 shadow-panel">
@@ -482,9 +488,13 @@ function WorkspaceFilters({
             </p>
           </div>
           <div className="flex min-w-0 flex-wrap items-center gap-2">
-            {demoControlsEnabled ? (
+            {walkthroughControlsEnabled ? (
               <Link
-                href={walkthroughHref(searchParams, !walkthroughActive)}
+                href={walkthroughHref(
+                  searchParams,
+                  !walkthroughActive,
+                  demoControlsEnabled,
+                )}
                 className={`rounded-lg px-3 py-2 text-sm font-semibold ring-1 transition ${
                   walkthroughActive
                     ? "bg-slate-950 text-white ring-slate-950"
@@ -1555,9 +1565,13 @@ function riskWorkspaceHref(risk: SignalRiskCandidate) {
   return `/dashboard/risk-workspace?${params.toString()}`;
 }
 
-function walkthroughHref(searchParams: SearchParams | undefined, enabled: boolean) {
+function walkthroughHref(
+  searchParams: SearchParams | undefined,
+  enabled: boolean,
+  includeScenario: boolean,
+) {
   const params = new URLSearchParams();
-  setParam(params, "scenario", PILOT_SCENARIOS_ENABLED ? searchParams?.scenario : undefined);
+  setParam(params, "scenario", includeScenario ? searchParams?.scenario : undefined);
   setParam(params, "plant_reference", searchParams?.plant_reference);
   setParam(params, "material_reference", searchParams?.material_reference);
   setParam(params, "shipment_reference", searchParams?.shipment_reference);
