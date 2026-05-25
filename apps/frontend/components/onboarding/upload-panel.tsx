@@ -1252,7 +1252,7 @@ export function UploadPanel({
               </div>
             </div>
           ) : null}
-          {automatedSourcesEnabled ? (
+          {automatedSourcesEnabled && uploadMode === "url" ? (
             <div className="rounded-xl bg-slate-50 p-3 ring-1 ring-slate-900/5">
               <p className="font-medium">URL source for continuity signals</p>
               <p className="mt-1 text-sm text-mutedForeground">
