@@ -18,6 +18,7 @@ const fileTypes = [
   { value: "shipment", label: "Inbound continuity feed" },
   { value: "stock", label: "Inventory continuity feed" },
   { value: "threshold", label: "Continuity threshold feed" },
+  { value: "workbook", label: "Operational workbook (multi-sheet)" },
 ];
 
 const workbookFileTypes = [
@@ -107,6 +108,7 @@ export function UploadPanel({
   const sourceTypeRef = useRef(sourceType);
   const uploadUrlDetection = describeUrl(sourceUrl);
   const dataSourceUrlDetection = describeUrl(dataSourceForm.source_url);
+  const workbookFeedSelected = fileType === "workbook";
   const mappedRequiredFields = mappingPreview
     ? new Set([
         ...mappingPreview.mapped_required_fields,
@@ -127,7 +129,7 @@ export function UploadPanel({
   const workbookMode = Boolean(
     uploadMode === "file" &&
     workbookPreview &&
-    workbookPreview.sheets.length > 1,
+    (workbookFeedSelected || workbookPreview.sheets.length > 1),
   );
   const workbookBlockingSheets = workbookPreview
     ? workbookPreview.sheets
@@ -235,6 +237,18 @@ export function UploadPanel({
 
   const previewMapping = useCallback(
     async (selectedFileType: string, selectedFile: File) => {
+      if (selectedFileType === "workbook") {
+        setMappingPreview(null);
+        setMappingOverrides({});
+        if (isWorkbookFile(selectedFile)) {
+          await previewWorkbook(selectedFile);
+        } else {
+          setWorkbookPreview(null);
+          setWorkbookSheets({});
+          setError("Operational workbook upload requires an XLSX/XLSM file.");
+        }
+        return;
+      }
       const formData = new FormData();
       formData.append("file_type", selectedFileType);
       formData.append("file", selectedFile);
@@ -477,7 +491,15 @@ export function UploadPanel({
       return;
     }
     if (!file) {
-      setError("Choose a CSV or XLSX file first.");
+      setError(
+        workbookFeedSelected
+          ? "Choose an XLSX operational workbook first."
+          : "Choose a CSV or XLSX file first.",
+      );
+      return;
+    }
+    if (workbookFeedSelected && !workbookMode) {
+      setError("Choose an XLSX/XLSM workbook with operational sheets first.");
       return;
     }
     if (workbookMode) {
@@ -639,6 +661,22 @@ export function UploadPanel({
     void previewMapping(fileType, nextFile);
   }
 
+  function onFeedTypeSelected(nextFileType: string) {
+    setFileType(nextFileType);
+    setResult(null);
+    setError(null);
+    setMappingPreview(null);
+    setMappingOverrides({});
+    setWorkbookPreview(null);
+    setWorkbookSheets({});
+    if (nextFileType === "workbook" && uploadMode === "url") {
+      setUploadMode("file");
+    }
+    if (file) {
+      void previewMapping(nextFileType, file);
+    }
+  }
+
   function resetDataSourceForm() {
     setEditingSourceId(null);
     setDataSourceForm({
@@ -761,7 +799,7 @@ export function UploadPanel({
             <span>Signal feed type</span>
             <select
               value={fileType}
-              onChange={(event) => setFileType(event.target.value)}
+              onChange={(event) => onFeedTypeSelected(event.target.value)}
               className="w-full rounded-xl border bg-card px-3 py-2.5"
             >
               {fileTypes.map((type) => (
@@ -773,16 +811,27 @@ export function UploadPanel({
           </label>
           {uploadMode === "file" ? (
             <label className="block space-y-2 text-sm font-medium">
-              <span>Signal file</span>
+              <span>
+                {workbookFeedSelected
+                  ? "Operational workbook"
+                  : "Signal file"}
+              </span>
               <input
                 type="file"
-                accept=".csv,.xlsx"
+                accept={workbookFeedSelected ? ".xlsx,.xlsm" : ".csv,.xlsx"}
                 onChange={(event) =>
                   onFileSelected(event.target.files?.[0] ?? null)
                 }
                 className="w-full rounded-xl border bg-card px-3 py-2.5"
               />
             </label>
+          ) : null}
+          {workbookFeedSelected ? (
+            <div className="rounded-xl bg-blue-50 px-3 py-2 text-sm text-blue-950 ring-1 ring-blue-100">
+              Upload one Excel workbook with separate tabs for inventory,
+              inbound continuity, thresholds, and consumption. Each sheet can be
+              assigned or ignored before processing.
+            </div>
           ) : null}
           {automatedSourcesEnabled ? (
             <div className="rounded-xl bg-slate-50 p-3 ring-1 ring-slate-900/5">
@@ -809,11 +858,18 @@ export function UploadPanel({
                     setMappingPreview(null);
                     setMappingOverrides({});
                   }}
-                  className={`rounded-xl border px-4 py-2 text-xs font-semibold ${uploadMode === "url" ? "bg-primary text-primaryForeground" : ""}`}
+                  disabled={workbookFeedSelected}
+                  className={`rounded-xl border px-4 py-2 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-50 ${uploadMode === "url" ? "bg-primary text-primaryForeground" : ""}`}
                 >
                   Source URL
                 </button>
               </div>
+              {workbookFeedSelected ? (
+                <p className="mt-2 text-xs text-mutedForeground">
+                  Multi-sheet workbook upload is available through manual file
+                  upload only.
+                </p>
+              ) : null}
               {uploadMode === "url" ? (
                 <div className="mt-3 grid gap-3">
                   <select
@@ -1368,7 +1424,9 @@ export function UploadPanel({
                     ? "Load source URL"
                     : "Load signal file"}
             </button>
-            {fileTypes.map((type) => (
+            {fileTypes
+              .filter((type) => type.value !== "workbook")
+              .map((type) => (
               <a
                 key={type.value}
                 href={`/api/ingestion/templates/${type.value}`}
