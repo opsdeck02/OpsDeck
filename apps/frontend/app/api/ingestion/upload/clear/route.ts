@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { getIngestionSession } from "../../session";
+import { getIngestionSession, ingestionJsonResponse } from "../../session";
 
 const baseUrl = process.env.INTERNAL_API_BASE_URL ?? "http://localhost:8000";
 
@@ -19,5 +19,5 @@ export async function DELETE() {
     },
   });
 
-  return NextResponse.json(await response.json(), { status: response.status });
+  return ingestionJsonResponse(response);
 }

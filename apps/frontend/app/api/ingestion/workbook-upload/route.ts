@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import { getIngestionSession } from "../session";
+import { getIngestionSession, ingestionJsonResponse } from "../session";
 
 const baseUrl = process.env.INTERNAL_API_BASE_URL ?? "http://localhost:8000";
 
@@ -21,5 +21,5 @@ export async function POST(request: NextRequest) {
     body: formData,
   });
 
-  return NextResponse.json(await response.json(), { status: response.status });
+  return ingestionJsonResponse(response);
 }
