@@ -17,6 +17,7 @@ from app.api.dependencies import get_db
 from app.db.base import Base
 from app.main import app
 from app.models import (
+    ImportJobRecord,
     IngestionJob,
     Material,
     OperationalEvent,
@@ -640,6 +641,10 @@ def test_workbook_with_inventory_and_inbound_sheets_ingests_successfully(
     with SessionLocal() as db:
         assert db.scalar(select(func.count()).select_from(StockSnapshot)) == 1
         assert db.scalar(select(func.count()).select_from(Shipment)) == 1
+        import_records = list(db.scalars(select(ImportJobRecord)))
+        assert import_records
+        assert all(record.created_at is not None for record in import_records)
+        assert all(record.updated_at is not None for record in import_records)
 
 
 def test_workbook_missing_required_mapping_blocks_only_affected_sheet(

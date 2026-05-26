@@ -1645,6 +1645,7 @@ def record_import_change(
     import_job_id: int,
     change: ImportRecordChange,
 ) -> None:
+    recorded_at = datetime.now(UTC)
     db.add(
         ImportJobRecord(
             tenant_id=tenant_id,
@@ -1656,6 +1657,8 @@ def record_import_change(
             rollback_safe=change.rollback_safe,
             previous_value=change.previous_value,
             new_value=change.new_value,
+            created_at=recorded_at,
+            updated_at=recorded_at,
         )
     )
 
