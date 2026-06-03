@@ -7,7 +7,19 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import Material, OperationalEvent, Plant, Shipment, StockSnapshot
+from app.models import (
+    Material,
+    MaterialProcessDependency,
+    OperationalEvent,
+    Plant,
+    PlantMaterialThreshold,
+    ProcessProductDependency,
+    ProductionInterruptionImpactConfig,
+    ProductionLine,
+    Shipment,
+    ShipmentInboundTrustConfig,
+    StockSnapshot,
+)
 from app.models.enums import (
     OperationalEventCategory,
     OperationalEventSourceType,
@@ -84,6 +96,19 @@ def seed_ocean_vessel_delay(
         material_code="DEMO-COKING-COAL",
         material_name="Imported Coking Coal",
     )
+    ensure_saved_operational_config(
+        db,
+        context,
+        plant,
+        material,
+        now=now,
+        line_code="BF-1",
+        line_name="Blast Furnace 1",
+        product_name="Hot Metal",
+        visibility_profile="ocean",
+        warning_days=Decimal("10"),
+        critical_days=Decimal("3"),
+    )
     shipment = ensure_shipment(
         db,
         context,
@@ -144,6 +169,19 @@ def seed_inland_movement_failure(
         material_code="DEMO-LIMESTONE",
         material_name="Limestone Flux",
     )
+    ensure_saved_operational_config(
+        db,
+        context,
+        plant,
+        material,
+        now=now,
+        line_code="BF-2",
+        line_name="Blast Furnace 2",
+        product_name="Hot Metal",
+        visibility_profile="inland",
+        warning_days=Decimal("14"),
+        critical_days=Decimal("4"),
+    )
     shipment = ensure_shipment(
         db,
         context,
@@ -202,6 +240,19 @@ def seed_false_safety(
         plant_name="Angul Steel Melting Shop",
         material_code="DEMO-FERRO-ALLOY",
         material_name="Ferro Alloy",
+    )
+    ensure_saved_operational_config(
+        db,
+        context,
+        plant,
+        material,
+        now=now,
+        line_code="SMS-1",
+        line_name="Steel Melting Shop 1",
+        product_name="Billet",
+        visibility_profile="inland",
+        warning_days=Decimal("15"),
+        critical_days=Decimal("5"),
     )
     shipment = ensure_shipment(
         db,
@@ -263,6 +314,19 @@ def seed_fresh_verified_inbound(
         material_code="DEMO-ZINC",
         material_name="Zinc Ingots",
     )
+    ensure_saved_operational_config(
+        db,
+        context,
+        plant,
+        material,
+        now=now,
+        line_code="HSM-1",
+        line_name="Hot Strip Mill 1",
+        product_name="Galvanized Coil",
+        visibility_profile="ocean",
+        warning_days=Decimal("12"),
+        critical_days=Decimal("4"),
+    )
     shipment = ensure_shipment(
         db,
         context,
@@ -323,6 +387,19 @@ def seed_multi_inbound_mixed_protection(
         plant_name="Blast Furnace 2",
         material_code="DEMO-PCI-COAL",
         material_name="PCI Coal",
+    )
+    ensure_saved_operational_config(
+        db,
+        context,
+        plant,
+        material,
+        now=now,
+        line_code="BF-2",
+        line_name="Blast Furnace 2",
+        product_name="Hot Metal",
+        visibility_profile="ocean",
+        warning_days=Decimal("9"),
+        critical_days=Decimal("3"),
     )
     ensure_stock(
         db,
@@ -487,6 +564,226 @@ def ensure_stock(
         snapshot.available_to_consume_mt = on_hand
         snapshot.daily_consumption_mt = daily
         snapshot.snapshot_time = now
+
+
+def ensure_saved_operational_config(
+    db: Session,
+    context: RequestContext,
+    plant: Plant,
+    material: Material,
+    *,
+    now: datetime,
+    line_code: str,
+    line_name: str,
+    product_name: str,
+    visibility_profile: str,
+    warning_days: Decimal,
+    critical_days: Decimal,
+) -> None:
+    threshold = db.scalar(
+        select(PlantMaterialThreshold).where(
+            PlantMaterialThreshold.tenant_id == context.tenant_id,
+            PlantMaterialThreshold.plant_id == plant.id,
+            PlantMaterialThreshold.material_id == material.id,
+        )
+    )
+    if threshold is None:
+        threshold = PlantMaterialThreshold(
+            tenant_id=context.tenant_id,
+            plant_id=plant.id,
+            material_id=material.id,
+        )
+        stamp_timestamps(threshold, now)
+        db.add(threshold)
+    threshold.threshold_days = critical_days
+    threshold.warning_days = warning_days
+    threshold.minimum_buffer_stock_days = critical_days
+    threshold.minimum_buffer_stock_mt = critical_days * Decimal("10")
+    threshold.stockout_alert_horizon_days = warning_days
+
+    line = db.scalar(
+        select(ProductionLine).where(
+            ProductionLine.tenant_id == context.tenant_id,
+            ProductionLine.plant_id == plant.id,
+            ProductionLine.code == line_code,
+        )
+    )
+    if line is None:
+        line = ProductionLine(
+            tenant_id=context.tenant_id,
+            plant_id=plant.id,
+            code=line_code,
+            name=line_name,
+            is_active=True,
+        )
+        stamp_timestamps(line, now)
+        db.add(line)
+        db.flush()
+    else:
+        line.name = line_name
+        line.is_active = True
+
+    config = db.scalar(
+        select(ProductionInterruptionImpactConfig).where(
+            ProductionInterruptionImpactConfig.tenant_id == context.tenant_id,
+            ProductionInterruptionImpactConfig.plant_id == plant.id,
+            ProductionInterruptionImpactConfig.material_id == material.id,
+            ProductionInterruptionImpactConfig.production_line_id == line.id,
+        )
+    )
+    if config is None:
+        config = ProductionInterruptionImpactConfig(
+            tenant_id=context.tenant_id,
+            plant_id=plant.id,
+            material_id=material.id,
+            production_line_id=line.id,
+        )
+        stamp_timestamps(config, now)
+        db.add(config)
+    config.production_rate_mt_per_hour = Decimal("100")
+    config.finished_goods_value_per_mt = Decimal("65000")
+    config.survivable_hours_without_material = Decimal("8")
+    config.line_dependency_ratio = Decimal("0.85")
+    config.downtime_cost_per_hour = Decimal("7500000")
+    config.restart_cost = Decimal("12000000")
+    config.restart_time_hours = Decimal("4")
+    config.substitution_factor = Decimal("0.15")
+    config.cascading_impact_factor = Decimal("1.15")
+    config.interruption_probability_override = None
+    config.currency = "INR"
+    config.is_active = True
+
+    material_dependency = db.scalar(
+        select(MaterialProcessDependency).where(
+            MaterialProcessDependency.tenant_id == context.tenant_id,
+            MaterialProcessDependency.material_id == material.id,
+            MaterialProcessDependency.process_id == line.id,
+        )
+    )
+    if material_dependency is None:
+        material_dependency = MaterialProcessDependency(
+            tenant_id=context.tenant_id,
+            material_id=material.id,
+            process_id=line.id,
+        )
+        stamp_timestamps(material_dependency, now)
+        db.add(material_dependency)
+    material_dependency.dependency_ratio = Decimal("0.85")
+    material_dependency.substitution_factor = Decimal("0.15")
+    material_dependency.survivability_hours = Decimal("8")
+    material_dependency.is_active = True
+
+    product = db.scalar(
+        select(ProcessProductDependency).where(
+            ProcessProductDependency.tenant_id == context.tenant_id,
+            ProcessProductDependency.process_id == line.id,
+            ProcessProductDependency.product_name == product_name,
+        )
+    )
+    if product is None:
+        product = ProcessProductDependency(
+            tenant_id=context.tenant_id,
+            process_id=line.id,
+            product_name=product_name,
+        )
+        stamp_timestamps(product, now)
+        db.add(product)
+    product.output_share_ratio = Decimal("1.00")
+    product.product_value_per_mt = Decimal("65000")
+    product.operational_criticality_factor = Decimal("1.20")
+    product.is_active = True
+
+    trust = db.scalar(
+        select(ShipmentInboundTrustConfig).where(
+            ShipmentInboundTrustConfig.tenant_id == context.tenant_id,
+            ShipmentInboundTrustConfig.plant_id == plant.id,
+            ShipmentInboundTrustConfig.material_id == material.id,
+        )
+    )
+    if trust is None:
+        trust = ShipmentInboundTrustConfig(
+            tenant_id=context.tenant_id,
+            plant_id=plant.id,
+            material_id=material.id,
+        )
+        stamp_timestamps(trust, now)
+        db.add(trust)
+    trust.visibility_profile = visibility_profile
+    trust.expected_visibility_cadence_hours = (
+        Decimal("48") if visibility_profile == "ocean" else Decimal("24")
+    )
+    trust.eta_drift_tolerance_hours = (
+        Decimal("36") if visibility_profile == "ocean" else Decimal("12")
+    )
+    trust.weak_visibility_threshold = Decimal("0.50")
+    trust.minimum_trusted_inbound_ratio = Decimal("0.60")
+    trust.allow_unverified_inbound_protection = False
+    trust.is_active = True
+
+    for index in range(1, 3):
+        ensure_historical_supplier_shipment(
+            db,
+            context,
+            plant,
+            material,
+            now=now,
+            shipment_id=f"{material.code}-CONFIG-HIST-{index}",
+        )
+
+
+def ensure_historical_supplier_shipment(
+    db: Session,
+    context: RequestContext,
+    plant: Plant,
+    material: Material,
+    *,
+    now: datetime,
+    shipment_id: str,
+) -> None:
+    shipment = db.scalar(
+        select(Shipment).where(
+            Shipment.tenant_id == context.tenant_id,
+            Shipment.shipment_id == shipment_id,
+        )
+    )
+    delivered_at = now - timedelta(days=14 + int(shipment_id.rsplit("-", 1)[-1]) * 7)
+    if shipment is None:
+        shipment = Shipment(
+            tenant_id=context.tenant_id,
+            shipment_id=shipment_id,
+            material_id=material.id,
+            plant_id=plant.id,
+            supplier_name="Pilot Demo Supplier",
+            quantity_mt=Decimal("100"),
+            planned_eta=delivered_at,
+            current_eta=delivered_at,
+            latest_eta=delivered_at,
+            current_state=ShipmentState.DELIVERED,
+            source_of_truth="pilot_scenario:config_history",
+            latest_update_at=delivered_at,
+            last_tracking_update_at=delivered_at,
+        )
+        stamp_timestamps(shipment, now)
+        db.add(shipment)
+        return
+    shipment.material_id = material.id
+    shipment.plant_id = plant.id
+    shipment.supplier_name = "Pilot Demo Supplier"
+    shipment.quantity_mt = Decimal("100")
+    shipment.planned_eta = delivered_at
+    shipment.current_eta = delivered_at
+    shipment.latest_eta = delivered_at
+    shipment.current_state = ShipmentState.DELIVERED
+    shipment.source_of_truth = "pilot_scenario:config_history"
+    shipment.latest_update_at = delivered_at
+    shipment.last_tracking_update_at = delivered_at
+
+
+def stamp_timestamps(row: object, now: datetime) -> None:
+    if hasattr(row, "created_at") and getattr(row, "created_at", None) is None:
+        row.created_at = now
+    if hasattr(row, "updated_at") and getattr(row, "updated_at", None) is None:
+        row.updated_at = now
 
 
 def ensure_shipment(

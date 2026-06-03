@@ -104,13 +104,29 @@ def get_active_interruption_config(
         if exact_config is not None:
             return exact_config
 
-    return db.scalar(
+    generic_config = db.scalar(
         select(ProductionInterruptionImpactConfig)
         .where(
             ProductionInterruptionImpactConfig.tenant_id == tenant_id,
             ProductionInterruptionImpactConfig.plant_id == plant_id,
             ProductionInterruptionImpactConfig.material_id == material_id,
             ProductionInterruptionImpactConfig.production_line_id.is_(None),
+            ProductionInterruptionImpactConfig.is_active.is_(True),
+        )
+        .order_by(
+            ProductionInterruptionImpactConfig.updated_at.desc(),
+            ProductionInterruptionImpactConfig.id.desc(),
+        )
+    )
+    if generic_config is not None:
+        return generic_config
+
+    return db.scalar(
+        select(ProductionInterruptionImpactConfig)
+        .where(
+            ProductionInterruptionImpactConfig.tenant_id == tenant_id,
+            ProductionInterruptionImpactConfig.plant_id == plant_id,
+            ProductionInterruptionImpactConfig.material_id == material_id,
             ProductionInterruptionImpactConfig.is_active.is_(True),
         )
         .order_by(
