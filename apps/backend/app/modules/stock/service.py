@@ -41,6 +41,11 @@ from app.modules.stock.schemas import (
     StockCoverRow,
     StockCoverSummaryResponse,
 )
+from app.modules.stock.time_phased_cover import (
+    TimePhasedCoverInputs,
+    TimePhasedInbound,
+    evaluate_time_phased_cover,
+)
 from app.schemas.context import RequestContext
 
 ACTIVE_SHIPMENT_STATES = {
@@ -139,7 +144,7 @@ def calculate_stock_cover_detail(
             "Days to line stop uses available stock only; blocked and inbound stock do not "
             "protect continuity until received."
         ),
-        "Inbound pipeline is shown for visibility, not counted as usable cover.",
+        "Time-phased cover evaluates inbound chronologically before treating it as protective.",
         "Delivered and cancelled shipments are excluded from inbound visibility.",
     ]
     return StockCoverDetailResponse(
@@ -161,6 +166,7 @@ def calculate_stock_cover_detail(
             )
             for item in shipments
         ],
+        time_phased_cover=target.calculation.time_phased_cover,
         confidence_reasons=reasons,
         assumptions=assumptions,
         impact_explanation=impact_explanation,
@@ -432,6 +438,7 @@ def build_row(
             action_status=None,
             action_sla_breach=False,
             action_age_hours=None,
+            time_phased_cover=None,
         )
         return stock_cover_row(plant, material, snapshot_time, calculation)
 
@@ -473,6 +480,7 @@ def build_row(
             action_status=None,
             action_sla_breach=False,
             action_age_hours=None,
+            time_phased_cover=None,
         )
         return stock_cover_row(plant, material, snapshot_time, calculation)
 
@@ -492,6 +500,40 @@ def build_row(
         quantize_decimal(raw_inbound_pipeline_mt),
         quantize_decimal(effective_inbound_pipeline_mt),
     )
+    interruption_config = get_active_interruption_config(
+        db,
+        tenant_id=plant.tenant_id,
+        plant_id=plant.id,
+        material_id=material.id,
+    )
+    time_phased_cover = evaluate_time_phased_cover(
+        TimePhasedCoverInputs(
+            snapshot_time=ensure_utc(snapshot.snapshot_time),
+            usable_stock_mt=usable_stock_mt,
+            daily_consumption_mt=daily_consumption,
+            warning_days=warning_days,
+            critical_days=threshold_days,
+            reserve_days=threshold.minimum_buffer_stock_days if threshold else None,
+            reserve_quantity_mt=threshold.minimum_buffer_stock_mt if threshold else None,
+            interruption_configured=interruption_config is not None,
+            supplier_context_complete=all(
+                item.shipment.supplier_id is not None for item in shipments
+            ),
+            inbounds=tuple(
+                TimePhasedInbound(
+                    shipment_id=item.shipment.shipment_id,
+                    supplier_name=item.shipment.supplier_name,
+                    eta=ensure_utc(item.shipment.current_eta),
+                    raw_quantity_mt=item.raw_quantity_mt,
+                    effective_quantity_mt=item.effective_quantity_mt,
+                    supplier_linked=item.shipment.supplier_id is not None,
+                )
+                for item in shipments
+            ),
+        )
+    )
+    if time_phased_cover.calibration_status == "UNCALIBRATED":
+        confidence_level = reduce_confidence_level(confidence_level)
     impact = calculate_impact(
         plant_code=plant.code,
         material_code=material.code,
@@ -523,12 +565,7 @@ def build_row(
             shipment_confidence_low=any(item.confidence == "low" for item in shipments),
             freshness_status=worst_freshness_label(shipments),
         ),
-        get_active_interruption_config(
-            db,
-            tenant_id=plant.tenant_id,
-            plant_id=plant.id,
-            material_id=material.id,
-        ),
+        interruption_config,
     )
     recommendation = recommend_action(
         status=status,
@@ -609,6 +646,7 @@ def build_row(
         action_age_hours=action_state.action_age_hours
         if status in {"critical", "warning"}
         else None,
+        time_phased_cover=time_phased_cover,
     )
     return stock_cover_row(plant, material, snapshot_time, calculation)
 
@@ -670,6 +708,12 @@ def confidence_level_for(
     return "low"
 
 
+def reduce_confidence_level(confidence_level: str) -> str:
+    if confidence_level == "high":
+        return "medium"
+    return "low"
+
+
 def confidence_reasons(row: StockCoverRow, shipments: list[WeightedShipment]) -> list[str]:
     reasons: list[str] = []
     if row.latest_snapshot_time is None:
@@ -687,6 +731,13 @@ def confidence_reasons(row: StockCoverRow, shipments: list[WeightedShipment]) ->
 
     if row.calculation.threshold_days is None:
         reasons.append("No threshold was configured for this plant/material.")
+    if row.calculation.time_phased_cover is not None:
+        cover = row.calculation.time_phased_cover
+        reasons.append(
+            f"Time-phased cover is {cover.calibration_status.lower()} with confidence "
+            f"{cover.confidence_score}."
+        )
+        reasons.extend(cover.assumptions_used)
 
     if shipments:
         low_confidence = [shipment for shipment in shipments if shipment.confidence == "low"]

@@ -662,6 +662,53 @@ export interface WorkbookPreview {
   ignored_empty_sheets: string[];
 }
 
+export interface DailyStockProjection {
+  projection_date: string;
+  opening_stock_mt: string;
+  inbound_received_mt: string;
+  consumed_mt: string;
+  closing_stock_mt: string;
+}
+
+export interface ShipmentProtectionEvaluation {
+  shipment_id: string;
+  supplier_name: string;
+  eta: string;
+  raw_quantity_mt: string;
+  effective_quantity_mt: string;
+  stock_before_arrival_mt: string;
+  stock_after_arrival_mt: string;
+  protection_status:
+    | "PROTECTIVE"
+    | "RESERVE_ON_ARRIVAL"
+    | "CRITICAL_ON_ARRIVAL"
+    | "LATE_AFTER_RESERVE"
+    | "TOO_LATE"
+    | string;
+  protects_reserve_breach: boolean;
+  protects_interruption: boolean;
+  reasoning: string[];
+}
+
+export interface TimePhasedCoverResult {
+  calibration_status: string;
+  confidence_score: string;
+  assumptions_used: string[];
+  warning_date: string | null;
+  reserve_breach_date: string | null;
+  critical_breach_date: string | null;
+  interruption_date: string | null;
+  current_projected_warning_date: string | null;
+  current_projected_reserve_breach_date: string | null;
+  current_projected_critical_breach_date: string | null;
+  current_projected_interruption_date: string | null;
+  first_reserve_protecting_shipment_id: string | null;
+  first_interruption_protecting_shipment_id: string | null;
+  daily_projection: DailyStockProjection[];
+  shipment_evaluations: ShipmentProtectionEvaluation[];
+  reasoning: string[];
+}
+
 export interface StockCoverBreakdown {
   current_stock_mt: string | null;
   inbound_pipeline_mt: string;
@@ -693,6 +740,7 @@ export interface StockCoverBreakdown {
   action_status: string | null;
   action_sla_breach: boolean;
   action_age_hours: string | null;
+  time_phased_cover?: TimePhasedCoverResult | null;
 }
 
 export interface StockCoverRow {
@@ -821,6 +869,7 @@ export interface ShipmentDetailResponse {
 export interface StockCoverDetailResponse {
   row: StockCoverRow;
   shipments: ShipmentContribution[];
+  time_phased_cover?: TimePhasedCoverResult | null;
   confidence_reasons: string[];
   assumptions: string[];
   impact_explanation: string[];

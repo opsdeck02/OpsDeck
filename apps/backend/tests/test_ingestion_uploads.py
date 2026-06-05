@@ -4,6 +4,7 @@ import io
 import json
 from collections.abc import Generator
 from datetime import UTC, datetime
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -19,6 +20,7 @@ from app.main import app
 from app.models import (
     ImportJobRecord,
     IngestionJob,
+    LineStopIncident,
     Material,
     OperationalEvent,
     Plant,
@@ -26,6 +28,7 @@ from app.models import (
     Role,
     Shipment,
     StockSnapshot,
+    Supplier,
     Tenant,
     TenantMembership,
     UploadedFile,
@@ -34,6 +37,9 @@ from app.models import (
 from app.models.enums import OperationalEventFreshnessStatus, OperationalEventType
 from app.modules.auth.constants import LOGISTICS_USER
 from app.modules.auth.security import hash_password
+from app.modules.line_stops.service import build_historical_validation_report
+from app.modules.stock.service import calculate_stock_cover_detail
+from app.schemas.context import RequestContext
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEMO_DATA_DIR = REPO_ROOT / "docs" / "demo-data"
@@ -192,6 +198,11 @@ def test_valid_shipment_upload(
     assert body["operational_summary"]["materials_detected"] == ["COKING_COAL"]
     assert body["operational_summary"]["refreshed_operational_visibility"] is True
     assert body["operational_summary"]["next_recommended_action"]
+    assert body["operational_summary"]["supplier_references_total"] == 1
+    assert body["operational_summary"]["supplier_references_linked"] == 0
+    assert body["operational_summary"]["supplier_references_unlinked"] == 1
+    assert body["operational_summary"]["onboarding_completeness_score"] == 0
+    assert "supplier reliability" in body["operational_summary"]["supplier_reliability_impact"]
 
     with SessionLocal() as db:
         assert db.scalar(select(func.count()).select_from(Shipment)) == 1
@@ -1269,15 +1280,15 @@ def test_founder_demo_csv_files_ingest_and_are_import_auditable(
     assert shipment_response.status_code == 200, shipment_response.json()
     assert threshold_response.status_code == 200, threshold_response.json()
     assert stock_response.json()["rows_accepted"] == 4
-    assert shipment_response.json()["rows_accepted"] == 5
+    assert shipment_response.json()["rows_accepted"] == 6
     assert threshold_response.json()["rows_accepted"] == 4
-    assert "DEMO-JAMSHEDPUR-BF1" in stock_response.json()["operational_summary"][
+    assert "DEMO-STEEL" in stock_response.json()["operational_summary"][
         "plants_detected"
     ]
     assert "DEMO-COKING-COAL" in shipment_response.json()["operational_summary"][
         "materials_detected"
     ]
-    assert "DEMO-MV-EASTERN-LINE-01" in shipment_response.json()["operational_summary"][
+    assert "DEMO-COAL-PROTECTIVE-A" in shipment_response.json()["operational_summary"][
         "shipments_detected"
     ]
     assert shipment_response.json()["operational_summary"]["warnings"]
@@ -1289,7 +1300,7 @@ def test_founder_demo_csv_files_ingest_and_are_import_auditable(
 
     assert detail_response.status_code == 200, detail_response.json()
     detail = detail_response.json()
-    assert detail["created_records"] == 5
+    assert detail["created_records"] == 6
     assert all(record["rollback_safe"] for record in detail["record_references"])
     with SessionLocal() as db:
         assert (
@@ -1298,7 +1309,7 @@ def test_founder_demo_csv_files_ingest_and_are_import_auditable(
                 .select_from(Shipment)
                 .where(Shipment.shipment_id.like("DEMO-%"))
             )
-            == 5
+            == 6
         )
         assert (
             db.scalar(
@@ -1309,6 +1320,135 @@ def test_founder_demo_csv_files_ingest_and_are_import_auditable(
             )
             == 4
         )
+
+
+def test_demo_coking_coal_upload_story_proves_time_phased_cover_and_history(
+    client_and_session: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, SessionLocal = client_and_session
+    enable_demo_tenant(SessionLocal)
+    with SessionLocal() as db:
+        tenant = db.scalar(select(Tenant).where(Tenant.slug == "tenant-a"))
+        assert tenant is not None
+        db.add(
+            Supplier(
+                tenant_id=tenant.id,
+                code="DEMO-SUPPLIER-COAL-01",
+                name="Eastern Metallurgical Coal",
+                primary_port="Hay Point",
+                is_active=True,
+            )
+        )
+        db.commit()
+
+    headers = login(client)
+    stock_response = upload_csv(
+        client,
+        headers,
+        "stock",
+        (DEMO_DATA_DIR / "demo_stock_snapshots.csv").read_text(),
+    )
+    shipment_response = upload_csv(
+        client,
+        headers,
+        "shipment",
+        (DEMO_DATA_DIR / "demo_inbound_shipments.csv").read_text(),
+    )
+    threshold_response = upload_csv(
+        client,
+        headers,
+        "threshold",
+        (DEMO_DATA_DIR / "demo_continuity_thresholds.csv").read_text(),
+    )
+
+    assert stock_response.status_code == 200, stock_response.json()
+    assert shipment_response.status_code == 200, shipment_response.json()
+    assert threshold_response.status_code == 200, threshold_response.json()
+    operational_summary = shipment_response.json()["operational_summary"]
+    assert operational_summary["supplier_references_total"] >= 2
+    assert operational_summary["supplier_references_linked"] >= 1
+    assert operational_summary["supplier_references_unlinked"] >= 1
+    assert operational_summary["onboarding_completeness_score"] < 100
+    assert "supplier reliability" in operational_summary["supplier_reliability_impact"]
+    assert any(
+        "not linked to an existing supplier record" in warning
+        for warning in operational_summary["warnings"]
+    )
+
+    with SessionLocal() as db:
+        tenant = db.scalar(select(Tenant).where(Tenant.slug == "tenant-a"))
+        assert tenant is not None
+        plant = db.scalar(
+            select(Plant).where(Plant.tenant_id == tenant.id, Plant.code == "DEMO_STEEL")
+        )
+        material = db.scalar(
+            select(Material).where(
+                Material.tenant_id == tenant.id,
+                Material.code == "DEMO_COKING_COAL",
+            )
+        )
+        assert plant is not None
+        assert material is not None
+        threshold = db.scalar(
+            select(PlantMaterialThreshold).where(
+                PlantMaterialThreshold.tenant_id == tenant.id,
+                PlantMaterialThreshold.plant_id == plant.id,
+                PlantMaterialThreshold.material_id == material.id,
+            )
+        )
+        assert threshold is not None
+        threshold.minimum_buffer_stock_days = Decimal("2")
+        threshold.minimum_buffer_stock_mt = Decimal("20")
+        db.add(
+            LineStopIncident(
+                tenant_id=tenant.id,
+                plant_id=plant.id,
+                material_id=material.id,
+                stopped_at=datetime(2026, 6, 5, 8, tzinfo=UTC),
+                duration_hours=Decimal("8"),
+                notes="Demo coking-coal historical line stop.",
+            )
+        )
+        db.commit()
+
+        context = RequestContext(
+            tenant_id=tenant.id,
+            tenant_slug=tenant.slug,
+            role="tenant_admin",
+            user_id=1,
+        )
+        detail = calculate_stock_cover_detail(db, context, plant.id, material.id)
+        assert detail is not None
+        cover = detail.time_phased_cover
+        assert cover is not None
+        assert cover.warning_date is not None
+        assert cover.reserve_breach_date is not None
+        assert cover.critical_breach_date is not None
+        assert cover.interruption_date is not None
+        assert cover.current_projected_warning_date is not None
+        assert cover.current_projected_reserve_breach_date is not None
+        assert cover.current_projected_critical_breach_date is not None
+        assert cover.current_projected_interruption_date is not None
+        statuses = {
+            item.shipment_id: item.protection_status
+            for item in cover.shipment_evaluations
+        }
+        assert statuses["DEMO-COAL-PROTECTIVE-A"] == "PROTECTIVE"
+        assert statuses["DEMO-COAL-LATE-B"] == "LATE_AFTER_RESERVE"
+        assert statuses["DEMO-COAL-TOO-LATE-C"] == "TOO_LATE"
+        assert "One or more inbound shipments are missing supplier master linkage." in (
+            cover.assumptions_used
+        )
+
+        report = build_historical_validation_report(db, context)
+        coking_result = next(
+            result
+            for result in report.results
+            if result.plant_id == plant.id and result.material_id == material.id
+        )
+        assert coking_result.predicted_warning_date is not None
+        assert coking_result.lead_time_gained_hours is not None
+        assert coking_result.lead_time_gained_hours > 0
 
 
 def test_founder_demo_import_rollback_only_removes_demo_job_records(
@@ -1338,7 +1478,7 @@ def test_founder_demo_import_rollback_only_removes_demo_job_records(
     )
 
     assert rollback_response.status_code == 200, rollback_response.json()
-    assert rollback_response.json()["records_deleted"] == 5
+    assert rollback_response.json()["records_deleted"] == 6
     with SessionLocal() as db:
         assert (
             db.scalar(
@@ -1367,7 +1507,7 @@ def test_demo_prefixed_upload_rejected_for_non_demo_tenant(
     assert response.status_code == 400, response.json()
     body = response.json()["detail"]
     assert body["rows_accepted"] == 0
-    assert body["rows_rejected"] == 5
+    assert body["rows_rejected"] == 6
     assert body["validation_errors"]
     first_error = body["validation_errors"][0]["field_errors"][0]
     assert "DEMO-" in first_error["reason"]

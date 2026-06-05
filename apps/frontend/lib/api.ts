@@ -25,6 +25,7 @@ import type {
   TenantPlanSummary,
   TenantSummary,
   TenantUser,
+  TimePhasedCoverResult,
 } from "@steelops/contracts";
 
 import type { PlantContextOption } from "@/lib/plant-context";
@@ -234,6 +235,7 @@ export interface SignalInventoryContinuity {
   cover_confidence_score: string | null;
   freshness_status: string;
   trust_warnings: string[];
+  time_phased_cover?: TimePhasedCoverResult | null;
   unit: string;
   calculation_reasons: string[];
 }

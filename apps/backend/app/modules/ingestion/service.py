@@ -1528,6 +1528,7 @@ def normalize_rows(
             rows_rejected=rows_rejected,
             summary=summary,
             warnings=upload_warnings(db, context, file_type, rows),
+            supplier_validation=supplier_onboarding_validation(db, context, file_type, rows),
         ),
     )
 
@@ -1614,8 +1615,10 @@ def build_operational_summary(
     rows_rejected: int,
     summary: IngestionSummary,
     warnings: list[str] | None = None,
+    supplier_validation: dict[str, object] | None = None,
 ) -> OperationalUnderstandingSummary:
     warnings = warnings or []
+    supplier_validation = supplier_validation or {}
     return OperationalUnderstandingSummary(
         file_received=True,
         rows_detected=rows_received,
@@ -1636,6 +1639,13 @@ def build_operational_summary(
         refreshed_operational_visibility=rows_accepted > 0,
         warnings=warnings,
         next_recommended_action=next_upload_action(rows_accepted, rows_rejected, warnings),
+        supplier_references_total=int(supplier_validation.get("total", 0)),
+        supplier_references_linked=int(supplier_validation.get("linked", 0)),
+        supplier_references_unlinked=int(supplier_validation.get("unlinked", 0)),
+        onboarding_completeness_score=int(supplier_validation.get("score", 100)),
+        supplier_reliability_impact=(
+            str(supplier_validation["impact"]) if supplier_validation.get("impact") else None
+        ),
     )
 
 
@@ -1700,6 +1710,13 @@ def aggregate_workbook_operational_summary(
         refreshed_operational_visibility=rows_accepted > 0,
         warnings=warnings,
         next_recommended_action=next_upload_action(rows_accepted, rows_rejected, warnings),
+        supplier_references_total=sum(summary.supplier_references_total for summary in summaries),
+        supplier_references_linked=sum(summary.supplier_references_linked for summary in summaries),
+        supplier_references_unlinked=sum(
+            summary.supplier_references_unlinked for summary in summaries
+        ),
+        onboarding_completeness_score=aggregate_onboarding_score(summaries),
+        supplier_reliability_impact=aggregate_supplier_reliability_impact(summaries),
     )
 
 
@@ -1749,7 +1766,73 @@ def upload_warnings(
                 "Reliability source was accepted from the upload but is not linked to "
                 f"an existing supplier record: {', '.join(unknown_supplier_names[:5])}."
             )
+            warnings.append(
+                "Supplier reliability calculations will be uncalibrated for unlinked "
+                "shipment suppliers until supplier master records are created and linked."
+            )
     return warnings
+
+
+def supplier_onboarding_validation(
+    db: Session,
+    context: RequestContext,
+    file_type: str,
+    rows: list[ParsedRow],
+) -> dict[str, object]:
+    if file_type != "shipment":
+        return {"total": 0, "linked": 0, "unlinked": 0, "score": 100, "impact": None}
+    supplier_names = unique_row_values(rows, "supplier_name")
+    if not supplier_names:
+        return {"total": 0, "linked": 0, "unlinked": 0, "score": 100, "impact": None}
+    known_suppliers = {
+        normalize_text_token(name)
+        for name in db.scalars(
+            select(Supplier.name)
+            .where(Supplier.tenant_id == context.tenant_id)
+            .where(Supplier.is_active.is_(True))
+        )
+        if name
+    }
+    linked = sum(
+        1 for supplier in supplier_names if normalize_text_token(supplier) in known_suppliers
+    )
+    total = len(supplier_names)
+    unlinked = total - linked
+    score = int((linked / total) * 100) if total else 100
+    impact = None
+    if unlinked:
+        impact = (
+            f"{unlinked} of {total} uploaded supplier references are not linked to supplier "
+            "master records; supplier reliability context will be unknown for those shipments."
+        )
+    return {
+        "total": total,
+        "linked": linked,
+        "unlinked": unlinked,
+        "score": score,
+        "impact": impact,
+    }
+
+
+def aggregate_onboarding_score(summaries: list[OperationalUnderstandingSummary]) -> int:
+    total = sum(summary.supplier_references_total for summary in summaries)
+    if total <= 0:
+        return 100
+    linked = sum(summary.supplier_references_linked for summary in summaries)
+    return int((linked / total) * 100)
+
+
+def aggregate_supplier_reliability_impact(
+    summaries: list[OperationalUnderstandingSummary],
+) -> str | None:
+    impacts = [
+        summary.supplier_reliability_impact
+        for summary in summaries
+        if summary.supplier_reliability_impact
+    ]
+    if not impacts:
+        return None
+    return " ".join(impacts)
 
 
 def next_upload_action(

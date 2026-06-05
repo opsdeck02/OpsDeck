@@ -5,11 +5,13 @@ from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_db, get_request_context, require_operator_access
 from app.modules.line_stops.schemas import (
+    HistoricalValidationReport,
     LineStopIncidentCreate,
     LineStopIncidentListResponse,
     LineStopIncidentOut,
 )
 from app.modules.line_stops.service import (
+    build_historical_validation_report,
     create_line_stop_incident,
     list_line_stop_incidents,
 )
@@ -25,6 +27,15 @@ def list_incidents(
     limit: Annotated[int, Query(ge=1, le=100)] = 25,
 ) -> LineStopIncidentListResponse:
     return list_line_stop_incidents(db, context, limit=limit)
+
+
+@router.get("/historical-validation", response_model=HistoricalValidationReport)
+def historical_validation_report(
+    context: Annotated[RequestContext, Depends(get_request_context)],
+    db: Annotated[Session, Depends(get_db)],
+    limit: Annotated[int, Query(ge=1, le=100)] = 25,
+) -> HistoricalValidationReport:
+    return build_historical_validation_report(db, context, limit=limit)
 
 
 @router.post("", response_model=LineStopIncidentOut)

@@ -457,6 +457,42 @@ def test_tenant_isolation_behavior(client: TestClient) -> None:
     assert all(row["plant_code"] != "B1" for row in body["rows"])
 
 
+def test_time_phased_cover_endpoint_returns_detail_payload(client: TestClient) -> None:
+    response = client.get("/api/v1/stock/cover/1/1/time-phased", headers=auth_headers(client))
+    assert response.status_code == 200
+    body = response.json()
+    assert body["calibration_status"] == "UNCALIBRATED"
+    assert body["shipment_evaluations"][0]["shipment_id"] == "SAFE-PIPE"
+    assert "Production interruption impact configuration is missing." in body["assumptions_used"]
+
+
+def test_stock_cover_detail_includes_time_phased_cover(client: TestClient) -> None:
+    response = client.get("/api/v1/stock/cover/2/2", headers=auth_headers(client))
+    assert response.status_code == 200
+    body = response.json()
+    assert body["time_phased_cover"] is not None
+    shipment_ids = {
+        item["shipment_id"] for item in body["time_phased_cover"]["shipment_evaluations"]
+    }
+    assert "IGNORE-CANCELLED" not in shipment_ids
+    assert shipment_ids == {"INLAND-HIGH", "SEA-LOW"}
+
+
+def test_time_phased_cover_endpoint_marks_missing_thresholds_uncalibrated(
+    client: TestClient,
+) -> None:
+    response = client.get("/api/v1/stock/cover/5/5/time-phased", headers=auth_headers(client))
+    assert response.status_code == 200
+    body = response.json()
+    assert body["calibration_status"] == "UNCALIBRATED"
+    assert any("threshold missing" in item.lower() for item in body["assumptions_used"])
+
+
+def test_time_phased_cover_endpoint_does_not_cross_tenant_boundary(client: TestClient) -> None:
+    response = client.get("/api/v1/stock/cover/7/7/time-phased", headers=auth_headers(client))
+    assert response.status_code == 404
+
+
 def test_on_water_contributes_less_than_in_transit(client: TestClient) -> None:
     response = client.get("/api/v1/stock/cover/2/2", headers=auth_headers(client))
     assert response.status_code == 200

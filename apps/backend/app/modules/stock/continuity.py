@@ -8,17 +8,23 @@ from sqlalchemy.orm import Session
 
 from app.models import Material, Plant, PlantMaterialThreshold, Shipment, StockSnapshot
 from app.models.enums import ShipmentState
+from app.modules.impact.production_interruption import get_active_interruption_config
+from app.modules.impact.shipment_inbound_trust import (
+    get_active_shipment_inbound_trust_config,
+)
 from app.modules.shipments.visibility_confidence import (
     calculate_visibility_confidence,
     is_physical_inbound_candidate,
-)
-from app.modules.impact.shipment_inbound_trust import (
-    get_active_shipment_inbound_trust_config,
 )
 from app.modules.shipments.visibility_confidence import (
     quantize_decimal as quantize_visibility_decimal,
 )
 from app.modules.stock.schemas import InventoryContinuityResult
+from app.modules.stock.time_phased_cover import (
+    TimePhasedCoverInputs,
+    TimePhasedInbound,
+    evaluate_time_phased_cover,
+)
 from app.modules.suppliers.reliability_context import (
     calculate_supplier_reliability_context,
     supplier_reliability_modifier,
@@ -64,6 +70,7 @@ def calculate_inventory_continuity(
     cover_confidence_score: Decimal | None = None,
     freshness_status: str = "unknown",
     trust_warnings: list[str] | None = None,
+    time_phased_cover=None,
     now: datetime | None = None,
 ) -> InventoryContinuityResult:
     reserved = reserved_quantity or Decimal("0")
@@ -171,6 +178,7 @@ def calculate_inventory_continuity(
         freshness_status=freshness_status,
         trust_warnings=dedupe(warnings),
         visibility_reason_chain=dedupe(visibility_reason_chain or []),
+        time_phased_cover=time_phased_cover,
         unit=unit,
         calculation_reasons=calculation_reasons,
     )
@@ -208,6 +216,12 @@ def calculate_inventory_continuity_for(
             PlantMaterialThreshold.plant_id == plant_id,
             PlantMaterialThreshold.material_id == material_id,
         )
+    )
+    trust_config = get_active_shipment_inbound_trust_config(
+        db,
+        tenant_id=context.tenant_id,
+        plant_id=plant_id,
+        material_id=material_id,
     )
 
     (
@@ -256,6 +270,23 @@ def calculate_inventory_continuity_for(
         cover_confidence_score=cover_confidence_score,
         freshness_status=freshness_status,
         trust_warnings=trust_warnings,
+        time_phased_cover=build_time_phased_cover_for_inventory(
+            db,
+            tenant_id=context.tenant_id,
+            plant_id=plant_id,
+            material_id=material_id,
+            snapshot=snapshot,
+            threshold=threshold,
+            trust_config=trust_config,
+            interruption_configured=get_active_interruption_config(
+                db,
+                tenant_id=context.tenant_id,
+                plant_id=plant_id,
+                material_id=material_id,
+            )
+            is not None,
+            now=now,
+        ),
         daily_consumption_rate=snapshot.daily_consumption_mt,
         unit=material.uom,
         now=now,
@@ -421,6 +452,64 @@ def quantize_decimal(value: Decimal) -> Decimal:
 
 def dedupe(values: list[str]) -> list[str]:
     return list(dict.fromkeys(values))
+
+
+def build_time_phased_cover_for_inventory(
+    db: Session,
+    *,
+    tenant_id: int,
+    plant_id: int,
+    material_id: int,
+    snapshot: StockSnapshot,
+    threshold: PlantMaterialThreshold | None,
+    trust_config,
+    interruption_configured: bool,
+    now: datetime | None = None,
+):
+    inbounds: list[TimePhasedInbound] = []
+    evaluated_at = ensure_utc(now or datetime.now(UTC))
+    shipments = db.scalars(
+        select(Shipment).where(
+            Shipment.tenant_id == tenant_id,
+            Shipment.plant_id == plant_id,
+            Shipment.material_id == material_id,
+        )
+    )
+    supplier_context_complete = True
+    for shipment in shipments:
+        if not is_physical_inbound_candidate(shipment):
+            continue
+        visibility = calculate_visibility_confidence(
+            shipment,
+            now=evaluated_at,
+            trust_config=trust_config,
+        )
+        if shipment.supplier_id is None:
+            supplier_context_complete = False
+        inbounds.append(
+            TimePhasedInbound(
+                shipment_id=shipment.shipment_id,
+                supplier_name=shipment.supplier_name,
+                eta=shipment.current_eta,
+                raw_quantity_mt=shipment.quantity_mt,
+                effective_quantity_mt=visibility.trusted_inbound_protection_mt,
+                supplier_linked=shipment.supplier_id is not None,
+            )
+        )
+    return evaluate_time_phased_cover(
+        TimePhasedCoverInputs(
+            snapshot_time=snapshot.snapshot_time,
+            usable_stock_mt=snapshot.available_to_consume_mt,
+            daily_consumption_mt=snapshot.daily_consumption_mt,
+            warning_days=threshold.warning_days if threshold else None,
+            critical_days=threshold.threshold_days if threshold else None,
+            reserve_days=threshold.minimum_buffer_stock_days if threshold else None,
+            reserve_quantity_mt=threshold.minimum_buffer_stock_mt if threshold else None,
+            interruption_configured=interruption_configured,
+            supplier_context_complete=supplier_context_complete,
+            inbounds=tuple(inbounds),
+        )
+    )
 
 
 def ensure_utc(value: datetime) -> datetime:

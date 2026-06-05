@@ -6,6 +6,47 @@ from pydantic import BaseModel
 from app.modules.impact.schemas import OperationalInterruptionImpact
 
 
+class DailyStockProjection(BaseModel):
+    projection_date: datetime
+    opening_stock_mt: Decimal
+    inbound_received_mt: Decimal
+    consumed_mt: Decimal
+    closing_stock_mt: Decimal
+
+
+class ShipmentProtectionEvaluation(BaseModel):
+    shipment_id: str
+    supplier_name: str
+    eta: datetime
+    raw_quantity_mt: Decimal
+    effective_quantity_mt: Decimal
+    stock_before_arrival_mt: Decimal
+    stock_after_arrival_mt: Decimal
+    protection_status: str
+    protects_reserve_breach: bool = False
+    protects_interruption: bool = False
+    reasoning: list[str]
+
+
+class TimePhasedCoverResult(BaseModel):
+    calibration_status: str
+    confidence_score: Decimal
+    assumptions_used: list[str]
+    warning_date: datetime | None = None
+    reserve_breach_date: datetime | None = None
+    critical_breach_date: datetime | None = None
+    interruption_date: datetime | None = None
+    current_projected_warning_date: datetime | None = None
+    current_projected_reserve_breach_date: datetime | None = None
+    current_projected_critical_breach_date: datetime | None = None
+    current_projected_interruption_date: datetime | None = None
+    first_reserve_protecting_shipment_id: str | None = None
+    first_interruption_protecting_shipment_id: str | None = None
+    daily_projection: list[DailyStockProjection]
+    shipment_evaluations: list[ShipmentProtectionEvaluation]
+    reasoning: list[str]
+
+
 class StockCoverBreakdown(BaseModel):
     current_stock_mt: Decimal | None
     inbound_pipeline_mt: Decimal
@@ -38,6 +79,7 @@ class StockCoverBreakdown(BaseModel):
     action_status: str | None
     action_sla_breach: bool
     action_age_hours: Decimal | None
+    time_phased_cover: TimePhasedCoverResult | None = None
 
 
 class StockCoverRow(BaseModel):
@@ -77,6 +119,7 @@ class ShipmentContribution(BaseModel):
 class StockCoverDetailResponse(BaseModel):
     row: StockCoverRow
     shipments: list[ShipmentContribution]
+    time_phased_cover: TimePhasedCoverResult | None = None
     confidence_reasons: list[str]
     assumptions: list[str]
     impact_explanation: list[str]
@@ -118,5 +161,6 @@ class InventoryContinuityResult(BaseModel):
     freshness_status: str = "unknown"
     trust_warnings: list[str] = []
     visibility_reason_chain: list[str] = []
+    time_phased_cover: TimePhasedCoverResult | None = None
     unit: str
     calculation_reasons: list[str]

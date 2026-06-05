@@ -40,6 +40,11 @@ class OperationalUnderstandingSummary(BaseModel):
     refreshed_operational_visibility: bool = False
     warnings: list[str] = []
     next_recommended_action: str | None = None
+    supplier_references_total: int = 0
+    supplier_references_linked: int = 0
+    supplier_references_unlinked: int = 0
+    onboarding_completeness_score: int = 100
+    supplier_reliability_impact: str | None = None
 
 
 class UploadResult(BaseModel):

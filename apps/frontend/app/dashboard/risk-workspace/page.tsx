@@ -10,6 +10,10 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import type { ReactNode } from "react";
+import type {
+  ShipmentProtectionEvaluation,
+  TimePhasedCoverResult,
+} from "@steelops/contracts";
 
 import { DailyBriefButton } from "@/components/reports/daily-brief-button";
 import { Badge } from "@/components/ui/badge";
@@ -42,8 +46,7 @@ const PILOT_SCENARIOS = [
   {
     value: "ocean_vessel_delay",
     label: "Ocean vessel delay",
-    note:
-      "Shows how ETA drift weakens inbound protection even when material is physically on the way.",
+    note: "Shows how ETA drift weakens inbound protection even when material is physically on the way.",
   },
   {
     value: "inland_movement_failure",
@@ -79,11 +82,12 @@ export default async function CriticalRiskWorkspacePage({
   const demoControlsEnabled =
     PILOT_SCENARIOS_ENABLED &&
     Boolean(
-      tenantPlan?.is_demo_tenant &&
-        tenantPlan.capabilities?.pilot_scenarios,
+      tenantPlan?.is_demo_tenant && tenantPlan.capabilities?.pilot_scenarios,
     );
   const walkthroughControlsEnabled = true;
-  const activeScenario = demoControlsEnabled ? searchParams?.scenario : undefined;
+  const activeScenario = demoControlsEnabled
+    ? searchParams?.scenario
+    : undefined;
   const walkthroughActive =
     walkthroughControlsEnabled && isWalkthroughActive(searchParams);
   const workspace = await getRiskWorkspace({
@@ -222,13 +226,15 @@ function WorkspaceContent({
         <div className="grid h-fit min-w-0 content-start gap-2.5">
           {walkthroughActive ? (
             <WalkthroughNote>
-              This translates current signals into likely operational consequence.
+              This translates current signals into likely operational
+              consequence.
             </WalkthroughNote>
           ) : null}
           <IfNothingChanges workspace={workspace} inventory={inventory} />
           {walkthroughActive ? (
             <WalkthroughNote>
-              These are human-led operational actions, not automated procurement.
+              These are human-led operational actions, not automated
+              procurement.
             </WalkthroughNote>
           ) : null}
           <RecommendedActions risk={risk} />
@@ -239,7 +245,10 @@ function WorkspaceContent({
               confidence are acceptable.
             </WalkthroughNote>
           ) : null}
-          <InboundProtectionQuality workspace={workspace} inventory={inventory} />
+          <InboundProtectionQuality
+            workspace={workspace}
+            inventory={inventory}
+          />
         </div>
       </section>
 
@@ -275,19 +284,29 @@ function OperationalRiskHero({
 }) {
   const risk = workspace.selected_risk;
   const exposure = workspace.exposure;
-  const breachDays = exposure?.days_until_exposure ?? risk?.days_of_cover ?? null;
+  const breachDays =
+    exposure?.days_until_exposure ?? risk?.days_of_cover ?? null;
   const threshold = inventory?.threshold_days ?? null;
-  const trustedInbound = inventory?.trusted_inbound_protection_mt ?? inventory?.trusted_inbound_quantity;
-  const physicalInbound = inventory?.physical_inbound_quantity_mt ?? inventory?.inbound_committed_quantity;
+  const trustedInbound =
+    inventory?.trusted_inbound_protection_mt ??
+    inventory?.trusted_inbound_quantity;
+  const physicalInbound =
+    inventory?.physical_inbound_quantity_mt ??
+    inventory?.inbound_committed_quantity;
   const coverDays = risk?.days_of_cover ?? inventory?.days_of_cover;
-  const usableStock = displayQuantity(inventory?.usable_quantity, inventory?.unit);
+  const usableStock = displayQuantity(
+    inventory?.usable_quantity,
+    inventory?.unit,
+  );
   const confidence =
     risk?.operational_trust?.operational_trust_score ??
     inventory?.visibility_confidence ??
     workspace.trust_summary?.lowest_confidence_score;
 
   return (
-    <Card className={`h-fit min-w-0 max-w-full self-start overflow-hidden ${workspaceTone(risk?.severity)}`}>
+    <Card
+      className={`h-fit min-w-0 max-w-full self-start overflow-hidden ${workspaceTone(risk?.severity)}`}
+    >
       <CardContent className="p-4 text-white">
         <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,0.42fr)_minmax(0,0.58fr)]">
           <div className="min-w-0">
@@ -333,7 +352,7 @@ function OperationalRiskHero({
             <div className="grid min-w-0 gap-2 sm:grid-cols-3">
               <SignalMetric
                 icon={<AlertTriangle className="h-4 w-4" />}
-                label="Safe threshold"
+                label="Coverage threshold"
                 value={displayDays(threshold)}
                 helper={safeCoverHelper(breachDays)}
                 tone="warning"
@@ -349,7 +368,10 @@ function OperationalRiskHero({
                 icon={<ShieldCheck className="h-4 w-4" />}
                 label="Confidence"
                 value={displayPercent(confidence)}
-                helper={formatLabel(risk?.operational_trust?.risk_precision_band ?? "calibrated context")}
+                helper={formatLabel(
+                  risk?.operational_trust?.risk_precision_band ??
+                    "calibrated context",
+                )}
               />
             </div>
           </div>
@@ -421,8 +443,8 @@ function RecommendedActions({ risk }: { risk: SignalRiskCandidate | null }) {
           <CardTitle>Recommended next actions</CardTitle>
         </div>
         <p className="text-xs leading-5 text-mutedForeground">
-          Human-led operational checks only. OpsDeck does not create purchase orders or
-          replace suppliers automatically.
+          Human-led operational checks only. OpsDeck does not create purchase
+          orders or replace suppliers automatically.
         </p>
       </CardHeader>
       <CardContent className="px-4 pb-4">
@@ -434,7 +456,9 @@ function RecommendedActions({ risk }: { risk: SignalRiskCandidate | null }) {
                 className="rounded-lg bg-slate-50 p-2.5 ring-1 ring-slate-900/5"
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="font-semibold">{actionLabel(action.action_type)}</p>
+                  <p className="font-semibold">
+                    {actionLabel(action.action_type)}
+                  </p>
                   <Badge variant="outline">{formatLabel(action.urgency)}</Badge>
                 </div>
                 <p className="mt-1.5 text-sm leading-5 text-mutedForeground">
@@ -475,7 +499,7 @@ function WorkspaceFilters({
                 ? `Viewing continuity for ${searchParams.plant_reference}.`
                 : demoControlsEnabled && searchParams?.scenario
                   ? "Viewing a controlled pilot scenario."
-                : "Viewing continuity for All plants."}
+                  : "Viewing continuity for All plants."}
             </p>
           </div>
           <div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -599,8 +623,7 @@ function DemoScenarioNotice({
       </p>
       {walkthroughActive && scenarioNote ? (
         <p className="mt-2 rounded-md bg-white/60 px-2.5 py-1.5 text-xs leading-5 ring-1 ring-amber-200/70">
-          You are viewing a controlled pilot scenario designed to demonstrate:
-          {" "}
+          You are viewing a controlled pilot scenario designed to demonstrate:{" "}
           {scenarioNote}
         </p>
       ) : null}
@@ -630,8 +653,8 @@ function WhyThisMatters({ workspace }: { workspace: RiskWorkspaceResponse }) {
           <CardTitle>Why this is escalating</CardTitle>
         </div>
         <p className="text-sm leading-5 text-mutedForeground">
-          Operational signals that explain why this plant-material context is becoming
-          fragile.
+          Operational signals that explain why this plant-material context is
+          becoming fragile.
         </p>
       </CardHeader>
       <CardContent className="px-4 pb-4">
@@ -692,11 +715,14 @@ function InboundProtectionQuality({
 }) {
   const shipmentQuantities = shipmentQuantityByReference(workspace);
   const aggregatePhysical =
-    inventory?.physical_inbound_quantity_mt ?? inventory?.inbound_committed_quantity;
+    inventory?.physical_inbound_quantity_mt ??
+    inventory?.inbound_committed_quantity;
   const aggregateTrusted =
-    inventory?.trusted_inbound_protection_mt ?? inventory?.trusted_inbound_quantity;
+    inventory?.trusted_inbound_protection_mt ??
+    inventory?.trusted_inbound_quantity;
   const aggregateUncertain =
-    inventory?.visibility_uncertain_quantity_mt ?? inventory?.uncertain_inbound_quantity;
+    inventory?.visibility_uncertain_quantity_mt ??
+    inventory?.uncertain_inbound_quantity;
 
   return (
     <Card className="min-w-0 max-w-full overflow-hidden">
@@ -706,8 +732,8 @@ function InboundProtectionQuality({
           <CardTitle>Inbound protection quality</CardTitle>
         </div>
         <p className="text-sm leading-5 text-mutedForeground">
-          Separates physical inbound from the portion OpsDeck can trust for continuity
-          protection.
+          Separates physical inbound from the portion OpsDeck can trust for
+          continuity protection.
         </p>
       </CardHeader>
       <CardContent className="px-4 pb-4">
@@ -763,7 +789,8 @@ function InboundProtectionRow({
     shipment.protective_quantity ??
     shipment.trusted_quantity ??
     (totalShipments === 1
-      ? inventory?.trusted_inbound_protection_mt ?? inventory?.trusted_inbound_quantity
+      ? (inventory?.trusted_inbound_protection_mt ??
+        inventory?.trusted_inbound_quantity)
       : null);
 
   return (
@@ -772,7 +799,11 @@ function InboundProtectionRow({
         <div>
           <p className="font-semibold">{shipment.shipment_reference}</p>
           <p className="mt-1 text-xs text-mutedForeground">
-            {formatLabel(shipment.movement_condition ?? shipment.current_milestone ?? shipment.status)}
+            {formatLabel(
+              shipment.movement_condition ??
+                shipment.current_milestone ??
+                shipment.status,
+            )}
           </p>
         </div>
         <Badge variant="outline">{quality.label}</Badge>
@@ -780,7 +811,12 @@ function InboundProtectionRow({
       <div className="mt-2 grid gap-1.5 text-sm sm:grid-cols-3">
         <span>Trust {formatLabel(shipment.trust_level ?? "unknown")}</span>
         <span>ETA {formatLabel(shipment.eta_status ?? "unknown")}</span>
-        <span>Freshness {formatLabel(shipment.freshness_status ?? shipment.tracking_freshness_status)}</span>
+        <span>
+          Freshness{" "}
+          {formatLabel(
+            shipment.freshness_status ?? shipment.tracking_freshness_status,
+          )}
+        </span>
       </div>
       <div className="mt-2 grid gap-1.5 sm:grid-cols-2">
         <ContextPill
@@ -796,7 +832,7 @@ function InboundProtectionRow({
           }
         />
       </div>
-      {shipment.protection_explanation ?? quality.reason ? (
+      {(shipment.protection_explanation ?? quality.reason) ? (
         <p className="mt-2 text-sm leading-5 text-mutedForeground">
           {shipment.protection_explanation ?? quality.reason}
         </p>
@@ -877,7 +913,10 @@ function OperationalTrustSummary({
             />
             <CompactSignalList
               title="Trust penalties"
-              items={[...penalties, ...degraded.map((area) => `${formatLabel(area)} degraded`)]}
+              items={[
+                ...penalties,
+                ...degraded.map((area) => `${formatLabel(area)} degraded`),
+              ]}
               empty="No trust penalties returned."
             />
             <CompactSignalList
@@ -976,9 +1015,236 @@ function ContinuitySummary({
               ) : null}
             </div>
           </div>
+          <TimePhasedCoverPanel inventory={inventory} />
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+function TimePhasedCoverPanel({
+  inventory,
+}: {
+  inventory: SignalInventoryContinuity[];
+}) {
+  const contexts = inventory.filter((item) => item.time_phased_cover);
+  return (
+    <div className="rounded-lg bg-slate-50 p-2.5 ring-1 ring-slate-900/5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="font-semibold">Time-phased cover</h3>
+        {contexts.length > 0 ? (
+          <span className="text-xs font-semibold text-mutedForeground">
+            {contexts.length} material contexts
+          </span>
+        ) : null}
+      </div>
+      <div className="mt-2 space-y-2">
+        {contexts.length > 0 ? (
+          contexts.map((item) => (
+            <TimePhasedCoverBlock
+              key={`${item.plant_reference}-${item.material_reference}`}
+              inventory={item}
+              cover={item.time_phased_cover as TimePhasedCoverResult}
+            />
+          ))
+        ) : (
+          <p className="rounded-lg bg-white px-3 py-2 text-sm text-mutedForeground ring-1 ring-slate-900/5">
+            Time-phased cover is not available for this context yet.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TimePhasedCoverBlock({
+  inventory,
+  cover,
+}: {
+  inventory: SignalInventoryContinuity;
+  cover: TimePhasedCoverResult;
+}) {
+  const protectiveShipments = cover.shipment_evaluations.filter((shipment) =>
+    ["PROTECTIVE", "RESERVE_ON_ARRIVAL", "CRITICAL_ON_ARRIVAL"].includes(
+      shipment.protection_status,
+    ),
+  );
+  const lateShipments = cover.shipment_evaluations.filter((shipment) =>
+    ["LATE_AFTER_RESERVE", "TOO_LATE"].includes(shipment.protection_status),
+  );
+
+  return (
+    <div className="rounded-lg bg-white p-3 ring-1 ring-slate-900/5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="font-semibold">
+            {inventory.material_reference} at {inventory.plant_reference}
+          </p>
+          <p className="mt-1 text-xs text-mutedForeground">
+            Confidence {displayPercent(cover.confidence_score)}
+          </p>
+        </div>
+        <Badge variant="outline">{formatLabel(cover.calibration_status)}</Badge>
+      </div>
+
+      <div className="mt-3 grid gap-1.5 md:grid-cols-2 xl:grid-cols-4">
+        <TimePhasedBreachCard
+          label="Warning"
+          firstDate={cover.warning_date}
+          currentDate={cover.current_projected_warning_date}
+        />
+        <TimePhasedBreachCard
+          label="Reserve"
+          firstDate={cover.reserve_breach_date}
+          currentDate={cover.current_projected_reserve_breach_date}
+        />
+        <TimePhasedBreachCard
+          label="Critical"
+          firstDate={cover.critical_breach_date}
+          currentDate={cover.current_projected_critical_breach_date}
+        />
+        <TimePhasedBreachCard
+          label="Interruption"
+          firstDate={cover.interruption_date}
+          currentDate={cover.current_projected_interruption_date}
+        />
+      </div>
+
+      {cover.assumptions_used.length > 0 ? (
+        <div className="mt-3 rounded-lg border border-dashed px-3 py-2 text-sm text-mutedForeground">
+          <p className="font-semibold text-slate-700">Assumptions used</p>
+          <ul className="mt-1 space-y-1">
+            {cover.assumptions_used.slice(0, 4).map((assumption) => (
+              <li key={assumption}>{assumption}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      <div className="mt-3 grid gap-2 xl:grid-cols-2">
+        <ShipmentProtectionGroup
+          title="Protective shipments"
+          emptyText="No inbound shipment currently arrives before the breach window."
+          shipments={protectiveShipments}
+          unit={inventory.unit}
+        />
+        <ShipmentProtectionGroup
+          title="Late / weak protection"
+          emptyText="No inbound shipment is currently too late against continuity timing."
+          shipments={lateShipments}
+          unit={inventory.unit}
+        />
+      </div>
+    </div>
+  );
+}
+
+function TimePhasedBreachCard({
+  label,
+  firstDate,
+  currentDate,
+}: {
+  label: string;
+  firstDate: string | null;
+  currentDate: string | null;
+}) {
+  return (
+    <div className="rounded-lg bg-slate-50 px-3 py-2 ring-1 ring-slate-900/5">
+      <p className="text-xs font-semibold text-mutedForeground">{label}</p>
+      <div className="mt-2 space-y-1.5">
+        <div>
+          <p className="text-xs text-mutedForeground">First breach</p>
+          <p className="text-sm font-semibold">{formatDate(firstDate)}</p>
+        </div>
+        <div>
+          <p className="text-xs text-mutedForeground">
+            Current projected after inbound
+          </p>
+          <p className="text-sm font-semibold">{formatDate(currentDate)}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ShipmentProtectionGroup({
+  title,
+  emptyText,
+  shipments,
+  unit,
+}: {
+  title: string;
+  emptyText: string;
+  shipments: ShipmentProtectionEvaluation[];
+  unit: string;
+}) {
+  return (
+    <div>
+      <p className="text-sm font-semibold">{title}</p>
+      <div className="mt-2 space-y-1.5">
+        {shipments.map((shipment) => (
+          <ShipmentProtectionCard
+            key={shipment.shipment_id}
+            shipment={shipment}
+            unit={unit}
+          />
+        ))}
+        {shipments.length === 0 ? (
+          <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-mutedForeground ring-1 ring-slate-900/5">
+            {emptyText}
+          </p>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function ShipmentProtectionCard({
+  shipment,
+  unit,
+}: {
+  shipment: ShipmentProtectionEvaluation;
+  unit: string;
+}) {
+  return (
+    <div
+      className={`rounded-lg p-2.5 ring-1 ${shipmentProtectionTone(shipment.protection_status)}`}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <p className="font-semibold">{shipment.shipment_id}</p>
+          <p className="mt-1 text-xs text-mutedForeground">
+            ETA {formatDate(shipment.eta)}
+          </p>
+        </div>
+        <Badge variant="outline">
+          {shipmentProtectionLabel(shipment.protection_status)}
+        </Badge>
+      </div>
+      <div className="mt-2 grid gap-1.5 text-xs text-mutedForeground sm:grid-cols-2">
+        <span>Raw {displayQuantity(shipment.raw_quantity_mt, unit)}</span>
+        <span>
+          Effective {displayQuantity(shipment.effective_quantity_mt, unit)}
+        </span>
+        <span>
+          Before arrival{" "}
+          {displayQuantity(shipment.stock_before_arrival_mt, unit)}
+        </span>
+        <span>
+          After arrival {displayQuantity(shipment.stock_after_arrival_mt, unit)}
+        </span>
+      </div>
+      <p className="mt-2 text-sm leading-5 text-mutedForeground">
+        {shipmentProtectionReason(shipment)}
+      </p>
+      {shipment.reasoning.length > 0 ? (
+        <ul className="mt-1 space-y-1 text-sm leading-5 text-mutedForeground">
+          {shipment.reasoning.slice(0, 2).map((reason) => (
+            <li key={reason}>{reason}</li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
   );
 }
 
@@ -1130,7 +1396,10 @@ function InventoryBlock({ item }: { item: SignalInventoryContinuity }) {
       />
       <ContextPill
         label="Visibility uncertainty"
-        value={displayQuantity(item.visibility_uncertain_quantity_mt, item.unit)}
+        value={displayQuantity(
+          item.visibility_uncertain_quantity_mt,
+          item.unit,
+        )}
       />
       <ContextPill
         label="Cover confidence"
@@ -1145,7 +1414,7 @@ function InventoryBlock({ item }: { item: SignalInventoryContinuity }) {
         value={`${formatNumber(item.daily_consumption_rate)} ${item.unit}`}
       />
       {item.trust_warnings.length > 0 ? (
-    <div className="rounded-lg bg-amber-50 p-2.5 text-sm text-amber-900 ring-1 ring-amber-200 sm:col-span-3">
+        <div className="rounded-lg bg-amber-50 p-2.5 text-sm text-amber-900 ring-1 ring-amber-200 sm:col-span-3">
           <p className="font-semibold">Visibility weak</p>
           <ul className="mt-1 space-y-1">
             {item.trust_warnings.slice(0, 2).map((warning) => (
@@ -1288,7 +1557,9 @@ function BandBadge({ value }: { value: string }) {
           ? "bg-amber-50 text-amber-900 ring-amber-200"
           : "bg-slate-100 text-slate-700 ring-slate-200";
   return (
-    <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ${className}`}>
+    <span
+      className={`rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ${className}`}
+    >
       {formatLabel(value)}
     </span>
   );
@@ -1296,16 +1567,14 @@ function BandBadge({ value }: { value: string }) {
 
 function primaryInventory(workspace: RiskWorkspaceResponse) {
   const selected = workspace.selected_risk;
-  return (
-    workspace.inventory_continuity.find(
-      (item) =>
-        item.plant_reference === selected?.plant_reference &&
-        item.material_reference === selected?.material_reference,
-    ) ??
+  return (workspace.inventory_continuity.find(
+    (item) =>
+      item.plant_reference === selected?.plant_reference &&
+      item.material_reference === selected?.material_reference,
+  ) ??
     workspace.context_graph?.summary.inventory_continuity ??
     workspace.inventory_continuity[0] ??
-    null
-  ) as SignalInventoryContinuity | null;
+    null) as SignalInventoryContinuity | null;
 }
 
 function operationalHeadline(
@@ -1318,7 +1587,7 @@ function operationalHeadline(
     return `Projected stockout risk for ${context}`;
   }
   if (risk?.risk_type === "inbound_delay_against_cover") {
-    return `Inbound protection may not arrive before safe cover weakens`;
+    return `Inbound protection may not arrive before current cover weakens`;
   }
   if (days) {
     return `Production continuity risk expected in ${formatNumber(days)} days`;
@@ -1328,7 +1597,7 @@ function operationalHeadline(
 
 function safeCoverHelper(value?: string | null) {
   if (!value) return "breach timing not available";
-  return `safe cover breach expected in ${formatNumber(value)} days`;
+  return `coverage threshold breach expected in ${formatNumber(value)} days`;
 }
 
 function safeBreachStatement(
@@ -1338,10 +1607,10 @@ function safeBreachStatement(
   const exposureDays = workspace.exposure?.days_until_exposure;
   const threshold = inventory?.threshold_days;
   if (exposureDays) {
-    return `Safe threshold breach expected in ${formatNumber(exposureDays)} days.`;
+    return `Coverage threshold breach expected in ${formatNumber(exposureDays)} days.`;
   }
   if (workspace.selected_risk?.days_of_cover && threshold) {
-    return `Current usable cover is ${displayDays(workspace.selected_risk.days_of_cover)} against a safe threshold of ${displayDays(threshold)}.`;
+    return `Current usable cover is ${displayDays(workspace.selected_risk.days_of_cover)} against a coverage threshold of ${displayDays(threshold)}.`;
   }
   if (workspace.selected_risk?.projected_exhaustion_date) {
     return `Projected exhaustion is ${formatDate(workspace.selected_risk.projected_exhaustion_date)}.`;
@@ -1349,7 +1618,9 @@ function safeBreachStatement(
   return null;
 }
 
-function interruptionStatement(impact?: SignalRiskCandidate["operational_interruption_impact"]) {
+function interruptionStatement(
+  impact?: SignalRiskCandidate["operational_interruption_impact"],
+) {
   if (!impact) return null;
   if (impact.calculation_status !== "calculated") {
     return "Production interruption impact is not fully calibrated for this context.";
@@ -1385,7 +1656,9 @@ function escalatingSignals(
   const signals = new Set<string>();
   const text = [
     ...reasons,
-    ...workspace.shipment_continuity.flatMap((shipment) => shipment.continuity_reasons),
+    ...workspace.shipment_continuity.flatMap(
+      (shipment) => shipment.continuity_reasons,
+    ),
     ...(workspace.inventory_continuity[0]?.trust_warnings ?? []),
   ]
     .join(" ")
@@ -1394,26 +1667,41 @@ function escalatingSignals(
   if (text.includes("eta slipped") || text.includes("eta drift")) {
     signals.add("Vessel or inbound ETA slipped against plan.");
   }
-  if (text.includes("inland") || text.includes("near_plant") || text.includes("gate_in")) {
+  if (
+    text.includes("inland") ||
+    text.includes("near_plant") ||
+    text.includes("gate_in")
+  ) {
     signals.add("Inland movement is not confirmed strongly enough.");
   }
-  if (text.includes("supplier") && (text.includes("weak") || text.includes("insufficient"))) {
+  if (
+    text.includes("supplier") &&
+    (text.includes("weak") || text.includes("insufficient"))
+  ) {
     signals.add("Supplier dispatch or reliability evidence is weak.");
   }
   if (text.includes("stale") || text.includes("critical visibility")) {
     signals.add("Last tracking update is stale for this movement context.");
   }
   if (workspace.selected_risk?.days_of_cover || inventory?.threshold_days) {
-    signals.add("Usable cover is at or below the configured operating threshold.");
+    signals.add(
+      "Usable cover is at or below the configured operating threshold.",
+    );
   }
   if (numberValue(inventory?.visibility_uncertain_quantity_mt) > 0) {
-    signals.add("Inbound exists physically but is not fully trusted for protection.");
+    signals.add(
+      "Inbound exists physically but is not fully trusted for protection.",
+    );
   }
   if (inventory?.daily_consumption_rate) {
-    signals.add(`Consumption pressure is ${formatNumber(inventory.daily_consumption_rate)} ${inventory.unit}/day.`);
+    signals.add(
+      `Consumption pressure is ${formatNumber(inventory.daily_consumption_rate)} ${inventory.unit}/day.`,
+    );
   }
   if (signals.size === 0) {
-    signals.add("OpsDeck returned a continuity risk, but the causal signal detail is limited.");
+    signals.add(
+      "OpsDeck returned a continuity risk, but the causal signal detail is limited.",
+    );
   }
   return Array.from(signals);
 }
@@ -1440,7 +1728,10 @@ function inboundProtectionLabel(shipment: SignalShipmentContinuity) {
     };
   }
   const slip = numberValue(shipment.eta_slip_days);
-  if (shipment.status === "degraded" || shipment.tracking_freshness_status === "critical") {
+  if (
+    shipment.status === "degraded" ||
+    shipment.tracking_freshness_status === "critical"
+  ) {
     return {
       label: "Weak protection",
       protectiveValue: "Reduced by visibility trust",
@@ -1448,11 +1739,16 @@ function inboundProtectionLabel(shipment: SignalShipmentContinuity) {
       className: "bg-red-50 ring-red-200",
     };
   }
-  if (shipment.status === "watch" || shipment.tracking_freshness_status === "stale" || slip > 0) {
+  if (
+    shipment.status === "watch" ||
+    shipment.tracking_freshness_status === "stale" ||
+    slip > 0
+  ) {
     return {
       label: "Partial protection",
       protectiveValue: "Partially trusted",
-      reason: "Inbound exists, but timing or visibility needs operational validation.",
+      reason:
+        "Inbound exists, but timing or visibility needs operational validation.",
       className: "bg-amber-50 ring-amber-200",
     };
   }
@@ -1460,7 +1756,8 @@ function inboundProtectionLabel(shipment: SignalShipmentContinuity) {
     return {
       label: "Not currently protective",
       protectiveValue: "Not trusted yet",
-      reason: "Shipment condition is missing enough context for trusted protection.",
+      reason:
+        "Shipment condition is missing enough context for trusted protection.",
       className: "bg-slate-100 ring-slate-200",
     };
   }
@@ -1470,6 +1767,47 @@ function inboundProtectionLabel(shipment: SignalShipmentContinuity) {
     reason: "Inbound timing and visibility are currently acceptable.",
     className: "bg-emerald-50 ring-emerald-200",
   };
+}
+
+function shipmentProtectionLabel(value: string) {
+  const labels: Record<string, string> = {
+    PROTECTIVE: "Arrives before reserve breach",
+    RESERVE_ON_ARRIVAL: "Arrives at reserve",
+    CRITICAL_ON_ARRIVAL: "Arrives at critical",
+    LATE_AFTER_RESERVE: "Late after reserve",
+    TOO_LATE: "Too late",
+  };
+  return labels[value] ?? formatLabel(value);
+}
+
+function shipmentProtectionReason(shipment: ShipmentProtectionEvaluation) {
+  if (shipment.protection_status === "PROTECTIVE") {
+    return "Arrives before reserve breach and protects continuity timing.";
+  }
+  if (shipment.protection_status === "RESERVE_ON_ARRIVAL") {
+    return "Arrives while stock is already at reserve level; operations should validate timing.";
+  }
+  if (shipment.protection_status === "CRITICAL_ON_ARRIVAL") {
+    return "Arrives while stock is already critical; protection is weak and time-sensitive.";
+  }
+  if (shipment.protection_status === "LATE_AFTER_RESERVE") {
+    return "Arrives after reserve breach, so it may reduce damage but does not fully protect continuity.";
+  }
+  if (shipment.protection_status === "TOO_LATE") {
+    return "Arrives too late to protect continuity.";
+  }
+  return "Shipment timing needs operational review.";
+}
+
+function shipmentProtectionTone(value: string) {
+  if (value === "PROTECTIVE") return "bg-emerald-50 ring-emerald-200";
+  if (value === "RESERVE_ON_ARRIVAL" || value === "CRITICAL_ON_ARRIVAL") {
+    return "bg-amber-50 ring-amber-200";
+  }
+  if (value === "LATE_AFTER_RESERVE" || value === "TOO_LATE") {
+    return "bg-red-50 ring-red-200";
+  }
+  return "bg-slate-50 ring-slate-900/5";
 }
 
 function shipmentQuantityByReference(workspace: RiskWorkspaceResponse) {
@@ -1562,7 +1900,11 @@ function walkthroughHref(
   includeScenario: boolean,
 ) {
   const params = new URLSearchParams();
-  setParam(params, "scenario", includeScenario ? searchParams?.scenario : undefined);
+  setParam(
+    params,
+    "scenario",
+    includeScenario ? searchParams?.scenario : undefined,
+  );
   setParam(params, "plant_reference", searchParams?.plant_reference);
   setParam(params, "material_reference", searchParams?.material_reference);
   setParam(params, "shipment_reference", searchParams?.shipment_reference);
@@ -1570,7 +1912,9 @@ function walkthroughHref(
   setParam(params, "severity", searchParams?.severity);
   if (enabled) params.set("walkthrough", "1");
   const query = params.toString();
-  return query ? `/dashboard/risk-workspace?${query}` : "/dashboard/risk-workspace";
+  return query
+    ? `/dashboard/risk-workspace?${query}`
+    : "/dashboard/risk-workspace";
 }
 
 function setParam(
@@ -1586,7 +1930,8 @@ function isWalkthroughActive(searchParams: SearchParams | undefined) {
 }
 
 function scenarioWalkthroughNote(scenarioKey?: string | null) {
-  return PILOT_SCENARIOS.find((scenario) => scenario.value === scenarioKey)?.note;
+  return PILOT_SCENARIOS.find((scenario) => scenario.value === scenarioKey)
+    ?.note;
 }
 
 function isSelectedExposure(

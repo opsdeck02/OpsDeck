@@ -148,12 +148,12 @@ DEMO_MATERIALS = (
         supplier_name="Eastern Metallurgical Coal",
         supplier_origin="Australia",
         primary_port="Hay Point",
-        stock_on_hand=Decimal("32500"),
-        quality_held=Decimal("2000"),
-        available_stock=Decimal("30500"),
-        daily_consumption=Decimal("25600"),
-        critical_days=Decimal("3"),
-        warning_days=Decimal("10"),
+        stock_on_hand=Decimal("100"),
+        quality_held=Decimal("0"),
+        available_stock=Decimal("100"),
+        daily_consumption=Decimal("10"),
+        critical_days=Decimal("1"),
+        warning_days=Decimal("5"),
         stockout_horizon_days=Decimal("7"),
         production_line_code="BF-1",
         production_line_name="Blast Furnace 1",
@@ -177,9 +177,9 @@ DEMO_MATERIALS = (
         weak_visibility_threshold=Decimal("0.55"),
         minimum_trusted_inbound_ratio=Decimal("0.65"),
         active_shipment_state="delayed",
-        active_shipment_quantity=Decimal("74000"),
-        active_shipment_eta_days=4,
-        active_shipment_delay_days=2,
+        active_shipment_quantity=Decimal("10"),
+        active_shipment_eta_days=2,
+        active_shipment_delay_days=0,
         vessel_name="MV Eastern Line",
         imo_number="9876543",
         mmsi="419000123",
@@ -615,6 +615,7 @@ def seed_material_context(
     now: datetime,
 ) -> None:
     stock_snapshot_time = now - timedelta(hours=2)
+    reserve_days = Decimal("2") if config.code == "DEMO-COKING-COAL" else config.critical_days
     db.add(
         StockSnapshot(
             tenant_id=tenant_id,
@@ -634,8 +635,8 @@ def seed_material_context(
             material_id=material.id,
             threshold_days=config.critical_days,
             warning_days=config.warning_days,
-            minimum_buffer_stock_days=config.critical_days,
-            minimum_buffer_stock_mt=config.critical_days * config.daily_consumption,
+            minimum_buffer_stock_days=reserve_days,
+            minimum_buffer_stock_mt=reserve_days * config.daily_consumption,
             stockout_alert_horizon_days=config.stockout_horizon_days,
         )
     )
@@ -725,6 +726,18 @@ def seed_shipments(
     config: DemoMaterialConfig,
     now: datetime,
 ) -> None:
+    if config.code == "DEMO-COKING-COAL":
+        seed_coking_coal_story_shipments(
+            db,
+            tenant_id=tenant_id,
+            plant=plant,
+            material=material,
+            supplier=supplier,
+            config=config,
+            now=now,
+        )
+        return
+
     planned_eta = now + timedelta(
         days=max(1, config.active_shipment_eta_days - config.active_shipment_delay_days)
     )
@@ -802,6 +815,134 @@ def seed_shipments(
         )
 
 
+def seed_coking_coal_story_shipments(
+    db: Session,
+    *,
+    tenant_id: int,
+    plant: Plant,
+    material: Material,
+    supplier: Supplier,
+    config: DemoMaterialConfig,
+    now: datetime,
+) -> None:
+    story_shipments = (
+        {
+            "shipment_id": "DEMO-COAL-PROTECTIVE-A",
+            "supplier_id": supplier.id,
+            "supplier_name": supplier.name,
+            "quantity_mt": Decimal("10"),
+            "planned_eta": now + timedelta(days=2),
+            "current_eta": now + timedelta(days=2),
+            "latest_update_at": now - timedelta(hours=4),
+            "last_tracking_update_at": now - timedelta(hours=4),
+            "eta_confidence": Decimal("0.95"),
+            "current_state": ShipmentState.IN_TRANSIT,
+            "delay_days": 0,
+            "delay_status": "on_time",
+            "current_milestone": "ocean_transit",
+            "current_location": "Bay of Bengal",
+            "vessel_name": "MV Eastern Line",
+            "imo_number": "9876543",
+            "mmsi": "419000123",
+            "origin_port": "Hay Point",
+        },
+        {
+            "shipment_id": "DEMO-COAL-LATE-B",
+            "supplier_id": supplier.id,
+            "supplier_name": supplier.name,
+            "quantity_mt": Decimal("10"),
+            "planned_eta": now + timedelta(days=9),
+            "current_eta": now + timedelta(days=9, hours=6),
+            "latest_update_at": now - timedelta(hours=8),
+            "last_tracking_update_at": now - timedelta(hours=8),
+            "eta_confidence": Decimal("0.88"),
+            "current_state": ShipmentState.IN_TRANSIT,
+            "delay_days": 0,
+            "delay_status": "watch",
+            "current_milestone": "ocean_transit",
+            "current_location": "Indian Ocean",
+            "vessel_name": "MV Furnace Bay",
+            "imo_number": "9765432",
+            "mmsi": "419000456",
+            "origin_port": "Newcastle",
+        },
+        {
+            "shipment_id": "DEMO-COAL-TOO-LATE-C",
+            "supplier_id": None,
+            "supplier_name": "Unlinked Demo Coal Desk",
+            "quantity_mt": Decimal("30"),
+            "planned_eta": now + timedelta(days=13),
+            "current_eta": now + timedelta(days=13),
+            "latest_update_at": now - timedelta(hours=8),
+            "last_tracking_update_at": now - timedelta(hours=8),
+            "eta_confidence": Decimal("0.72"),
+            "current_state": ShipmentState.PLANNED,
+            "delay_days": 0,
+            "delay_status": "planned",
+            "current_milestone": "fixture_pending",
+            "current_location": "Hay Point",
+            "vessel_name": "MV Late Relief",
+            "imo_number": "9654321",
+            "mmsi": "419000789",
+            "origin_port": "Hay Point",
+        },
+    )
+    for item in story_shipments:
+        shipment = Shipment(
+            tenant_id=tenant_id,
+            shipment_id=item["shipment_id"],
+            plant_id=plant.id,
+            material_id=material.id,
+            supplier_id=item["supplier_id"],
+            supplier_name=item["supplier_name"],
+            quantity_mt=item["quantity_mt"],
+            vessel_name=item["vessel_name"],
+            imo_number=item["imo_number"],
+            mmsi=item["mmsi"],
+            origin_port=item["origin_port"],
+            destination_port=config.destination_port,
+            planned_eta=item["planned_eta"],
+            current_eta=item["current_eta"],
+            latest_eta=item["current_eta"],
+            delay_days=item["delay_days"],
+            delay_status=item["delay_status"],
+            current_milestone=item["current_milestone"],
+            current_location=item["current_location"],
+            last_tracking_update_at=item["last_tracking_update_at"],
+            eta_confidence=item["eta_confidence"],
+            current_state=item["current_state"],
+            source_of_truth="demo_coking_coal_story",
+            latest_update_at=item["latest_update_at"],
+        )
+        db.add(shipment)
+        flush_pending(db)
+        db.add(
+            ShipmentUpdate(
+                tenant_id=tenant_id,
+                shipment_id=shipment.id,
+                source="demo_coking_coal_story",
+                event_type="milestone_update",
+                event_time=item["latest_update_at"],
+                payload_json=None,
+                notes=f"{shipment.shipment_id} seeded for the coking-coal pilot story.",
+            )
+        )
+
+    db.add(
+        LineStopIncident(
+            tenant_id=tenant_id,
+            plant_id=plant.id,
+            material_id=material.id,
+            stopped_at=now + timedelta(days=12),
+            duration_hours=Decimal("8"),
+            notes=(
+                "Demo coking-coal line-stop incident used for historical validation "
+                "lead-time review."
+            ),
+        )
+    )
+
+
 def seed_onboarding_records(
     db: Session,
     *,
@@ -809,8 +950,15 @@ def seed_onboarding_records(
     admin_user_id: int,
     now: datetime,
 ) -> None:
+    coking_story_shipments = 3
+    standard_shipments_per_material = 4
     datasets = (
-        ("shipments", "demo_inbound_shipments.csv", len(DEMO_MATERIALS) * 4),
+        (
+            "shipments",
+            "demo_inbound_shipments.csv",
+            (len(DEMO_MATERIALS) - 1) * standard_shipments_per_material
+            + coking_story_shipments,
+        ),
         ("stock", "demo_stock_snapshots.csv", len(DEMO_MATERIALS)),
         ("thresholds", "demo_continuity_thresholds.csv", len(DEMO_MATERIALS)),
         ("operational_config", "demo_full_operational_config.csv", len(DEMO_MATERIALS)),

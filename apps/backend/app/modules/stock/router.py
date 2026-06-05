@@ -8,6 +8,7 @@ from app.modules.stock.schemas import (
     StockCoverDetailResponse,
     StockCoverSummaryResponse,
     StockRiskActionRequest,
+    TimePhasedCoverResult,
 )
 from app.modules.stock.service import (
     calculate_stock_cover_detail,
@@ -89,6 +90,22 @@ def stock_cover_detail(
     if detail is None:
         raise HTTPException(status_code=404, detail="Stock cover detail not found")
     return detail
+
+
+@router.get(
+    "/cover/{plant_id}/{material_id}/time-phased",
+    response_model=TimePhasedCoverResult,
+)
+def stock_time_phased_cover(
+    plant_id: int,
+    material_id: int,
+    context: Annotated[RequestContext, Depends(get_request_context)],
+    db: Annotated[Session, Depends(get_db)],
+) -> TimePhasedCoverResult:
+    detail = calculate_stock_cover_detail(db, context, plant_id, material_id)
+    if detail is None or detail.time_phased_cover is None:
+        raise HTTPException(status_code=404, detail="Time-phased cover detail not found")
+    return detail.time_phased_cover
 
 
 @router.patch("/cover/{plant_id}/{material_id}/action", response_model=StockCoverDetailResponse)
