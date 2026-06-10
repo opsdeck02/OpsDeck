@@ -1,7 +1,7 @@
 """Add separate threshold quantity fields.
 
 Revision ID: 0023
-Revises: 0022_cleanup_legacy_demo_seed_data
+Revises: 0022_cleanup_demo_data
 Create Date: 2026-06-10 00:00:00.000000
 """
 
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "0023"
-down_revision: str | None = "0022_cleanup_legacy_demo_seed_data"
+down_revision: str | None = "0022_cleanup_demo_data"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
