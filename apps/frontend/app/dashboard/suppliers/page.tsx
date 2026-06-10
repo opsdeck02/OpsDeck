@@ -82,8 +82,9 @@ export default async function SuppliersPage({
                         "-"}
                     </td>
                     <td>
-                      <GradeBadge
+                      <ReliabilityBadge
                         grade={supplier.performance.reliability_grade}
+                        status={supplier.performance.reliability_status}
                       />
                     </td>
                     <td>
@@ -139,7 +140,20 @@ function supplierHref(supplierId: string, plantReference?: string) {
   }).toString()}`;
 }
 
-function GradeBadge({ grade }: { grade: string }) {
+function ReliabilityBadge({
+  grade,
+  status,
+}: {
+  grade: string;
+  status?: string;
+}) {
+  if (status === "uncalibrated") {
+    return (
+      <span className="rounded-full bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">
+        Uncalibrated
+      </span>
+    );
+  }
   const className =
     grade === "A"
       ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"

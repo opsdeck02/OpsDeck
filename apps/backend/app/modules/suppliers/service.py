@@ -33,6 +33,7 @@ ACTIVE_STATES = {
 }
 
 GRADE_ORDER = {"A": 0, "B": 1, "C": 2, "D": 3}
+MIN_CALIBRATED_SHIPMENTS = 3
 
 
 def list_suppliers(
@@ -272,6 +273,9 @@ def calculate_supplier_performance(
         ports_used=ports,
         last_shipment_date=last_shipment_date,
         reliability_grade=reliability_grade(reliability_pct),
+        reliability_status=(
+            "calibrated" if len(shipments) >= MIN_CALIBRATED_SHIPMENTS else "uncalibrated"
+        ),
     )
 
 
@@ -373,6 +377,58 @@ def find_supplier_by_name(db: Session, tenant_id: int, supplier_name: str) -> Su
             func.lower(Supplier.name) == supplier_name.strip().lower(),
         )
     )
+
+
+def find_or_create_supplier_from_upload(
+    db: Session,
+    tenant_id: int,
+    supplier_name: str,
+) -> Supplier:
+    normalized_name = supplier_name.strip()
+    supplier = db.scalar(
+        select(Supplier).where(
+            Supplier.tenant_id == tenant_id,
+            func.lower(Supplier.name) == normalized_name.lower(),
+        )
+    )
+    if supplier is not None:
+        if not supplier.is_active:
+            supplier.is_active = True
+            db.flush()
+        return supplier
+
+    supplier = Supplier(
+        tenant_id=tenant_id,
+        name=normalized_name,
+        code=unique_supplier_code(db, tenant_id, normalized_name),
+        is_active=True,
+    )
+    db.add(supplier)
+    db.flush()
+    return supplier
+
+
+def unique_supplier_code(db: Session, tenant_id: int, supplier_name: str) -> str:
+    base = supplier_code_from_name(supplier_name)
+    existing_codes = {
+        code
+        for code in db.scalars(select(Supplier.code).where(Supplier.tenant_id == tenant_id))
+        if code
+    }
+    if base not in existing_codes:
+        return base
+    for index in range(2, 1000):
+        suffix = f"_{index}"
+        candidate = f"{base[: 40 - len(suffix)]}{suffix}"
+        if candidate not in existing_codes:
+            return candidate
+    raise ValueError("Could not generate a unique supplier code")
+
+
+def supplier_code_from_name(supplier_name: str) -> str:
+    compact = "".join(char if char.isalnum() else "_" for char in supplier_name.upper())
+    compact = "_".join(part for part in compact.split("_") if part)
+    return compact[:40] or "SUPPLIER"
 
 
 def reliability_grade(on_time_reliability_pct: Decimal) -> str:

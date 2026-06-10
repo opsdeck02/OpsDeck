@@ -48,6 +48,7 @@ class SupplierPerformance(BaseModel):
     ports_used: list[str]
     last_shipment_date: datetime | None
     reliability_grade: str
+    reliability_status: str
 
 
 class SupplierOut(SupplierBase):

@@ -199,13 +199,18 @@ def test_valid_shipment_upload(
     assert body["operational_summary"]["refreshed_operational_visibility"] is True
     assert body["operational_summary"]["next_recommended_action"]
     assert body["operational_summary"]["supplier_references_total"] == 1
-    assert body["operational_summary"]["supplier_references_linked"] == 0
-    assert body["operational_summary"]["supplier_references_unlinked"] == 1
-    assert body["operational_summary"]["onboarding_completeness_score"] == 0
-    assert "supplier reliability" in body["operational_summary"]["supplier_reliability_impact"]
+    assert body["operational_summary"]["supplier_references_linked"] == 1
+    assert body["operational_summary"]["supplier_references_unlinked"] == 0
+    assert body["operational_summary"]["onboarding_completeness_score"] == 100
+    assert body["operational_summary"]["supplier_reliability_impact"] is None
 
     with SessionLocal() as db:
         assert db.scalar(select(func.count()).select_from(Shipment)) == 1
+        supplier = db.scalar(select(Supplier).where(Supplier.name == "Supplier A"))
+        assert supplier is not None
+        shipment = db.scalar(select(Shipment).where(Shipment.shipment_id == "SHP-001"))
+        assert shipment is not None
+        assert shipment.supplier_id == supplier.id
         event = db.scalar(select(OperationalEvent))
         assert event is not None
         assert event.tenant_id == 1
@@ -219,6 +224,70 @@ def test_valid_shipment_upload(
         assert event.metadata_json is not None
         assert event.metadata_json["confidence"]["score"] == float(event.confidence_score)
         assert "source_reliability" in event.metadata_json["confidence"]["factors"]
+
+
+def test_shipment_upload_deduplicates_detected_supplier_names(
+    client_and_session: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, SessionLocal = client_and_session
+    csv_body = "\n".join(
+        [
+            "shipment_id,plant_code,material_code,supplier_name,quantity_mt,"
+            "planned_eta,current_eta,current_state,latest_update_at",
+            "SHP-SUP-1,JAM,COKING_COAL,Supplier A,10,"
+            "2026-04-20T08:00:00Z,2026-04-21T08:00:00Z,"
+            "in_transit,2026-04-15T09:00:00Z",
+            "SHP-SUP-2,JAM,COKING_COAL,supplier a,20,"
+            "2026-04-22T08:00:00Z,2026-04-23T08:00:00Z,"
+            "in_transit,2026-04-16T09:00:00Z",
+        ]
+    )
+
+    response = upload_csv(client, login(client), "shipment", csv_body)
+
+    assert response.status_code == 200, response.json()
+    with SessionLocal() as db:
+        suppliers = list(db.scalars(select(Supplier)))
+        assert len(suppliers) == 1
+        assert suppliers[0].name == "Supplier A"
+        assert suppliers[0].code == "SUPPLIER_A"
+        assert db.scalar(select(func.count()).select_from(Shipment)) == 2
+        assert (
+            db.scalar(
+                select(func.count())
+                .select_from(Shipment)
+                .where(Shipment.supplier_id == suppliers[0].id)
+            )
+            == 2
+        )
+
+
+def test_shipment_upload_missing_supplier_is_rejected_without_broken_supplier(
+    client_and_session: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, SessionLocal = client_and_session
+    csv_body = "\n".join(
+        [
+            "shipment_id,plant_code,material_code,supplier_name,quantity_mt,"
+            "planned_eta,current_eta,current_state,latest_update_at",
+            "SHP-MISSING-SUP,JAM,COKING_COAL,,10,"
+            "2026-04-20T08:00:00Z,2026-04-21T08:00:00Z,"
+            "in_transit,2026-04-15T09:00:00Z",
+        ]
+    )
+
+    response = upload_csv(client, login(client), "shipment", csv_body)
+
+    assert response.status_code == 400, response.json()
+    body = response.json()["detail"]
+    assert body["rows_accepted"] == 0
+    assert body["rows_rejected"] == 1
+    field_error = body["validation_errors"][0]["field_errors"][0]
+    assert field_error["field"] == "supplier_name"
+    assert "Reliability source is missing" in field_error["reason"]
+    with SessionLocal() as db:
+        assert db.scalar(select(func.count()).select_from(Supplier)) == 0
+        assert db.scalar(select(func.count()).select_from(Shipment)) == 0
 
 
 def test_valid_stock_upload(client_and_session: tuple[TestClient, sessionmaker[Session]]) -> None:
@@ -1485,7 +1554,13 @@ def test_founder_demo_csv_files_ingest_and_are_import_auditable(
         "DEMO-COAL-PROTECTIVE-A"
         in shipment_response.json()["operational_summary"]["shipments_detected"]
     )
-    assert shipment_response.json()["operational_summary"]["warnings"]
+    shipment_summary = shipment_response.json()["operational_summary"]
+    assert shipment_summary["warnings"] == []
+    assert shipment_summary["supplier_references_total"] >= 1
+    assert shipment_summary["supplier_references_linked"] == shipment_summary[
+        "supplier_references_total"
+    ]
+    assert shipment_summary["supplier_references_unlinked"] == 0
 
     detail_response = client.get(
         f"/api/v1/ingestion/jobs/{shipment_response.json()['ingestion_job_id']}",
@@ -1505,6 +1580,7 @@ def test_founder_demo_csv_files_ingest_and_are_import_auditable(
             )
             == 6
         )
+        assert db.scalar(select(func.count()).select_from(Supplier)) >= 1
         assert (
             db.scalar(
                 select(func.count())
@@ -1560,11 +1636,13 @@ def test_demo_coking_coal_upload_story_proves_time_phased_cover_and_history(
     assert threshold_response.status_code == 200, threshold_response.json()
     operational_summary = shipment_response.json()["operational_summary"]
     assert operational_summary["supplier_references_total"] >= 2
-    assert operational_summary["supplier_references_linked"] >= 1
-    assert operational_summary["supplier_references_unlinked"] >= 1
-    assert operational_summary["onboarding_completeness_score"] < 100
-    assert "supplier reliability" in operational_summary["supplier_reliability_impact"]
-    assert any(
+    assert operational_summary["supplier_references_linked"] == operational_summary[
+        "supplier_references_total"
+    ]
+    assert operational_summary["supplier_references_unlinked"] == 0
+    assert operational_summary["onboarding_completeness_score"] == 100
+    assert operational_summary["supplier_reliability_impact"] is None
+    assert not any(
         "not linked to an existing supplier record" in warning
         for warning in operational_summary["warnings"]
     )
@@ -1627,7 +1705,7 @@ def test_demo_coking_coal_upload_story_proves_time_phased_cover_and_history(
         assert statuses["DEMO-COAL-PROTECTIVE-A"] == "PROTECTIVE"
         assert statuses["DEMO-COAL-LATE-B"] == "LATE_AFTER_RESERVE"
         assert statuses["DEMO-COAL-TOO-LATE-C"] == "TOO_LATE"
-        assert "One or more inbound shipments are missing supplier master linkage." in (
+        assert "One or more inbound shipments are missing supplier master linkage." not in (
             cover.assumptions_used
         )
 

@@ -163,6 +163,7 @@ export interface SupplierPerformance {
   ports_used: string[];
   last_shipment_date: string | null;
   reliability_grade: string;
+  reliability_status: string;
 }
 
 export interface Supplier {

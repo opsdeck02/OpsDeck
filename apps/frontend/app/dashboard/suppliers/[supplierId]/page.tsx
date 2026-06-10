@@ -44,7 +44,10 @@ export default async function SupplierDetailPage({
               Contact: {supplier.contact_name ?? "Not set"} {supplier.contact_email ? `(${supplier.contact_email})` : ""}
             </p>
           </div>
-          <GradeBadge grade={supplier.performance.reliability_grade} />
+          <ReliabilityBadge
+            grade={supplier.performance.reliability_grade}
+            status={supplier.performance.reliability_status}
+          />
         </div>
       </section>
 
@@ -124,7 +127,20 @@ export default async function SupplierDetailPage({
   );
 }
 
-function GradeBadge({ grade }: { grade: string }) {
+function ReliabilityBadge({
+  grade,
+  status,
+}: {
+  grade: string;
+  status?: string;
+}) {
+  if (status === "uncalibrated") {
+    return (
+      <span className="rounded-full bg-slate-50 px-3 py-1.5 text-sm font-semibold text-slate-700 ring-1 ring-slate-200">
+        Uncalibrated
+      </span>
+    );
+  }
   const className =
     grade === "A"
       ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"

@@ -57,7 +57,7 @@ from app.modules.operational_events.service import (
     emit_inventory_stock_updated,
     emit_shipment_update_event,
 )
-from app.modules.suppliers.service import find_supplier_by_name
+from app.modules.suppliers.service import find_or_create_supplier_from_upload
 from app.modules.tenants.demo import is_demo_tenant
 from app.schemas.context import RequestContext
 
@@ -2366,7 +2366,11 @@ def upsert_shipment(
         if data.get("eta_confidence")
         else None
     )
-    supplier = find_supplier_by_name(db, context.tenant_id, data["supplier_name"])
+    supplier = find_or_create_supplier_from_upload(
+        db,
+        context.tenant_id,
+        data["supplier_name"],
+    )
 
     shipment = db.scalar(
         select(Shipment).where(

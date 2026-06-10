@@ -86,6 +86,7 @@ def test_supplier_crud_linking_and_performance() -> None:
         assert body["performance"]["on_time_reliability_pct"] == "50.00"
         assert body["performance"]["avg_eta_drift_hours"] == "30.00"
         assert body["performance"]["reliability_grade"] == "C"
+        assert body["performance"]["reliability_status"] == "uncalibrated"
         assert body["performance"]["materials_supplied"] == ["Coking Coal"]
         assert len(body["linked_shipments"]) == 2
 
@@ -254,6 +255,48 @@ def test_ingestion_auto_links_supplier_by_name() -> None:
             shipment = db.scalar(select(Shipment).where(Shipment.shipment_id == "BETA-1"))
             assert shipment is not None
             assert shipment.supplier_id == supplier.id
+
+
+def test_ingestion_creates_detected_supplier_source_for_uploaded_shipments() -> None:
+    for client, SessionLocal in client_with_db():
+        headers = auth_headers(client)
+        with SessionLocal() as db:
+            tenant = db.scalar(select(Tenant).where(Tenant.slug == "tenant-a"))
+            user = db.scalar(select(User).where(User.email == "admin@test.local"))
+            assert tenant is not None
+            assert user is not None
+            context = RequestContext(
+                tenant_id=tenant.id,
+                tenant_slug=tenant.slug,
+                role=TENANT_ADMIN,
+                user_id=user.id,
+            )
+            content = (
+                "shipment_id,plant_code,material_code,supplier_name,quantity_mt,"
+                "planned_eta,current_eta,current_state,latest_update_at\n"
+                "AUTO-1,JAM,COAL,New Coal Source,100,"
+                "2026-01-01T00:00:00+00:00,2026-01-01T12:00:00+00:00,"
+                "in_transit,2025-12-30T00:00:00+00:00\n"
+            ).encode()
+            result = process_upload_content(
+                db=db,
+                context=context,
+                current_user_id=user.id,
+                file_type="shipment",
+                filename="shipment.csv",
+                content=content,
+                content_type="text/csv",
+                source_of_truth="manual_upload",
+            )
+            assert result.rows_accepted == 1
+
+        suppliers = client.get("/api/v1/suppliers", headers=headers)
+
+        assert suppliers.status_code == 200
+        created = next(item for item in suppliers.json() if item["name"] == "New Coal Source")
+        assert created["code"] == "NEW_COAL_SOURCE"
+        assert created["performance"]["total_shipments"] == 1
+        assert created["performance"]["reliability_status"] == "uncalibrated"
 
 
 def test_reliability_grade_boundaries() -> None:
