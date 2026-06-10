@@ -82,7 +82,7 @@ UPLOAD_DIR = Path("uploaded_files")
 ALIASES = {
     "shipment_id": {"shipmentid", "shipment", "shipmentref", "reference", "shipmentreference"},
     "plant_code": {"plantcode", "plant", "plantid", "plantname"},
-    "material_code": {"materialcode", "material", "materialid"},
+    "material_code": {"materialcode", "material", "materialid", "materialname"},
     "material_name": {"materialname"},
     "supplier_name": {"suppliername", "supplier", "vendor"},
     "quantity_mt": {
@@ -95,6 +95,7 @@ ALIASES = {
     },
     "planned_eta": {"plannedeta", "originaleta", "eta", "dispatchdate", "shipmentdate"},
     "current_eta": {"currenteta", "latesteta", "revisedeta", "expectedarrivaldate", "arrivaldate"},
+    "latest_eta": {"lasteta", "previouseta", "prioreta", "etaold", "etalast"},
     "delay_days": {"delaydays", "delay", "delays", "etadelaydays", "etadelay", "delayindays"},
     "current_state": {"currentstate", "state", "status", "shipmentstate", "shipmentstatus"},
     "source_of_truth": {"sourceoftruth", "source", "datasource"},
@@ -111,6 +112,8 @@ ALIASES = {
     "origin_port": {"originport", "origin", "loadport"},
     "destination_port": {"destinationport", "destination", "dischargeport"},
     "eta_confidence": {"etaconfidence", "confidence"},
+    "po_number": {"ponumber", "po", "purchaseorder", "purchaseordernumber"},
+    "remarks": {"remarks", "remark", "comments", "notes"},
     "on_hand_mt": {"onhandmt", "onhand", "stockmt", "stock", "currentstocktons", "currentstock"},
     "quality_held_mt": {
         "qualityheldmt",
@@ -139,7 +142,22 @@ ALIASES = {
     "days_to_line_stop": {"daystolinestop"},
     "risk_status": {"riskstatus"},
     "next_inbound_eta_days": {"nextinboundetadays"},
-    "threshold_days": {"thresholddays", "threshold", "criticaldays", "criticalcoverdays"},
+    "threshold_days": {
+        "thresholddays",
+        "threshold",
+        "criticaldays",
+        "criticalcoverdays",
+        "criticalthresholddays",
+    },
+    "minimum_buffer_stock_mt": {"minimumbufferstockmt"},
+    "reserve_quantity_mt": {"reservequantitymt", "reservequantity", "reserveqtymt", "reserveqty"},
+    "quality_hold_quantity_mt": {
+        "qualityholdquantitymt",
+        "qualityholdquantity",
+        "configuredqualityholdmt",
+    },
+    "minimum_buffer_stock_days": {"minimumbufferstockdays", "bufferstockdays", "reservedays"},
+    "stockout_alert_horizon_days": {"stockoutalerthorizondays", "stockoutalertdays"},
     "warning_days": {"warningdays", "warning", "warningcoverdays", "mincoverdays"},
 }
 
@@ -151,6 +169,7 @@ FIELD_LABELS = {
     "quantity_mt": "Quantity MT",
     "planned_eta": "Planned ETA",
     "current_eta": "Current ETA",
+    "latest_eta": "Previous ETA",
     "delay_days": "Delay days",
     "current_state": "Inbound continuity state",
     "source_of_truth": "Signal source",
@@ -163,6 +182,18 @@ FIELD_LABELS = {
     "threshold_days": "Critical threshold days",
     "warning_days": "Warning days",
     "eta_confidence": "ETA confidence",
+    "origin_port": "Origin port",
+    "destination_port": "Destination port",
+    "vessel_name": "Vessel name",
+    "imo_number": "IMO number",
+    "mmsi": "MMSI",
+    "po_number": "PO number",
+    "remarks": "Remarks",
+    "minimum_buffer_stock_mt": "Minimum buffer stock MT",
+    "reserve_quantity_mt": "Reserve quantity MT",
+    "quality_hold_quantity_mt": "Quality hold quantity MT",
+    "minimum_buffer_stock_days": "Minimum buffer stock days",
+    "stockout_alert_horizon_days": "Stockout alert horizon days",
 }
 
 REQUIRED_FIELDS = {
@@ -172,7 +203,6 @@ REQUIRED_FIELDS = {
         "material_code",
         "supplier_name",
         "quantity_mt",
-        "planned_eta",
         "current_state",
         "latest_update_at",
     },
@@ -198,6 +228,7 @@ HEADER_FIELDS_BY_FILE_TYPE = {
         "quantity_mt",
         "planned_eta",
         "current_eta",
+        "latest_eta",
         "delay_days",
         "current_state",
         "source_of_truth",
@@ -223,7 +254,17 @@ HEADER_FIELDS_BY_FILE_TYPE = {
         "risk_status",
         "next_inbound_eta_days",
     },
-    "threshold": {"plant_code", "material_code", "threshold_days", "warning_days"},
+    "threshold": {
+        "plant_code",
+        "material_code",
+        "threshold_days",
+        "warning_days",
+        "minimum_buffer_stock_mt",
+        "reserve_quantity_mt",
+        "quality_hold_quantity_mt",
+        "minimum_buffer_stock_days",
+        "stockout_alert_horizon_days",
+    },
     "consumption": {
         "plant_code",
         "material_code",
@@ -715,7 +756,11 @@ def build_mapping_preview_from_rows(
 def build_mapping_preview(file_type: str, headers: list[str]) -> MappingPreviewOut:
     suggestions = [build_header_mapping_suggestion(file_type, header) for header in headers]
     required_fields = sorted(REQUIRED_FIELDS[file_type])
-    optional_fields = sorted(field for field in ALIASES if field not in REQUIRED_FIELDS[file_type])
+    optional_fields = sorted(
+        field
+        for field in HEADER_FIELDS_BY_FILE_TYPE[file_type]
+        if field not in REQUIRED_FIELDS[file_type]
+    )
     mapped_required_fields = sorted(
         {
             suggestion.suggested_field
@@ -956,8 +1001,7 @@ def reprocess_import_job(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
-                "This import job cannot be reprocessed because its uploaded file is "
-                "unavailable."
+                "This import job cannot be reprocessed because its uploaded file is unavailable."
             ),
         )
     path = Path(uploaded_file.storage_uri)
@@ -1365,7 +1409,7 @@ def canonical_header(header: str, file_type: str | None = None) -> str | None:
 
 
 def build_header_mapping_suggestion(file_type: str, header: str) -> HeaderMappingSuggestion:
-    suggestion = best_header_match(header, required_fields=REQUIRED_FIELDS[file_type])
+    suggestion = best_header_match(header, required_fields=HEADER_FIELDS_BY_FILE_TYPE[file_type])
     return HeaderMappingSuggestion(
         source_header=header,
         suggested_field=suggestion.field,
@@ -1683,9 +1727,7 @@ def aggregate_workbook_operational_summary(
     rows_rejected = sum(summary.rows_rejected for summary in summaries)
     warnings = [warning for summary in summaries for warning in summary.warnings]
     if ignored_sheets:
-        warnings.append(
-            "Ignored workbook sheets: " + ", ".join(sorted(set(ignored_sheets)))
-        )
+        warnings.append("Ignored workbook sheets: " + ", ".join(sorted(set(ignored_sheets))))
     return OperationalUnderstandingSummary(
         file_received=True,
         rows_detected=rows_received,
@@ -1893,12 +1935,12 @@ def missing_required_field_errors(
         for field in sorted(REQUIRED_FIELDS[file_type])
         if not data.get(field)
     ]
-    if file_type == "shipment" and not data.get("current_eta") and not data.get("delay_days"):
+    if file_type == "shipment" and not data.get("planned_eta") and not data.get("current_eta"):
         errors.append(
             FieldValidationError(
                 field="current_eta",
-                reason="Current ETA or Delay days is required for inbound continuity.",
-                suggested_fix="Provide either Current ETA or Delay days for this row.",
+                reason="Planned ETA or Current ETA is required for inbound continuity.",
+                suggested_fix="Provide either Planned ETA or Current ETA for this row.",
             )
         )
     return errors
@@ -2111,6 +2153,19 @@ def parse_decimal(value: str, field: str, *, positive: bool = False) -> Decimal:
     return parsed
 
 
+def parse_optional_decimal(
+    data: dict[str, str],
+    field: str,
+    *,
+    fallback_field: str | None = None,
+) -> Decimal | None:
+    if data.get(field):
+        return parse_decimal(data[field], field)
+    if fallback_field and data.get(fallback_field):
+        return parse_decimal(data[fallback_field], fallback_field)
+    return None
+
+
 def parse_datetime(value: str, field: str) -> datetime:
     raw_value = "" if value is None else str(value).strip()
     if not raw_value:
@@ -2167,6 +2222,8 @@ def parse_common_datetime(value: str) -> datetime | None:
 def resolve_current_eta(data: dict[str, str], planned_eta: datetime) -> datetime:
     if data.get("current_eta"):
         return parse_datetime(data["current_eta"], "current_eta")
+    if not data.get("delay_days"):
+        return planned_eta
     delay_days = parse_decimal(data["delay_days"], "delay_days")
     return planned_eta + timedelta(days=float(delay_days))
 
@@ -2295,8 +2352,14 @@ def upsert_shipment(
     plant = resolve_plant(db, context.tenant_id, data["plant_code"])
     material = resolve_material(db, context.tenant_id, data["material_code"])
     state = parse_state(data["current_state"])
-    planned_eta = parse_datetime(data["planned_eta"], "planned_eta")
+    planned_eta = parse_datetime(
+        data.get("planned_eta") or data["current_eta"],
+        "planned_eta" if data.get("planned_eta") else "current_eta",
+    )
     current_eta = resolve_current_eta(data, planned_eta)
+    previous_eta = (
+        parse_datetime(data["latest_eta"], "latest_eta") if data.get("latest_eta") else None
+    )
     latest_update_at = parse_datetime(data["latest_update_at"], "latest_update_at")
     eta_confidence = (
         parse_decimal(data["eta_confidence"], "eta_confidence")
@@ -2324,6 +2387,10 @@ def upsert_shipment(
         "destination_port": data.get("destination_port") or None,
         "planned_eta": planned_eta,
         "current_eta": current_eta,
+        "latest_eta": previous_eta,
+        "delay_days": int(parse_decimal(data["delay_days"], "delay_days"))
+        if data.get("delay_days")
+        else None,
         "eta_confidence": eta_confidence,
         "current_state": state,
         "source_of_truth": data["source_of_truth"],
@@ -2589,7 +2656,7 @@ def upsert_consumption(
             "Consumption could not be linked to an inventory snapshot for this "
             "plant/material/time.",
             "Load the matching inventory sheet in the same workbook or upload inventory first.",
-    )
+        )
     if values_equal(snapshot.daily_consumption_mt, daily_consumption):
         return ImportRecordChange(
             action="unchanged",
@@ -2675,9 +2742,26 @@ def upsert_threshold(
             "Warning days cannot be earlier than the critical threshold.",
             "Set Warning days greater than or equal to Critical threshold days.",
         )
+    reserve_quantity = parse_optional_decimal(data, "reserve_quantity_mt")
+    quality_hold_quantity = parse_optional_decimal(data, "quality_hold_quantity_mt")
     attrs = {
         "threshold_days": threshold_days,
         "warning_days": warning_days,
+        "minimum_buffer_stock_mt": parse_optional_decimal(data, "minimum_buffer_stock_mt"),
+        "reserve_quantity_mt": reserve_quantity,
+        "quality_hold_quantity_mt": quality_hold_quantity,
+        "minimum_buffer_stock_days": parse_decimal(
+            data["minimum_buffer_stock_days"],
+            "minimum_buffer_stock_days",
+        )
+        if data.get("minimum_buffer_stock_days")
+        else None,
+        "stockout_alert_horizon_days": parse_decimal(
+            data["stockout_alert_horizon_days"],
+            "stockout_alert_horizon_days",
+        )
+        if data.get("stockout_alert_horizon_days")
+        else None,
     }
     threshold = db.scalar(
         select(PlantMaterialThreshold).where(
@@ -2719,6 +2803,11 @@ def upsert_threshold(
     previous_value = {
         "threshold_days": json_value(threshold.threshold_days),
         "warning_days": json_value(threshold.warning_days),
+        "minimum_buffer_stock_mt": json_value(threshold.minimum_buffer_stock_mt),
+        "reserve_quantity_mt": json_value(threshold.reserve_quantity_mt),
+        "quality_hold_quantity_mt": json_value(threshold.quality_hold_quantity_mt),
+        "minimum_buffer_stock_days": json_value(threshold.minimum_buffer_stock_days),
+        "stockout_alert_horizon_days": json_value(threshold.stockout_alert_horizon_days),
     }
     for key, value in attrs.items():
         setattr(threshold, key, value)

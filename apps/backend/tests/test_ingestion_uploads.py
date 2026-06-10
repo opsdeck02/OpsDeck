@@ -852,8 +852,7 @@ def test_import_job_rollback_deletes_only_records_created_by_that_job(
     with SessionLocal() as db:
         assert db.scalar(select(Shipment).where(Shipment.shipment_id == "SHP-ROLLBACK-1")) is None
         assert (
-            db.scalar(select(Shipment).where(Shipment.shipment_id == "SHP-ROLLBACK-2"))
-            is not None
+            db.scalar(select(Shipment).where(Shipment.shipment_id == "SHP-ROLLBACK-2")) is not None
         )
 
 
@@ -891,9 +890,7 @@ def test_import_job_rollback_preserves_updated_preexisting_records(
     assert body["records_preserved"] == 1
     assert "Exact update rollback is not available" in body["warnings"][0]
     with SessionLocal() as db:
-        shipment = db.scalar(
-            select(Shipment).where(Shipment.shipment_id == "SHP-UPDATE-PRESERVE")
-        )
+        shipment = db.scalar(select(Shipment).where(Shipment.shipment_id == "SHP-UPDATE-PRESERVE"))
         assert shipment is not None
         assert shipment.current_eta.isoformat() == "2026-04-24T08:00:00"
 
@@ -1250,6 +1247,204 @@ def test_mapping_preview_and_manual_override_support_nonstandard_headers(
         assert shipment.source_of_truth == "manual_upload"
 
 
+def test_mapping_preview_targets_are_sheet_specific(
+    client_and_session: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, _ = client_and_session
+    headers = login(client)
+
+    cases = {
+        "stock": {
+            "csv": "\n".join(
+                [
+                    "plant_code,material_code,on_hand_mt,quality_held_mt,"
+                    "available_to_consume_mt,daily_consumption_mt,snapshot_time",
+                    "JAM,COKING_COAL,100,5,95,10,2026-05-01",
+                ]
+            ),
+            "expected": {"on_hand_mt", "quality_held_mt", "available_to_consume_mt"},
+            "unexpected": {"planned_eta", "current_eta", "warning_days", "threshold_days"},
+        },
+        "threshold": {
+            "csv": "\n".join(
+                [
+                    "plant_code,material_code,warning_days,threshold_days,"
+                    "reserve_quantity_mt,quality_hold_quantity_mt",
+                    "JAM,COKING_COAL,7,3,20,5",
+                ]
+            ),
+            "expected": {
+                "warning_days",
+                "threshold_days",
+                "reserve_quantity_mt",
+                "quality_hold_quantity_mt",
+            },
+            "unexpected": {"vessel_name", "current_eta", "quality_held_mt"},
+        },
+        "shipment": {
+            "csv": "\n".join(
+                [
+                    "shipment_id,plant_code,material_code,supplier_name,quantity_mt,"
+                    "planned_eta,current_eta,last_eta,current_state,latest_update_at",
+                    "SHP-1,JAM,COKING_COAL,Supplier A,10,2026-05-01,2026-05-02,"
+                    "2026-04-30,in_transit,2026-04-29",
+                ]
+            ),
+            "expected": {"planned_eta", "current_eta", "latest_eta", "origin_port"},
+            "unexpected": {"warning_days", "threshold_days", "quality_held_mt"},
+        },
+    }
+
+    for file_type, config in cases.items():
+        response = client.post(
+            "/api/v1/ingestion/mapping-preview",
+            headers=headers,
+            data={"file_type": file_type},
+            files={"file": ("mapping.csv", config["csv"].encode(), "text/csv")},
+        )
+
+        assert response.status_code == 200, response.json()
+        body = response.json()
+        targets = set(body["required_fields"]) | set(body["optional_fields"])
+        assert config["expected"].issubset(targets)
+        assert targets.isdisjoint(config["unexpected"])
+
+
+def test_threshold_preview_and_upload_recognize_reserve_and_quality_hold_quantities(
+    client_and_session: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, SessionLocal = client_and_session
+    headers = login(client)
+    csv_body = "\n".join(
+        [
+            "plant_code,material_code,warning_days,critical_threshold_days,"
+            "reserve_quantity_mt,quality_hold_quantity_mt,minimum_buffer_stock_mt,"
+            "minimum_buffer_stock_days,stockout_alert_horizon_days",
+            "JAM,COKING_COAL,7,3,500,150,300,2,10",
+        ]
+    )
+
+    preview_response = client.post(
+        "/api/v1/ingestion/mapping-preview",
+        headers=headers,
+        data={"file_type": "threshold"},
+        files={"file": ("threshold.csv", csv_body.encode(), "text/csv")},
+    )
+    assert preview_response.status_code == 200, preview_response.json()
+    suggestions = {
+        item["source_header"]: (item["suggested_field"], item["confidence"])
+        for item in preview_response.json()["suggestions"]
+    }
+    assert suggestions["reserve_quantity_mt"] == ("reserve_quantity_mt", "high")
+    assert suggestions["quality_hold_quantity_mt"] == ("quality_hold_quantity_mt", "high")
+
+    upload_response = upload_csv(client, headers, "threshold", csv_body)
+
+    assert upload_response.status_code == 200, upload_response.json()
+    with SessionLocal() as db:
+        threshold = db.scalar(select(PlantMaterialThreshold))
+        assert threshold is not None
+        assert str(threshold.reserve_quantity_mt) == "500.00"
+        assert str(threshold.quality_hold_quantity_mt) == "150.00"
+        assert str(threshold.minimum_buffer_stock_mt) == "300.00"
+        assert str(threshold.minimum_buffer_stock_days) == "2.00"
+        assert str(threshold.stockout_alert_horizon_days) == "10.00"
+
+
+def test_threshold_upload_without_new_quantity_fields_still_passes(
+    client_and_session: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, SessionLocal = client_and_session
+    response = upload_csv(
+        client,
+        login(client),
+        "threshold",
+        "\n".join(
+            [
+                "plant_code,material_code,warning_days,threshold_days",
+                "JAM,COKING_COAL,7,3",
+            ]
+        ),
+    )
+
+    assert response.status_code == 200, response.json()
+    with SessionLocal() as db:
+        threshold = db.scalar(select(PlantMaterialThreshold))
+        assert threshold is not None
+        assert threshold.reserve_quantity_mt is None
+        assert threshold.quality_hold_quantity_mt is None
+        assert threshold.minimum_buffer_stock_mt is None
+
+
+def test_inventory_quality_held_maps_separately_from_threshold_quality_hold(
+    client_and_session: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, _ = client_and_session
+    headers = login(client)
+    csv_body = "\n".join(
+        [
+            "plant_code,material_code,on_hand_mt,quality_held_mt,available_to_consume_mt,daily_consumption_mt,snapshot_time",
+            "JAM,COKING_COAL,100,5,95,10,2026-05-01",
+        ]
+    )
+
+    response = client.post(
+        "/api/v1/ingestion/mapping-preview",
+        headers=headers,
+        data={"file_type": "stock"},
+        files={"file": ("stock.csv", csv_body.encode(), "text/csv")},
+    )
+
+    assert response.status_code == 200, response.json()
+    suggestions = {
+        item["source_header"]: (item["suggested_field"], item["confidence"])
+        for item in response.json()["suggestions"]
+    }
+    assert suggestions["quality_held_mt"] == ("quality_held_mt", "high")
+    assert "quality_hold_quantity_mt" not in response.json()["optional_fields"]
+
+
+def test_shipment_current_and_last_eta_map_distinctly(
+    client_and_session: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, SessionLocal = client_and_session
+    headers = login(client)
+    csv_body = "\n".join(
+        [
+            "shipment_id,plant_code,material_code,supplier_name,quantity_mt,"
+            "origin,planned_eta,current_eta,last_eta,current_state,latest_update_at",
+            "SHP-ETA-MAP,JAM,COKING_COAL,Supplier A,10,Paradip,2026-05-01,"
+            "2026-05-03,2026-05-02,in_transit,2026-04-29",
+        ]
+    )
+
+    preview_response = client.post(
+        "/api/v1/ingestion/mapping-preview",
+        headers=headers,
+        data={"file_type": "shipment"},
+        files={"file": ("shipment.csv", csv_body.encode(), "text/csv")},
+    )
+    assert preview_response.status_code == 200, preview_response.json()
+    suggestions = {
+        item["source_header"]: (item["suggested_field"], item["confidence"])
+        for item in preview_response.json()["suggestions"]
+    }
+    assert suggestions["origin"] == ("origin_port", "high")
+    assert suggestions["current_eta"] == ("current_eta", "high")
+    assert suggestions["last_eta"] == ("latest_eta", "high")
+    assert suggestions["planned_eta"] == ("planned_eta", "high")
+
+    upload_response = upload_csv(client, headers, "shipment", csv_body)
+
+    assert upload_response.status_code == 200, upload_response.json()
+    with SessionLocal() as db:
+        shipment = db.scalar(select(Shipment).where(Shipment.shipment_id == "SHP-ETA-MAP"))
+        assert shipment is not None
+        assert shipment.current_eta.isoformat() == "2026-05-03T00:00:00"
+        assert shipment.latest_eta is not None
+        assert shipment.latest_eta.isoformat() == "2026-05-02T00:00:00"
+
+
 def test_founder_demo_csv_files_ingest_and_are_import_auditable(
     client_and_session: tuple[TestClient, sessionmaker[Session]],
 ) -> None:
@@ -1282,15 +1477,14 @@ def test_founder_demo_csv_files_ingest_and_are_import_auditable(
     assert stock_response.json()["rows_accepted"] == 4
     assert shipment_response.json()["rows_accepted"] == 6
     assert threshold_response.json()["rows_accepted"] == 4
-    assert "DEMO-STEEL" in stock_response.json()["operational_summary"][
-        "plants_detected"
-    ]
-    assert "DEMO-COKING-COAL" in shipment_response.json()["operational_summary"][
-        "materials_detected"
-    ]
-    assert "DEMO-COAL-PROTECTIVE-A" in shipment_response.json()["operational_summary"][
-        "shipments_detected"
-    ]
+    assert "DEMO-STEEL" in stock_response.json()["operational_summary"]["plants_detected"]
+    assert (
+        "DEMO-COKING-COAL" in shipment_response.json()["operational_summary"]["materials_detected"]
+    )
+    assert (
+        "DEMO-COAL-PROTECTIVE-A"
+        in shipment_response.json()["operational_summary"]["shipments_detected"]
+    )
     assert shipment_response.json()["operational_summary"]["warnings"]
 
     detail_response = client.get(
@@ -1429,10 +1623,7 @@ def test_demo_coking_coal_upload_story_proves_time_phased_cover_and_history(
         assert cover.current_projected_reserve_breach_date is not None
         assert cover.current_projected_critical_breach_date is not None
         assert cover.current_projected_interruption_date is not None
-        statuses = {
-            item.shipment_id: item.protection_status
-            for item in cover.shipment_evaluations
-        }
+        statuses = {item.shipment_id: item.protection_status for item in cover.shipment_evaluations}
         assert statuses["DEMO-COAL-PROTECTIVE-A"] == "PROTECTIVE"
         assert statuses["DEMO-COAL-LATE-B"] == "LATE_AFTER_RESERVE"
         assert statuses["DEMO-COAL-TOO-LATE-C"] == "TOO_LATE"

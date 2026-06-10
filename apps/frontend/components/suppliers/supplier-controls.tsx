@@ -89,15 +89,21 @@ export function SupplierEditForm({
         <button type="submit" disabled={isPending} className="rounded-2xl bg-primary px-4 py-2 text-sm font-semibold text-primaryForeground disabled:opacity-60">
           Save source
         </button>
-        <SupplierLinkButton supplierId={supplier.id} />
-        <SupplierDeleteButton supplierId={supplier.id} />
+        <SupplierLinkButton supplierId={supplier.id} setMessage={setMessage} />
+        <SupplierDeleteButton supplierId={supplier.id} setMessage={setMessage} />
       </div>
       {message ? <p className="md:col-span-2 rounded-xl bg-muted px-3 py-2 text-sm">{message}</p> : null}
     </form>
   );
 }
 
-function SupplierLinkButton({ supplierId }: { supplierId: string }) {
+function SupplierLinkButton({
+  supplierId,
+  setMessage,
+}: {
+  supplierId: string;
+  setMessage: (message: string | null) => void;
+}) {
   const [isPending, startTransition] = useTransition();
 
   return (
@@ -105,8 +111,13 @@ function SupplierLinkButton({ supplierId }: { supplierId: string }) {
       type="button"
       disabled={isPending}
       onClick={() => {
+        setMessage(null);
         startTransition(async () => {
-          await fetch(`/api/suppliers/${supplierId}/link-shipments`, { method: "POST" });
+          const response = await fetch(`/api/suppliers/${supplierId}/link-shipments`, { method: "POST" });
+          if (!response.ok) {
+            setMessage(await supplierActionError(response, "Inbound dependencies could not be linked."));
+            return;
+          }
           window.location.reload();
         });
       }}
@@ -117,7 +128,13 @@ function SupplierLinkButton({ supplierId }: { supplierId: string }) {
   );
 }
 
-function SupplierDeleteButton({ supplierId }: { supplierId: string }) {
+function SupplierDeleteButton({
+  supplierId,
+  setMessage,
+}: {
+  supplierId: string;
+  setMessage: (message: string | null) => void;
+}) {
   const [isPending, startTransition] = useTransition();
 
   return (
@@ -125,8 +142,13 @@ function SupplierDeleteButton({ supplierId }: { supplierId: string }) {
       type="button"
       disabled={isPending}
       onClick={() => {
+        setMessage(null);
         startTransition(async () => {
-          await fetch(`/api/suppliers/${supplierId}`, { method: "DELETE" });
+          const response = await fetch(`/api/suppliers/${supplierId}`, { method: "DELETE" });
+          if (!response.ok) {
+            setMessage(await supplierActionError(response, "Reliability source could not be deactivated."));
+            return;
+          }
           window.location.href = "/dashboard/suppliers";
         });
       }}
@@ -162,4 +184,9 @@ function listValue(value: FormDataEntryValue | null) {
     .map((item) => item.trim())
     .filter(Boolean);
   return items.length > 0 ? items : null;
+}
+
+async function supplierActionError(response: Response, fallback: string) {
+  const body = (await response.json().catch(() => null)) as { detail?: string } | null;
+  return body?.detail ?? fallback;
 }

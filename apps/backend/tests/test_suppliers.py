@@ -94,6 +94,28 @@ def test_supplier_crud_linking_and_performance() -> None:
         assert deleted.json()["is_active"] is False
 
 
+def test_supplier_link_failure_returns_not_found() -> None:
+    for client, _ in client_with_db():
+        response = client.post(
+            "/api/v1/suppliers/00000000-0000-0000-0000-000000000000/link-shipments",
+            headers=auth_headers(client),
+        )
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Supplier not found"
+
+
+def test_supplier_delete_failure_returns_not_found() -> None:
+    for client, _ in client_with_db():
+        response = client.delete(
+            "/api/v1/suppliers/00000000-0000-0000-0000-000000000000",
+            headers=auth_headers(client),
+        )
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Supplier not found"
+
+
 def test_supplier_summary_best_and_worst() -> None:
     for client, _ in client_with_db():
         headers = auth_headers(client)

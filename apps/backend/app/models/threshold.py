@@ -33,6 +33,14 @@ class PlantMaterialThreshold(TenantScopedMixin, TimestampMixin, Base):
         Numeric(14, 2),
         nullable=True,
     )
+    reserve_quantity_mt: Mapped[Decimal | None] = mapped_column(
+        Numeric(14, 2),
+        nullable=True,
+    )
+    quality_hold_quantity_mt: Mapped[Decimal | None] = mapped_column(
+        Numeric(14, 2),
+        nullable=True,
+    )
     stockout_alert_horizon_days: Mapped[Decimal | None] = mapped_column(
         Numeric(8, 2),
         nullable=True,

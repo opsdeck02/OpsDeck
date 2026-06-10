@@ -1,7 +1,7 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_db, require_admin_access
@@ -15,14 +15,11 @@ from app.models import (
     ProductionLine,
     ShipmentInboundTrustConfig,
 )
-from app.modules.impact.production_interruption import get_active_interruption_config
 from app.modules.impact.configuration_validation import (
     ConfigurationValidationResult,
     validate_operational_configuration,
 )
-from app.modules.impact.shipment_inbound_trust import (
-    get_active_shipment_inbound_trust_config,
-)
+from app.modules.impact.production_interruption import get_active_interruption_config
 from app.modules.impact.schemas import (
     ContinuityThresholdPayload,
     ContinuityThresholdRead,
@@ -36,6 +33,9 @@ from app.modules.impact.schemas import (
     ProductionLineRead,
     ShipmentInboundTrustConfigPayload,
     ShipmentInboundTrustConfigRead,
+)
+from app.modules.impact.shipment_inbound_trust import (
+    get_active_shipment_inbound_trust_config,
 )
 from app.schemas.context import RequestContext
 
@@ -170,6 +170,8 @@ def upsert_continuity_threshold(
     threshold.warning_days = payload.warning_days
     threshold.minimum_buffer_stock_days = payload.minimum_buffer_stock_days
     threshold.minimum_buffer_stock_mt = payload.minimum_buffer_stock_mt
+    threshold.reserve_quantity_mt = payload.reserve_quantity_mt
+    threshold.quality_hold_quantity_mt = payload.quality_hold_quantity_mt
     threshold.stockout_alert_horizon_days = payload.stockout_alert_horizon_days
     db.commit()
     db.refresh(threshold)
@@ -349,6 +351,7 @@ def create_process_product_dependency(
     db: Annotated[Session, Depends(get_db)],
 ) -> ProcessProductDependencyRead:
     ensure_production_line(db, context, payload.process_id)
+    ensure_no_active_process_product_duplicate(db, context, payload)
     row = ProcessProductDependency(
         tenant_id=context.tenant_id,
         process_id=payload.process_id,
@@ -376,6 +379,7 @@ def update_process_product_dependency(
 ) -> ProcessProductDependencyRead:
     row = ensure_process_product_dependency(db, context, dependency_id)
     ensure_production_line(db, context, payload.process_id)
+    ensure_no_active_process_product_duplicate(db, context, payload, exclude_id=row.id)
     row.process_id = payload.process_id
     row.product_name = payload.product_name.strip()
     row.output_share_ratio = payload.output_share_ratio
@@ -450,6 +454,7 @@ def create_material_process_dependency(
 ) -> MaterialProcessDependencyRead:
     ensure_material(db, context, payload.material_id)
     ensure_production_line(db, context, payload.process_id)
+    ensure_no_active_material_process_duplicate(db, context, payload)
     row = MaterialProcessDependency(
         tenant_id=context.tenant_id,
         material_id=payload.material_id,
@@ -478,6 +483,7 @@ def update_material_process_dependency(
     row = ensure_material_process_dependency(db, context, dependency_id)
     ensure_material(db, context, payload.material_id)
     ensure_production_line(db, context, payload.process_id)
+    ensure_no_active_material_process_duplicate(db, context, payload, exclude_id=row.id)
     row.material_id = payload.material_id
     row.process_id = payload.process_id
     row.dependency_ratio = payload.dependency_ratio
@@ -586,6 +592,54 @@ def ensure_production_line(
             detail="Production line was not found for this tenant.",
         )
     return line
+
+
+def ensure_no_active_process_product_duplicate(
+    db: Session,
+    context: RequestContext,
+    payload: ProcessProductDependencyPayload,
+    *,
+    exclude_id: int | None = None,
+) -> None:
+    if not payload.is_active:
+        return
+    query = select(ProcessProductDependency.id).where(
+        ProcessProductDependency.tenant_id == context.tenant_id,
+        ProcessProductDependency.process_id == payload.process_id,
+        ProcessProductDependency.is_active.is_(True),
+        func.lower(ProcessProductDependency.product_name) == payload.product_name.strip().lower(),
+    )
+    if exclude_id is not None:
+        query = query.where(ProcessProductDependency.id != exclude_id)
+    if db.scalar(query) is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="An active product mix row already exists for this process and product.",
+        )
+
+
+def ensure_no_active_material_process_duplicate(
+    db: Session,
+    context: RequestContext,
+    payload: MaterialProcessDependencyPayload,
+    *,
+    exclude_id: int | None = None,
+) -> None:
+    if not payload.is_active:
+        return
+    query = select(MaterialProcessDependency.id).where(
+        MaterialProcessDependency.tenant_id == context.tenant_id,
+        MaterialProcessDependency.material_id == payload.material_id,
+        MaterialProcessDependency.process_id == payload.process_id,
+        MaterialProcessDependency.is_active.is_(True),
+    )
+    if exclude_id is not None:
+        query = query.where(MaterialProcessDependency.id != exclude_id)
+    if db.scalar(query) is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="An active material dependency already exists for this material and process.",
+        )
 
 
 def ensure_process_product_dependency(

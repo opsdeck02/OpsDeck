@@ -16,7 +16,6 @@ from app.models import (
     MaterialProcessDependency,
     Plant,
     ProcessProductDependency,
-    ProductionLine,
     Role,
     Tenant,
     TenantMembership,
@@ -72,7 +71,12 @@ def test_tenant_admin_can_create_update_and_list_production_lines(
     updated = client.put(
         f"/api/v1/impact/production-lines/{line_id}",
         headers=headers,
-        json={"plant_id": plant_id, "code": "BF-1A", "name": "Blast Furnace 1A", "is_active": False},
+        json={
+            "plant_id": plant_id,
+            "code": "BF-1A",
+            "name": "Blast Furnace 1A",
+            "is_active": False,
+        },
     )
     listed = client.get(
         f"/api/v1/impact/production-lines?plant_id={plant_id}",
@@ -95,7 +99,12 @@ def test_production_line_endpoint_preserves_tenant_isolation(
     response = client.post(
         "/api/v1/impact/production-lines",
         headers=auth_headers(client, "admin-a@test.local", "tenant-a"),
-        json={"plant_id": plant_b_id, "code": "BF-B", "name": "Other Tenant Line", "is_active": True},
+        json={
+            "plant_id": plant_b_id,
+            "code": "BF-B",
+            "name": "Other Tenant Line",
+            "is_active": True,
+        },
     )
 
     assert response.status_code == 404
@@ -158,6 +167,59 @@ def test_product_mix_validation_constraints(
     )
 
     assert response.status_code == 422
+
+
+def test_duplicate_active_product_mix_create_is_rejected(
+    client_and_session: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, _ = client_and_session
+    plant_id, _ = context_ids("tenant-a")
+    headers = auth_headers(client, "admin-a@test.local", "tenant-a")
+    line_id = create_line(client, headers, plant_id)
+
+    first = client.post(
+        "/api/v1/impact/process-product-dependencies",
+        headers=headers,
+        json=product_payload(line_id, product_name="HRC Coil"),
+    )
+    duplicate = client.post(
+        "/api/v1/impact/process-product-dependencies",
+        headers=headers,
+        json=product_payload(line_id, product_name="hrc coil"),
+    )
+
+    assert first.status_code == 201
+    assert duplicate.status_code == 409
+    assert "already exists" in duplicate.text
+
+
+def test_duplicate_active_product_mix_update_is_rejected(
+    client_and_session: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, _ = client_and_session
+    plant_id, _ = context_ids("tenant-a")
+    headers = auth_headers(client, "admin-a@test.local", "tenant-a")
+    line_id = create_line(client, headers, plant_id)
+
+    first = client.post(
+        "/api/v1/impact/process-product-dependencies",
+        headers=headers,
+        json=product_payload(line_id, product_name="HRC Coil"),
+    )
+    second = client.post(
+        "/api/v1/impact/process-product-dependencies",
+        headers=headers,
+        json=product_payload(line_id, product_name="Billets"),
+    )
+    duplicate_update = client.put(
+        f"/api/v1/impact/process-product-dependencies/{second.json()['id']}",
+        headers=headers,
+        json=product_payload(line_id, product_name="HRC Coil"),
+    )
+
+    assert first.status_code == 201
+    assert second.status_code == 201
+    assert duplicate_update.status_code == 409
 
 
 def test_material_dependency_create_update_list_and_deactivate(
@@ -232,6 +294,71 @@ def test_material_dependency_validation_and_tenant_isolation(
 
     assert invalid_ratio.status_code == 422
     assert cross_tenant.status_code == 404
+
+
+def test_duplicate_active_material_dependency_create_is_rejected(
+    client_and_session: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, _ = client_and_session
+    plant_id, material_id = context_ids("tenant-a")
+    headers = auth_headers(client, "admin-a@test.local", "tenant-a")
+    line_id = create_line(client, headers, plant_id)
+
+    first = client.post(
+        "/api/v1/impact/material-process-dependencies",
+        headers=headers,
+        json=material_payload(material_id, line_id),
+    )
+    duplicate = client.post(
+        "/api/v1/impact/material-process-dependencies",
+        headers=headers,
+        json=material_payload(material_id, line_id, dependency_ratio="0.50"),
+    )
+
+    assert first.status_code == 201
+    assert duplicate.status_code == 409
+    assert "already exists" in duplicate.text
+
+
+def test_duplicate_active_material_dependency_update_is_rejected(
+    client_and_session: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, _ = client_and_session
+    plant_id, material_id = context_ids("tenant-a")
+    headers = auth_headers(client, "admin-a@test.local", "tenant-a")
+    first_line_id = create_line(client, headers, plant_id)
+    second_line = client.post(
+        "/api/v1/impact/production-lines",
+        headers=headers,
+        json={
+            "plant_id": plant_id,
+            "code": "BF-2",
+            "name": "Blast Furnace 2",
+            "is_active": True,
+        },
+    )
+    assert second_line.status_code == 201
+    second_line_id = int(second_line.json()["id"])
+
+    first = client.post(
+        "/api/v1/impact/material-process-dependencies",
+        headers=headers,
+        json=material_payload(material_id, first_line_id),
+    )
+    second = client.post(
+        "/api/v1/impact/material-process-dependencies",
+        headers=headers,
+        json=material_payload(material_id, second_line_id),
+    )
+    duplicate_update = client.put(
+        f"/api/v1/impact/material-process-dependencies/{second.json()['id']}",
+        headers=headers,
+        json=material_payload(material_id, first_line_id, dependency_ratio="0.50"),
+    )
+
+    assert first.status_code == 201
+    assert second.status_code == 201
+    assert duplicate_update.status_code == 409
 
 
 def seed_data(db: Session) -> None:

@@ -23,6 +23,8 @@ interface ContinuityThresholdConfig {
   threshold_days: string;
   minimum_buffer_stock_days: string | null;
   minimum_buffer_stock_mt: string | null;
+  reserve_quantity_mt: string | null;
+  quality_hold_quantity_mt: string | null;
   stockout_alert_horizon_days: string | null;
 }
 
@@ -33,6 +35,8 @@ const emptyConfig: ContinuityThresholdConfig = {
   threshold_days: "",
   minimum_buffer_stock_days: null,
   minimum_buffer_stock_mt: null,
+  reserve_quantity_mt: null,
+  quality_hold_quantity_mt: null,
   stockout_alert_horizon_days: null,
 };
 
@@ -167,6 +171,8 @@ export function ContinuityThresholdsConfigForm({
     minimum_buffer_stock_mt: reserveRequired
       ? emptyStringToNull(form.minimum_buffer_stock_mt)
       : null,
+    reserve_quantity_mt: emptyStringToNull(form.reserve_quantity_mt),
+    quality_hold_quantity_mt: emptyStringToNull(form.quality_hold_quantity_mt),
     stockout_alert_horizon_days: emptyStringToNull(
       form.stockout_alert_horizon_days,
     ),
@@ -356,6 +362,23 @@ export function ContinuityThresholdsConfigForm({
           ) : null}
         </Section>
 
+        <Section title="Configured Quantity Holds">
+          <NumberField
+            label="Reserve quantity MT optional"
+            field="reserve_quantity_mt"
+            form={form}
+            update={update}
+            nullable
+          />
+          <NumberField
+            label="Quality hold quantity MT optional"
+            field="quality_hold_quantity_mt"
+            form={form}
+            update={update}
+            nullable
+          />
+        </Section>
+
         <Section title="Projected Stockout Alert Horizon">
           <ChoiceGroup
             label="How early should OpsDeck escalate projected stockout risk?"
@@ -522,6 +545,8 @@ function validate(form: ContinuityThresholdConfig) {
   for (const [label, value] of [
     ["Protected reserve days", form.minimum_buffer_stock_days],
     ["Protected reserve MT", form.minimum_buffer_stock_mt],
+    ["Reserve quantity MT", form.reserve_quantity_mt],
+    ["Quality hold quantity MT", form.quality_hold_quantity_mt],
     ["Projected stockout alert horizon", form.stockout_alert_horizon_days],
   ] as const) {
     if (value === null || value === "") continue;

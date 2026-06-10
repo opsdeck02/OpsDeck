@@ -33,10 +33,12 @@ const fieldLabels: Record<string, string> = {
   shipment_id: "Inbound reference",
   plant_code: "Plant code/name",
   material_code: "Material code/name",
+  material_name: "Material name",
   supplier_name: "Reliability source",
   quantity_mt: "Quantity MT",
   planned_eta: "Planned ETA",
   current_eta: "Current ETA",
+  latest_eta: "Previous ETA",
   delay_days: "Delay days",
   current_state: "Inbound continuity state",
   source_of_truth: "Signal source (system-filled)",
@@ -54,6 +56,30 @@ const fieldLabels: Record<string, string> = {
   snapshot_time: "Snapshot time",
   threshold_days: "Critical threshold days",
   warning_days: "Warning days",
+  minimum_buffer_stock_mt: "Minimum buffer stock MT",
+  reserve_quantity_mt: "Reserve quantity MT",
+  quality_hold_quantity_mt: "Quality hold quantity MT",
+  minimum_buffer_stock_days: "Minimum buffer stock days",
+  stockout_alert_horizon_days: "Stockout alert horizon days",
+};
+
+const recommendedFieldsByFileType: Record<string, Set<string>> = {
+  shipment: new Set([
+    "current_eta",
+    "latest_eta",
+    "origin_port",
+    "destination_port",
+    "eta_confidence",
+    "delay_days",
+  ]),
+  stock: new Set(["material_name"]),
+  threshold: new Set([
+    "reserve_quantity_mt",
+    "quality_hold_quantity_mt",
+    "minimum_buffer_stock_days",
+    "stockout_alert_horizon_days",
+  ]),
+  consumption: new Set([]),
 };
 
 type WorkbookSheetConfig = {
@@ -812,9 +838,7 @@ export function UploadPanel({
           {uploadMode === "file" ? (
             <label className="block space-y-2 text-sm font-medium">
               <span>
-                {workbookFeedSelected
-                  ? "Operational workbook"
-                  : "Signal file"}
+                {workbookFeedSelected ? "Operational workbook" : "Signal file"}
               </span>
               <input
                 type="file"
@@ -1025,7 +1049,10 @@ export function UploadPanel({
                             </p>
                           ) : (
                             <p className="rounded-lg bg-muted p-2 text-xs text-emerald-700">
-                              Required mappings ready for this sheet.
+                              {recommendedMappingNotice(
+                                preview,
+                                config.mapping_overrides,
+                              )}
                             </p>
                           )}
                           <div className="grid gap-2 md:grid-cols-2">
@@ -1062,14 +1089,14 @@ export function UploadPanel({
                                   className="mt-2 w-full rounded-xl border bg-card px-3 py-2 text-xs"
                                 >
                                   <option value="">Ignore column</option>
-                                  {preview.required_fields.map((value) => (
-                                    <option key={value} value={value}>
-                                      Required: {fieldLabels[value] ?? value}
-                                    </option>
-                                  ))}
-                                  {preview.optional_fields.map((value) => (
-                                    <option key={value} value={value}>
-                                      Optional: {fieldLabels[value] ?? value}
+                                  {mappingOptions(preview).map((option) => (
+                                    <option
+                                      key={option.field}
+                                      value={option.field}
+                                    >
+                                      {option.importance}:{" "}
+                                      {fieldLabels[option.field] ??
+                                        option.field}
                                     </option>
                                   ))}
                                 </select>
@@ -1147,6 +1174,13 @@ export function UploadPanel({
                         .map((field) => fieldLabels[field] ?? field)
                         .join(", ")}
                     </p>
+                  ) : mappingPreview ? (
+                    <p className="mt-2 rounded-lg bg-card p-2 text-xs text-emerald-700">
+                      {recommendedMappingNotice(
+                        mappingPreview,
+                        mappingOverrides,
+                      )}
+                    </p>
                   ) : null}
                   {mappingPreview?.file_type === "shipment" ? (
                     <p className="mt-2 text-xs text-mutedForeground">
@@ -1157,11 +1191,12 @@ export function UploadPanel({
                 </div>
                 {mappingPreview ? (
                   <div className="rounded-xl bg-muted/50 p-3 text-sm">
-                    <p className="font-medium">Optional continuity details</p>
+                    <p className="font-medium">
+                      Recommended continuity details
+                    </p>
                     <div className="mt-2 grid gap-2 md:grid-cols-2">
-                      {mappingPreview.optional_fields
-                        .slice(0, 12)
-                        .map((field) => (
+                      {fieldsByImportance(mappingPreview, "Recommended").map(
+                        (field) => (
                           <div
                             key={field}
                             className="rounded-xl bg-card p-2 text-xs"
@@ -1177,7 +1212,40 @@ export function UploadPanel({
                               ) ?? "not selected"}
                             </p>
                           </div>
-                        ))}
+                        ),
+                      )}
+                      {fieldsByImportance(mappingPreview, "Recommended")
+                        .length === 0 ? (
+                        <span className="text-mutedForeground">
+                          No recommended fields are configured for this feed.
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
+                {mappingPreview ? (
+                  <div className="rounded-xl bg-muted/50 p-3 text-sm">
+                    <p className="font-medium">Optional continuity details</p>
+                    <div className="mt-2 grid gap-2 md:grid-cols-2">
+                      {fieldsByImportance(mappingPreview, "Optional").map(
+                        (field) => (
+                          <div
+                            key={field}
+                            className="rounded-xl bg-card p-2 text-xs"
+                          >
+                            <span className="font-medium">
+                              {fieldLabels[field] ?? field}
+                            </span>
+                            <p className="mt-1 text-mutedForeground">
+                              Uploaded column:{" "}
+                              {uploadedColumnForField(
+                                mappingOverrides,
+                                field,
+                              ) ?? "not selected"}
+                            </p>
+                          </div>
+                        ),
+                      )}
                     </div>
                   </div>
                 ) : null}
@@ -1229,14 +1297,10 @@ export function UploadPanel({
                           className="w-full rounded-xl border bg-card px-4 py-2 text-sm"
                         >
                           <option value="">Ignore column</option>
-                          {mappingPreview.required_fields.map((value) => (
-                            <option key={value} value={value}>
-                              Required: {fieldLabels[value] ?? value}
-                            </option>
-                          ))}
-                          {mappingPreview.optional_fields.map((value) => (
-                            <option key={value} value={value}>
-                              Optional: {fieldLabels[value] ?? value}
+                          {mappingOptions(mappingPreview).map((option) => (
+                            <option key={option.field} value={option.field}>
+                              {option.importance}:{" "}
+                              {fieldLabels[option.field] ?? option.field}
                             </option>
                           ))}
                         </select>
@@ -1427,14 +1491,14 @@ export function UploadPanel({
             {fileTypes
               .filter((type) => type.value !== "workbook")
               .map((type) => (
-              <a
-                key={type.value}
-                href={`/api/ingestion/templates/${type.value}`}
-                className="rounded-xl border px-3 py-2.5 text-sm font-medium"
-              >
-                {type.value} template
-              </a>
-            ))}
+                <a
+                  key={type.value}
+                  href={`/api/ingestion/templates/${type.value}`}
+                  className="rounded-xl border px-3 py-2.5 text-sm font-medium"
+                >
+                  {type.value} template
+                </a>
+              ))}
             <button
               type="button"
               onClick={clearUploadedData}
@@ -1463,7 +1527,10 @@ export function UploadPanel({
               chain.
             </p>
             <div className="mt-3 grid gap-2 md:grid-cols-4">
-              <ResultMetric label="Rows detected" value={result.rows_received} />
+              <ResultMetric
+                label="Rows detected"
+                value={result.rows_received}
+              />
               <ResultMetric label="Accepted" value={result.rows_accepted} />
               <ResultMetric label="Rejected" value={result.rows_rejected} />
               <ResultMetric
@@ -1708,9 +1775,12 @@ export function UploadPanel({
                     Import job {selectedJobDetail.import_job_id}
                   </p>
                   <p className="text-xs text-mutedForeground">
-                    {selectedJobDetail.file_name ?? selectedJobDetail.import_type} ·{" "}
-                    {selectedJobDetail.status}
-                    {selectedJobDetail.stage ? ` · ${selectedJobDetail.stage}` : ""}
+                    {selectedJobDetail.file_name ??
+                      selectedJobDetail.import_type}{" "}
+                    · {selectedJobDetail.status}
+                    {selectedJobDetail.stage
+                      ? ` · ${selectedJobDetail.stage}`
+                      : ""}
                   </p>
                 </div>
                 <button
@@ -1722,9 +1792,18 @@ export function UploadPanel({
                 </button>
               </div>
               <div className="mt-3 grid gap-2 md:grid-cols-3">
-                <ResultMetric label="Created" value={selectedJobDetail.created_records} />
-                <ResultMetric label="Updated" value={selectedJobDetail.updated_records} />
-                <ResultMetric label="Rejected" value={selectedJobDetail.rejected_rows} />
+                <ResultMetric
+                  label="Created"
+                  value={selectedJobDetail.created_records}
+                />
+                <ResultMetric
+                  label="Updated"
+                  value={selectedJobDetail.updated_records}
+                />
+                <ResultMetric
+                  label="Rejected"
+                  value={selectedJobDetail.rejected_rows}
+                />
               </div>
               {(selectedJobDetail.warnings ?? []).length > 0 ? (
                 <div className="mt-3 rounded-xl bg-card p-2 text-xs text-primary">
@@ -1737,13 +1816,19 @@ export function UploadPanel({
                 <div className="mt-3 rounded-xl bg-card p-2">
                   <p className="font-medium">Records touched</p>
                   <div className="mt-2 space-y-1 text-xs text-mutedForeground">
-                    {selectedJobDetail.record_references.slice(0, 8).map((record) => (
-                      <p key={`${record.record_type}-${record.record_id}-${record.action}`}>
-                        {record.action} {record.record_type}:{" "}
-                        {record.record_reference ?? record.record_id}
-                        {record.rollback_safe ? " · rollback-safe" : " · preserved"}
-                      </p>
-                    ))}
+                    {selectedJobDetail.record_references
+                      .slice(0, 8)
+                      .map((record) => (
+                        <p
+                          key={`${record.record_type}-${record.record_id}-${record.action}`}
+                        >
+                          {record.action} {record.record_type}:{" "}
+                          {record.record_reference ?? record.record_id}
+                          {record.rollback_safe
+                            ? " · rollback-safe"
+                            : " · preserved"}
+                        </p>
+                      ))}
                   </div>
                 </div>
               ) : null}
@@ -1751,11 +1836,13 @@ export function UploadPanel({
                 <div className="mt-3 rounded-xl bg-card p-2">
                   <p className="font-medium">Rejected rows</p>
                   <div className="mt-2 space-y-2 text-xs text-mutedForeground">
-                    {selectedJobDetail.row_level_errors.slice(0, 5).map((row) => (
-                      <p key={row.row_number}>
-                        Row {row.row_number}: {row.errors.join("; ")}
-                      </p>
-                    ))}
+                    {selectedJobDetail.row_level_errors
+                      .slice(0, 5)
+                      .map((row) => (
+                        <p key={row.row_number}>
+                          Row {row.row_number}: {row.errors.join("; ")}
+                        </p>
+                      ))}
                   </div>
                 </div>
               ) : null}
@@ -1828,6 +1915,68 @@ function uploadedColumnForField(
   );
 }
 
+function mappingImportance(preview: MappingPreview, field: string) {
+  if (preview.required_fields.includes(field)) {
+    return "Required";
+  }
+  if (recommendedFieldsByFileType[preview.file_type]?.has(field)) {
+    return "Recommended";
+  }
+  return "Optional";
+}
+
+function fieldsByImportance(preview: MappingPreview, importance: string) {
+  return preview.optional_fields.filter(
+    (field) => mappingImportance(preview, field) === importance,
+  );
+}
+
+function mappingOptions(preview: MappingPreview) {
+  return [
+    ...preview.required_fields.map((field) => ({
+      field,
+      importance: "Required",
+    })),
+    ...preview.optional_fields.map((field) => ({
+      field,
+      importance: mappingImportance(preview, field),
+    })),
+  ];
+}
+
+function recommendedMappingNotice(
+  preview: MappingPreview,
+  mappingOverrides: Record<string, string>,
+) {
+  const recommended = fieldsByImportance(preview, "Recommended");
+  if (recommended.length === 0) {
+    return "Required mappings ready.";
+  }
+  const mapped = new Set(Object.values(mappingOverrides));
+  const detectedButUnmapped = preview.suggestions
+    .filter(
+      (item) =>
+        item.suggested_field &&
+        recommended.includes(item.suggested_field) &&
+        !mapped.has(item.suggested_field),
+    )
+    .map((item) => item.source_header);
+  if (detectedButUnmapped.length > 0) {
+    return `Required mappings ready. Recommended fields detected but not mapped: ${detectedButUnmapped.join(", ")}.`;
+  }
+  const missing = recommended.filter((field) => !mapped.has(field));
+  if (missing.length > 0) {
+    if (preview.file_type === "shipment") {
+      return "Upload can proceed, but continuity intelligence may be weaker without ETA history fields.";
+    }
+    if (preview.file_type === "threshold") {
+      return "Upload can proceed, but continuity intelligence may be weaker without reserve / quality hold fields.";
+    }
+    return "Upload can proceed, but continuity intelligence may be weaker without recommended fields.";
+  }
+  return "Required mappings ready.";
+}
+
 function isWorkbookFile(file: File): boolean {
   return /\.(xlsx|xlsm)$/i.test(file.name);
 }
@@ -1838,7 +1987,13 @@ function isWorkbookResult(
   return result.file_type === "workbook";
 }
 
-function ResultMetric({ label, value }: { label: string; value: number | string }) {
+function ResultMetric({
+  label,
+  value,
+}: {
+  label: string;
+  value: number | string;
+}) {
   return (
     <div className="rounded-xl bg-card p-2">
       <p className="text-xs text-mutedForeground">{label}</p>

@@ -138,6 +138,8 @@ def test_optional_reserve_fields_are_accepted(
             threshold_days="7",
             minimum_buffer_stock_days="2",
             minimum_buffer_stock_mt="500",
+            reserve_quantity_mt="125",
+            quality_hold_quantity_mt="75",
             stockout_alert_horizon_days="3",
         ),
     )
@@ -146,7 +148,42 @@ def test_optional_reserve_fields_are_accepted(
     body = response.json()
     assert body["minimum_buffer_stock_days"] == "2.00"
     assert body["minimum_buffer_stock_mt"] == "500.00"
+    assert body["reserve_quantity_mt"] == "125.00"
+    assert body["quality_hold_quantity_mt"] == "75.00"
     assert body["stockout_alert_horizon_days"] == "3.00"
+
+
+def test_threshold_read_includes_separate_quantity_fields(
+    client_and_session: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, _ = client_and_session
+    plant_id, material_id = context_ids(client, "tenant-a")
+    headers = auth_headers(client, "admin-a@test.local", "tenant-a")
+
+    create_response = client.put(
+        "/api/v1/impact/continuity-thresholds",
+        headers=headers,
+        json=payload(
+            plant_id,
+            material_id,
+            warning_days="14",
+            threshold_days="7",
+            minimum_buffer_stock_mt="500",
+            reserve_quantity_mt="125",
+            quality_hold_quantity_mt="75",
+        ),
+    )
+    read_response = client.get(
+        f"/api/v1/impact/continuity-thresholds?plant_id={plant_id}&material_id={material_id}",
+        headers=headers,
+    )
+
+    assert create_response.status_code == 200, create_response.json()
+    assert read_response.status_code == 200, read_response.json()
+    body = read_response.json()
+    assert body["minimum_buffer_stock_mt"] == "500.00"
+    assert body["reserve_quantity_mt"] == "125.00"
+    assert body["quality_hold_quantity_mt"] == "75.00"
 
 
 def test_missing_threshold_returns_null(
@@ -231,6 +268,8 @@ def payload(
     threshold_days: str,
     minimum_buffer_stock_days: str | None = None,
     minimum_buffer_stock_mt: str | None = None,
+    reserve_quantity_mt: str | None = None,
+    quality_hold_quantity_mt: str | None = None,
     stockout_alert_horizon_days: str | None = None,
 ) -> dict[str, object]:
     return {
@@ -240,5 +279,7 @@ def payload(
         "threshold_days": threshold_days,
         "minimum_buffer_stock_days": minimum_buffer_stock_days,
         "minimum_buffer_stock_mt": minimum_buffer_stock_mt,
+        "reserve_quantity_mt": reserve_quantity_mt,
+        "quality_hold_quantity_mt": quality_hold_quantity_mt,
         "stockout_alert_horizon_days": stockout_alert_horizon_days,
     }

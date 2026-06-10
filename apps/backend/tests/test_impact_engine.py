@@ -520,6 +520,54 @@ def test_imperfect_product_share_totals_do_not_crash_engine() -> None:
         assert result.gross_production_impact == Decimal("3840000.00")
 
 
+def test_duplicate_dependency_rows_do_not_double_count_interruption_exposure() -> None:
+    with impact_test_session() as db:
+        tenant, plant, material = seed_context(db, "Tenant A", "tenant-a")
+        process = seed_process_dependency(
+            db,
+            tenant_id=tenant.id,
+            plant_id=plant.id,
+            material_id=material.id,
+            process_name="Blast Furnace",
+            products=[("HRC Coil", Decimal("1.0"), Decimal("2000"), Decimal("1.0"))],
+        )
+        db.add_all(
+            [
+                MaterialProcessDependency(
+                    tenant_id=tenant.id,
+                    material_id=material.id,
+                    process_id=process.id,
+                    dependency_ratio=Decimal("1.0"),
+                    is_active=True,
+                ),
+                ProcessProductDependency(
+                    tenant_id=tenant.id,
+                    process_id=process.id,
+                    product_name="hrc coil",
+                    output_share_ratio=Decimal("1.0"),
+                    product_value_per_mt=Decimal("2000"),
+                    operational_criticality_factor=Decimal("1.0"),
+                    is_active=True,
+                ),
+            ]
+        )
+        db.commit()
+
+        result = calculate_production_interruption_impact(
+            interruption_inputs(tenant_id=tenant.id, plant_id=plant.id, material_id=material.id),
+            interruption_config(tenant_id=tenant.id, plant_id=plant.id, material_id=material.id),
+            db=db,
+        )
+
+        assert result.gross_production_impact == Decimal("4800000.00")
+        output_mix_reasons = [
+            reason for reason in result.reason_chain if "Blast Furnace output mix" in reason
+        ]
+        assert output_mix_reasons == [
+            "Blast Furnace output mix: hrc coil 1.0000 share x 2000.00 per MT x criticality 1.0000."
+        ]
+
+
 def test_dependency_model_preserves_tenant_isolation() -> None:
     with impact_test_session() as db:
         tenant_a, plant_a, material_a = seed_context(db, "Tenant A", "tenant-a")

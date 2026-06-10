@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import ROUND_HALF_UP, Decimal
@@ -282,12 +283,17 @@ def dependency_exposure_for(
     if db is None:
         return fallback
 
-    dependencies = list(
+    dependencies = latest_material_process_dependencies(
         db.scalars(
-            select(MaterialProcessDependency).where(
+            select(MaterialProcessDependency)
+            .where(
                 MaterialProcessDependency.tenant_id == inputs.tenant_id,
                 MaterialProcessDependency.material_id == inputs.material_id,
                 MaterialProcessDependency.is_active.is_(True),
+            )
+            .order_by(
+                MaterialProcessDependency.updated_at,
+                MaterialProcessDependency.id,
             )
         )
     )
@@ -308,12 +314,17 @@ def dependency_exposure_for(
         )
         if process is None:
             continue
-        products = list(
+        products = latest_process_products(
             db.scalars(
-                select(ProcessProductDependency).where(
+                select(ProcessProductDependency)
+                .where(
                     ProcessProductDependency.tenant_id == inputs.tenant_id,
                     ProcessProductDependency.process_id == process.id,
                     ProcessProductDependency.is_active.is_(True),
+                )
+                .order_by(
+                    ProcessProductDependency.updated_at,
+                    ProcessProductDependency.id,
                 )
             )
         )
@@ -385,6 +396,24 @@ def dependency_exposure_for(
         gross_production_impact=quantize_decimal(gross_production_impact),
         process_lines=tuple(lines),
     )
+
+
+def latest_material_process_dependencies(
+    rows: Iterable[MaterialProcessDependency],
+) -> list[MaterialProcessDependency]:
+    by_process: dict[int, MaterialProcessDependency] = {}
+    for row in rows:
+        by_process[row.process_id] = row
+    return list(by_process.values())
+
+
+def latest_process_products(
+    rows: Iterable[ProcessProductDependency],
+) -> list[ProcessProductDependency]:
+    by_product: dict[str, ProcessProductDependency] = {}
+    for row in rows:
+        by_product[row.product_name.strip().lower()] = row
+    return list(by_product.values())
 
 
 def dependency_exposure_reasons(

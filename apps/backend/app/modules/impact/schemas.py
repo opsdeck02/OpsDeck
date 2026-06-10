@@ -54,6 +54,8 @@ class ContinuityThresholdPayload(BaseModel):
     threshold_days: Decimal = Field(ge=0)
     minimum_buffer_stock_days: Decimal | None = Field(default=None, ge=0)
     minimum_buffer_stock_mt: Decimal | None = Field(default=None, ge=0)
+    reserve_quantity_mt: Decimal | None = Field(default=None, ge=0)
+    quality_hold_quantity_mt: Decimal | None = Field(default=None, ge=0)
     stockout_alert_horizon_days: Decimal | None = Field(default=None, ge=0)
 
     @model_validator(mode="after")
@@ -73,6 +75,8 @@ class ContinuityThresholdRead(BaseModel):
     threshold_days: Decimal = Field(ge=0)
     minimum_buffer_stock_days: Decimal | None = Field(default=None, ge=0)
     minimum_buffer_stock_mt: Decimal | None = Field(default=None, ge=0)
+    reserve_quantity_mt: Decimal | None = Field(default=None, ge=0)
+    quality_hold_quantity_mt: Decimal | None = Field(default=None, ge=0)
     stockout_alert_horizon_days: Decimal | None = Field(default=None, ge=0)
     created_at: datetime
     updated_at: datetime
