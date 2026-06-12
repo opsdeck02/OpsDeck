@@ -127,9 +127,9 @@ export function DashboardShell({
   }
 
   return (
-    <div className="min-h-screen overflow-x-hidden px-3 py-2.5 sm:px-4 lg:px-5">
-      <div className="mx-auto flex w-full max-w-[1480px] flex-col gap-3">
-        <header className="bg-white/76 flex flex-col gap-3 rounded-2xl px-3.5 py-2.5 shadow-panel ring-1 ring-slate-900/5 backdrop-blur md:flex-row md:items-center md:justify-between">
+    <div className="h-screen overflow-hidden px-3 py-2.5 sm:px-4 lg:px-5">
+      <div className="mx-auto flex h-full w-full max-w-[1480px] flex-col gap-3 overflow-hidden">
+        <header className="bg-white/76 shrink-0 flex flex-col gap-3 rounded-2xl px-3.5 py-2.5 shadow-panel ring-1 ring-slate-900/5 backdrop-blur md:flex-row md:items-center md:justify-between">
           <div className="flex min-w-0 items-center gap-3">
             <OpsDeckLogo compact />
             <div className="min-w-0">
@@ -155,8 +155,8 @@ export function DashboardShell({
             <LogoutButton />
           </div>
         </header>
-        <div className="grid min-w-0 gap-3 lg:grid-cols-[136px_minmax(0,1fr)]">
-          <nav className="h-fit rounded-2xl bg-white/70 p-1.5 shadow-panel ring-1 ring-slate-900/5 backdrop-blur">
+        <div className="grid min-h-0 min-w-0 flex-1 gap-3 overflow-hidden lg:grid-cols-[136px_minmax(0,1fr)]">
+          <nav className="h-fit max-h-full overflow-y-auto rounded-2xl bg-white/70 p-1.5 shadow-panel ring-1 ring-slate-900/5 backdrop-blur">
             {!isSuperadmin ? (
               <div className="mb-1.5 rounded-xl bg-slate-50 px-2.5 py-2 ring-1 ring-slate-900/5">
                 <label
@@ -195,7 +195,9 @@ export function DashboardShell({
               </Link>
             ))}
           </nav>
-          <div className="min-w-0">{children}</div>
+          <div className="min-h-0 min-w-0 overflow-y-auto pr-1">
+            {children}
+          </div>
         </div>
       </div>
     </div>
