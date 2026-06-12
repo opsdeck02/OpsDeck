@@ -90,7 +90,7 @@ export default async function CriticalRiskWorkspacePage({
     : undefined;
   const walkthroughActive =
     walkthroughControlsEnabled && isWalkthroughActive(searchParams);
-  const workspace = await getRiskWorkspace({
+  const workspaceParams = {
     scenario: activeScenario,
     risk_type: searchParams?.risk_type,
     plant_reference: searchParams?.plant_reference,
@@ -99,14 +99,17 @@ export default async function CriticalRiskWorkspacePage({
     severity: searchParams?.severity,
     timeline_limit: 50,
     timeline_offset: 0,
-  });
-  const risks = activeScenario
-    ? []
-    : await getSignalRisks({ plant_reference: searchParams?.plant_reference });
-
-  if (!workspace) {
-    return <UnavailableState />;
-  }
+  };
+  const [requestedWorkspace, risks] = await Promise.all([
+    getRiskWorkspace(workspaceParams),
+    activeScenario
+      ? Promise.resolve([])
+      : getSignalRisks({ plant_reference: searchParams?.plant_reference }),
+  ]);
+  const workspace =
+    shouldRelaxWorkspaceSelection(searchParams, requestedWorkspace)
+      ? await getRelaxedRiskWorkspace(searchParams)
+      : requestedWorkspace;
 
   return (
     <main className="grid w-full min-w-0 max-w-full gap-2.5 overflow-x-hidden">
@@ -119,25 +122,26 @@ export default async function CriticalRiskWorkspacePage({
       {risks.length > 0 ? (
         <ExposureSelector
           risks={risks}
-          selected={workspace.selected_risk}
+          selected={workspace?.selected_risk ?? null}
           searchParams={searchParams}
         />
       ) : null}
-      {workspace.is_demo_scenario ? (
+      {!workspace && risks.length === 0 ? <UnavailableState /> : null}
+      {!workspace && risks.length > 0 ? <DetailUnavailableState /> : null}
+      {workspace?.is_demo_scenario ? (
         <DemoScenarioNotice
           workspace={workspace}
           walkthroughActive={walkthroughActive}
         />
       ) : null}
 
-      {workspace.empty ? (
-        <EmptyWorkspace />
-      ) : (
+      {workspace && !workspace.empty ? (
         <WorkspaceContent
           workspace={workspace}
           walkthroughActive={walkthroughActive}
         />
-      )}
+      ) : null}
+      {workspace?.empty ? <EmptyWorkspace /> : null}
     </main>
   );
 }
@@ -416,6 +420,51 @@ function materialWorkspaceHref(
   return query
     ? `/dashboard/risk-workspace?${query}`
     : "/dashboard/risk-workspace";
+}
+
+function shouldRelaxWorkspaceSelection(
+  searchParams: SearchParams | undefined,
+  workspace: RiskWorkspaceResponse | null,
+) {
+  if (
+    !searchParams?.risk_type &&
+    !searchParams?.shipment_reference &&
+    !searchParams?.severity
+  ) {
+    return false;
+  }
+  return workspace === null || workspace.empty;
+}
+
+async function getRelaxedRiskWorkspace(searchParams: SearchParams | undefined) {
+  const scopedWorkspace =
+    searchParams?.plant_reference || searchParams?.material_reference
+      ? await getRiskWorkspace({
+          plant_reference: searchParams?.plant_reference,
+          material_reference: searchParams?.material_reference,
+          timeline_limit: 50,
+          timeline_offset: 0,
+        })
+      : null;
+  if (scopedWorkspace && !scopedWorkspace.empty) {
+    return scopedWorkspace;
+  }
+
+  const plantWorkspace = searchParams?.plant_reference
+    ? await getRiskWorkspace({
+        plant_reference: searchParams.plant_reference,
+        timeline_limit: 50,
+        timeline_offset: 0,
+      })
+    : null;
+  if (plantWorkspace && !plantWorkspace.empty) {
+    return plantWorkspace;
+  }
+
+  return getRiskWorkspace({
+    timeline_limit: 50,
+    timeline_offset: 0,
+  });
 }
 
 function WorkspaceContent({
@@ -2205,6 +2254,20 @@ function UnavailableState() {
       <CardContent className="text-sm text-mutedForeground">
         OpsDeck could not load the risk workspace. Your signal engine data may
         still be available in other views.
+      </CardContent>
+    </Card>
+  );
+}
+
+function DetailUnavailableState() {
+  return (
+    <Card className="min-w-0 max-w-full overflow-hidden bg-card/90 shadow-panel">
+      <CardHeader>
+        <CardTitle>Risk detail is refreshing</CardTitle>
+      </CardHeader>
+      <CardContent className="text-sm leading-6 text-mutedForeground">
+        Material rollups are available. Select a material to reload the focused
+        risk detail.
       </CardContent>
     </Card>
   );
