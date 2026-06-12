@@ -10,6 +10,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+import app.modules.signal_engine.service as signal_service
 from app.api.dependencies import get_db
 from app.core.config import settings
 from app.db.base import Base
@@ -35,10 +36,17 @@ from app.modules.auth.constants import LOGISTICS_USER
 from app.modules.auth.security import hash_password
 from app.modules.operational_events.schemas import OperationalEventCreate
 from app.modules.operational_events.service import create_operational_event
+from app.modules.rules.engine import RiskCandidate
+from app.modules.signal_engine.candidate_cache import (
+    clear_signal_candidate_cache,
+    get_cached_signal_candidates,
+    invalidate_signal_candidate_cache,
+)
 
 
 @pytest.fixture()
 def client() -> Generator[TestClient, None, None]:
+    clear_signal_candidate_cache()
     engine = create_engine(
         "sqlite+pysqlite:///:memory:",
         connect_args={"check_same_thread": False},
@@ -61,6 +69,7 @@ def client() -> Generator[TestClient, None, None]:
     try:
         yield TestClient(app)
     finally:
+        clear_signal_candidate_cache()
         app.dependency_overrides.clear()
         Base.metadata.drop_all(bind=engine)
 
@@ -72,6 +81,192 @@ def test_risks_endpoint_returns_explainable_risk_candidates(client: TestClient) 
     risks = response.json()
     assert any(risk["risk_type"] == "days_of_cover_breach" for risk in risks)
     assert all(risk["explainability"] is not None for risk in risks)
+
+
+def test_material_rollups_return_grouped_material_records(
+    client: TestClient,
+) -> None:
+    response = client.get(
+        "/api/v1/signal-engine/material-rollups",
+        headers=auth_headers(client),
+    )
+
+    assert response.status_code == 200
+    rollups = response.json()
+    assert rollups
+    rollup = rollups[0]
+    assert rollup["plant_reference"] == "P1"
+    assert rollup["material_reference"] == "M1"
+    assert rollup["exception_count"] > 0
+    assert rollup["highest_severity"] in {"critical", "high", "medium", "low"}
+    assert rollup["risk_types"]
+    assert "explainability" not in rollup
+    assert "operational_interruption_impact" not in rollup
+    assert "operational_recommendations" not in rollup
+    assert "configuration_completeness" not in rollup
+    assert "operational_trust" not in rollup
+
+
+def test_material_rollup_counts_and_severity_match_candidates(
+    client: TestClient,
+) -> None:
+    headers = auth_headers(client)
+    risks_response = client.get("/api/v1/signal-engine/risks", headers=headers)
+    rollups_response = client.get(
+        "/api/v1/signal-engine/material-rollups",
+        headers=headers,
+    )
+
+    assert risks_response.status_code == 200
+    assert rollups_response.status_code == 200
+    risks = risks_response.json()
+    rollups = rollups_response.json()
+    grouped: dict[tuple[str | None, str | None], list[dict]] = {}
+    for risk in risks:
+        key = (risk["plant_reference"], risk["material_reference"])
+        grouped.setdefault(key, []).append(risk)
+
+    assert len(rollups) == len(grouped)
+    for rollup in rollups:
+        key = (rollup["plant_reference"], rollup["material_reference"])
+        grouped_risks = grouped[key]
+        highest = sorted(grouped_risks, key=risk_priority_for_test)[0]
+        assert rollup["exception_count"] == len(grouped_risks)
+        assert rollup["highest_severity"] == highest["severity"]
+        assert rollup["risk_types"] == sorted({risk["risk_type"] for risk in grouped_risks})
+
+
+def test_material_rollups_support_plant_filter(client: TestClient) -> None:
+    response = client.get(
+        "/api/v1/signal-engine/material-rollups",
+        headers=auth_headers(client),
+        params={"plant_reference": "P1"},
+    )
+
+    assert response.status_code == 200
+    rollups = response.json()
+    assert rollups
+    assert all(rollup["plant_reference"] == "P1" for rollup in rollups)
+
+
+def test_material_rollups_tenant_isolation_is_enforced(client: TestClient) -> None:
+    response = client.get(
+        "/api/v1/signal-engine/material-rollups",
+        headers=auth_headers(client),
+        params={"plant_reference": "P2", "material_reference": "M2"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == []
+
+    cross_tenant = client.get(
+        "/api/v1/signal-engine/material-rollups",
+        headers={**auth_headers(client), "X-Tenant-Slug": "tenant-b"},
+    )
+    assert cross_tenant.status_code == 404
+
+
+def test_material_rollups_use_cached_candidates(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = 0
+    original = signal_service.evaluate_rule_based_risks
+
+    def counted_evaluate(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(signal_service, "evaluate_rule_based_risks", counted_evaluate)
+    headers = auth_headers(client)
+
+    first = client.get("/api/v1/signal-engine/material-rollups", headers=headers)
+    second = client.get("/api/v1/signal-engine/material-rollups", headers=headers)
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json() == second.json()
+    assert calls == 1
+
+
+def test_selected_workspace_reuses_cached_base_candidates(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = 0
+    original = signal_service.evaluate_rule_based_risks
+
+    def counted_evaluate(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(signal_service, "evaluate_rule_based_risks", counted_evaluate)
+    headers = auth_headers(client)
+
+    rollups = client.get("/api/v1/signal-engine/material-rollups", headers=headers)
+    assert rollups.status_code == 200
+    selected = rollups.json()[0]
+    workspace = client.get(
+        "/api/v1/signal-engine/risk-workspace",
+        headers=headers,
+        params={
+            "plant_reference": selected["plant_reference"],
+            "material_reference": selected["material_reference"],
+        },
+    )
+
+    assert workspace.status_code == 200
+    assert workspace.json()["empty"] is False
+    assert calls == 1
+
+
+def test_signal_candidate_cache_invalidation_recomputes_for_tenant(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = 0
+    original = signal_service.evaluate_rule_based_risks
+
+    def counted_evaluate(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(signal_service, "evaluate_rule_based_risks", counted_evaluate)
+    headers = auth_headers(client)
+
+    first = client.get("/api/v1/signal-engine/material-rollups", headers=headers)
+    invalidate_signal_candidate_cache(1)
+    second = client.get("/api/v1/signal-engine/material-rollups", headers=headers)
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert calls == 2
+
+
+def test_signal_candidate_cache_is_tenant_scoped() -> None:
+    clear_signal_candidate_cache()
+    calls = {"tenant_a": 0, "tenant_b": 0}
+
+    def compute_a() -> list[RiskCandidate]:
+        calls["tenant_a"] += 1
+        return [cache_candidate("P1", "M1")]
+
+    def compute_b() -> list[RiskCandidate]:
+        calls["tenant_b"] += 1
+        return [cache_candidate("P2", "M2")]
+
+    assert get_cached_signal_candidates(1, compute_a)[0].plant_reference == "P1"
+    assert get_cached_signal_candidates(2, compute_b)[0].plant_reference == "P2"
+    assert get_cached_signal_candidates(1, compute_a)[0].plant_reference == "P1"
+    assert get_cached_signal_candidates(2, compute_b)[0].plant_reference == "P2"
+
+    invalidate_signal_candidate_cache(1)
+    assert get_cached_signal_candidates(1, compute_a)[0].plant_reference == "P1"
+    assert get_cached_signal_candidates(2, compute_b)[0].plant_reference == "P2"
+    assert calls == {"tenant_a": 2, "tenant_b": 1}
 
 
 def test_risk_workspace_returns_selected_risk_plus_explainability(
@@ -566,6 +761,34 @@ def test_signal_engine_requires_authentication(client: TestClient) -> None:
 
 
 NOW = datetime(2026, 5, 9, 12, tzinfo=UTC)
+SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+
+
+def risk_priority_for_test(risk: dict) -> tuple:
+    projected = risk["projected_exhaustion_date"]
+    projected_sort = (
+        datetime.fromisoformat(projected).timestamp()
+        if projected is not None
+        else float("inf")
+    )
+    return (
+        SEVERITY_ORDER.get(risk["severity"], 99),
+        projected_sort,
+        risk["risk_type"],
+        risk["plant_reference"] or "",
+        risk["material_reference"] or "",
+        risk["shipment_reference"] or "",
+    )
+
+
+def cache_candidate(plant_reference: str, material_reference: str) -> RiskCandidate:
+    return RiskCandidate(
+        risk_type="days_of_cover_breach",
+        severity="medium",
+        plant_reference=plant_reference,
+        material_reference=material_reference,
+        rule_reasons=["test candidate"],
+    )
 
 
 def seed_signal_engine_data(db: Session) -> None:

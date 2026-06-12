@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
-import { ArrowRight, Settings2, UsersRound } from "lucide-react";
+import { ArrowRight, FileClock, Settings2, UsersRound } from "lucide-react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getCurrentUser } from "@/lib/api";
@@ -37,6 +37,12 @@ export default async function AdminPage() {
           icon={<Settings2 className="h-4 w-4" />}
           title="Operational Configuration"
           description="Configure operational continuity thresholds and interruption impact logic."
+        />
+        <AdminCard
+          href="/dashboard/admin/historical-validation"
+          icon={<FileClock className="h-4 w-4" />}
+          title="Historical Validation"
+          description="Review whether OpsDeck would have detected past continuity incidents before disruption."
         />
       </div>
     </div>

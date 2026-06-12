@@ -62,6 +62,27 @@ def test_degraded_shipment_creates_shipment_degraded_risk() -> None:
     assert candidate.shipment_reference == "SHIP-1"
 
 
+def test_missing_po_alone_does_not_create_missing_context_risk() -> None:
+    candidates = evaluate_shipment_rules(
+        degraded_shipment(linked_purchase_order_reference=None)
+    )
+
+    assert not any(
+        candidate.risk_type == "missing_operational_context"
+        for candidate in candidates
+    )
+
+
+def test_missing_material_or_plant_context_creates_missing_context_risk() -> None:
+    candidates = evaluate_shipment_rules(
+        degraded_shipment(linked_material_reference=None)
+    )
+
+    candidate = only_type(candidates, "missing_operational_context")
+    assert candidate.severity == "low"
+    assert candidate.recommended_owner_role == "data_steward"
+
+
 def test_degraded_shipment_plus_low_inventory_cover_creates_inbound_delay_risk() -> None:
     candidates = evaluate_inbound_delay_against_cover(
         degraded_shipment(eta_slip_days=Decimal("3")),
@@ -243,7 +264,13 @@ def inventory(days_of_cover: Decimal):
     )
 
 
-def degraded_shipment(eta_slip_days: Decimal = Decimal("2")):
+def degraded_shipment(
+    eta_slip_days: Decimal = Decimal("2"),
+    *,
+    linked_purchase_order_reference: str | None = "PO-1",
+    linked_material_reference: str | None = "M1",
+    linked_plant_reference: str | None = "P1",
+):
     now = datetime(2026, 5, 9, 12, tzinfo=UTC)
     previous_eta = now + timedelta(days=1)
     return calculate_shipment_continuity(
@@ -252,9 +279,9 @@ def degraded_shipment(eta_slip_days: Decimal = Decimal("2")):
         previous_eta=previous_eta,
         current_milestone="in_transit",
         tracking_updated_at=now - timedelta(hours=8),
-        linked_purchase_order_reference="PO-1",
-        linked_material_reference="M1",
-        linked_plant_reference="P1",
+        linked_purchase_order_reference=linked_purchase_order_reference,
+        linked_material_reference=linked_material_reference,
+        linked_plant_reference=linked_plant_reference,
         current_state=ShipmentState.IN_TRANSIT,
         now=now,
     )

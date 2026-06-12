@@ -177,27 +177,35 @@ def evaluate_inventory_rules(
         threshold_days=continuity.threshold_days,
         warning_days=continuity.warning_days,
     )
-    rule_reasons = [
-        threshold_reason(days, severity, continuity.threshold_days, continuity.warning_days)
-    ]
+    threshold_breached = days_of_cover_threshold_breached(
+        days,
+        threshold_days=continuity.threshold_days,
+        warning_days=continuity.warning_days,
+    )
     reserve_reasons = protected_reserve_reasons(continuity)
-    if reserve_reasons:
-        severity = max_severity(severity, "medium")
-        rule_reasons.extend(reserve_reasons)
-    candidates.append(
-        with_explainability(
-            RiskCandidate(
-                risk_type="days_of_cover_breach",
-                severity=severity,
-                plant_reference=continuity.plant_reference,
-                material_reference=continuity.material_reference,
-                days_of_cover=days,
-                projected_exhaustion_date=continuity.projected_exhaustion_date,
-                rule_reasons=rule_reasons,
-                recommended_owner_role="materials_planner",
+    if threshold_breached:
+        rule_reasons = [
+            threshold_reason(days, severity, continuity.threshold_days, continuity.warning_days)
+        ]
+        if reserve_reasons:
+            severity = max_severity(severity, "medium")
+            rule_reasons.extend(reserve_reasons)
+        candidates.append(
+            with_explainability(
+                RiskCandidate(
+                    risk_type="days_of_cover_breach",
+                    severity=severity,
+                    plant_reference=continuity.plant_reference,
+                    material_reference=continuity.material_reference,
+                    days_of_cover=days,
+                    projected_exhaustion_date=continuity.projected_exhaustion_date,
+                    rule_reasons=rule_reasons,
+                    recommended_owner_role="materials_planner",
+                )
             )
         )
-    )
+    elif reserve_reasons:
+        candidates.append(protected_reserve_candidate(continuity, reserve_reasons))
 
     stockout_horizon = stockout_alert_horizon(continuity)
     if (
@@ -607,6 +615,21 @@ def severity_for_days_of_cover(
     return "low"
 
 
+def days_of_cover_threshold_breached(
+    days_of_cover: Decimal,
+    *,
+    threshold_days: Decimal | None = None,
+    warning_days: Decimal | None = None,
+) -> bool:
+    if threshold_days is not None and days_of_cover <= threshold_days:
+        return True
+    if warning_days is not None:
+        return days_of_cover <= warning_days
+    if threshold_days is not None:
+        return False
+    return days_of_cover <= Decimal("10")
+
+
 def threshold_reason(
     days_of_cover: Decimal,
     severity: str,
@@ -740,7 +763,6 @@ def missing_context_from_shipment(continuity: ShipmentContinuityResult) -> bool:
         continuity.shipment_reference
         and continuity.linked_material_reference
         and continuity.linked_plant_reference
-        and continuity.linked_purchase_order_reference
     )
 
 

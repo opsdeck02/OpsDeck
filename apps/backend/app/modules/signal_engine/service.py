@@ -7,7 +7,14 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import ContinuityRiskSnapshot, Material, Plant, Shipment, StockSnapshot
+from app.models import (
+    ContinuityRiskSnapshot,
+    Material,
+    OperationalEvent,
+    Plant,
+    Shipment,
+    StockSnapshot,
+)
 from app.models.enums import OperationalEventCategory
 from app.modules.exposure.mapping import (
     ExposureTrustSummary,
@@ -42,6 +49,7 @@ from app.modules.rules.engine import (
     FRESHNESS_ORDER,
     RiskCandidate,
     RiskExplainability,
+    attach_explainability,
     evaluate_rule_based_risks,
 )
 from app.modules.shipments.continuity import calculate_shipment_continuity_for
@@ -50,6 +58,10 @@ from app.modules.shipments.visibility_confidence import (
     calculate_visibility_confidence,
     is_physical_inbound_candidate,
     quantize_decimal,
+)
+from app.modules.signal_engine.candidate_cache import (
+    get_cached_signal_candidates,
+    invalidate_signal_candidate_cache,
 )
 from app.modules.signal_engine.pilot_scenarios import DEMO_DATA_NOTICE, prepare_pilot_scenario
 from app.modules.stock.continuity import calculate_inventory_continuity_for
@@ -91,6 +103,18 @@ class RiskWorkspaceResponse(BaseModel):
     demo_data_notice: str | None = None
 
 
+class MaterialRiskRollup(BaseModel):
+    plant_reference: str | None = None
+    material_reference: str | None = None
+    highest_severity: str
+    exception_count: int
+    risk_types: list[str]
+    earliest_projected_exhaustion_date: datetime | None = None
+    lowest_days_of_cover: Decimal | None = None
+    representative_shipment_reference: str | None = None
+    last_updated_at: datetime | None = None
+
+
 class EscalationEvaluationResponse(BaseModel):
     risks: list[RiskCandidate]
     snapshot_time: datetime
@@ -107,8 +131,14 @@ def list_signal_risks(
     shipment_reference: str | None = None,
     severity: str | None = None,
     now: datetime | None = None,
+    bypass_cache: bool = False,
 ) -> list[RiskCandidate]:
-    candidates = evaluate_rule_based_risks(db, context, now=now)
+    candidates = cached_rule_based_risk_candidates(
+        db,
+        context,
+        now=now,
+        bypass_cache=bypass_cache,
+    )
     filtered = [
         candidate
         for candidate in candidates
@@ -121,7 +151,67 @@ def list_signal_risks(
             severity=severity,
         )
     ]
-    return enrich_candidates_with_latest_escalation(db, context, filtered)
+    return enrich_candidates_with_latest_escalation(
+        db,
+        context,
+        attach_candidate_explainability(db, context, filtered),
+    )
+
+
+def list_material_risk_rollups(
+    db: Session,
+    context: RequestContext,
+    *,
+    plant_reference: str | None = None,
+    material_reference: str | None = None,
+    now: datetime | None = None,
+) -> list[MaterialRiskRollup]:
+    candidates = [
+        candidate
+        for candidate in cached_rule_based_risk_candidates(db, context, now=now)
+        if candidate_matches_filters(
+            candidate,
+            plant_reference=plant_reference,
+            material_reference=material_reference,
+            shipment_reference=None,
+            severity=None,
+        )
+    ]
+    grouped: dict[tuple[str | None, str | None], list[RiskCandidate]] = {}
+    for candidate in candidates:
+        key = (candidate.plant_reference, candidate.material_reference)
+        grouped.setdefault(key, []).append(candidate)
+
+    rollups = [
+        material_rollup_from_candidates(grouped_candidates)
+        for grouped_candidates in grouped.values()
+    ]
+    return sorted(rollups, key=material_rollup_priority_key)
+
+
+def cached_rule_based_risk_candidates(
+    db: Session,
+    context: RequestContext,
+    *,
+    now: datetime | None = None,
+    bypass_cache: bool = False,
+) -> list[RiskCandidate]:
+    return get_cached_signal_candidates(
+        context.tenant_id,
+        lambda: evaluate_rule_based_risks(db, context, now=now),
+        bypass=bypass_cache or now is not None,
+    )
+
+
+def attach_candidate_explainability(
+    db: Session,
+    context: RequestContext,
+    candidates: list[RiskCandidate],
+) -> list[RiskCandidate]:
+    events = list(
+        db.scalars(select(OperationalEvent).where(OperationalEvent.tenant_id == context.tenant_id))
+    )
+    return attach_explainability(candidates, events)
 
 
 def get_risk_workspace(
@@ -151,6 +241,7 @@ def get_risk_workspace(
         scenario_key = selection.scenario_key
         scenario_label = selection.scenario_label
         now = scenario_now
+        invalidate_signal_candidate_cache(context.tenant_id)
 
     candidates = list_signal_risks(
         db,
@@ -161,6 +252,7 @@ def get_risk_workspace(
         shipment_reference=shipment_reference,
         severity=severity,
         now=now,
+        bypass_cache=scenario_key is not None,
     )
     selected = select_highest_priority_risk(candidates)
     if selected is None:
@@ -347,6 +439,58 @@ def select_highest_priority_risk(candidates: list[RiskCandidate]) -> RiskCandida
     if not candidates:
         return None
     return sorted(candidates, key=risk_priority_key)[0]
+
+
+def material_rollup_from_candidates(
+    candidates: list[RiskCandidate],
+) -> MaterialRiskRollup:
+    ordered = sorted(candidates, key=risk_priority_key)
+    highest = ordered[0]
+    projected_dates = [
+        candidate.projected_exhaustion_date
+        for candidate in candidates
+        if candidate.projected_exhaustion_date is not None
+    ]
+    cover_values = [
+        candidate.days_of_cover
+        for candidate in candidates
+        if candidate.days_of_cover is not None
+    ]
+    representative_shipment_reference = next(
+        (
+            candidate.shipment_reference
+            for candidate in ordered
+            if candidate.shipment_reference is not None
+        ),
+        None,
+    )
+    return MaterialRiskRollup(
+        plant_reference=highest.plant_reference,
+        material_reference=highest.material_reference,
+        highest_severity=highest.severity,
+        exception_count=len(candidates),
+        risk_types=sorted({candidate.risk_type for candidate in candidates}),
+        earliest_projected_exhaustion_date=(
+            min(projected_dates) if projected_dates else None
+        ),
+        lowest_days_of_cover=min(cover_values) if cover_values else None,
+        representative_shipment_reference=representative_shipment_reference,
+        last_updated_at=None,
+    )
+
+
+def material_rollup_priority_key(rollup: MaterialRiskRollup) -> tuple:
+    projected = rollup.earliest_projected_exhaustion_date
+    projected_sort = projected.timestamp() if projected is not None else float("inf")
+    cover_sort = rollup.lowest_days_of_cover
+    return (
+        SEVERITY_ORDER.get(rollup.highest_severity, 99),
+        -rollup.exception_count,
+        projected_sort,
+        cover_sort if cover_sort is not None else Decimal("999999999"),
+        rollup.plant_reference or "",
+        rollup.material_reference or "",
+    )
 
 
 def risk_priority_key(candidate: RiskCandidate) -> tuple:

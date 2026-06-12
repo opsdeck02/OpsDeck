@@ -11,6 +11,7 @@ from app.models.enums import ShipmentState
 from app.modules.shipments.confidence import assess_freshness, ensure_utc
 from app.modules.shipments.movement import build_context, build_inland_summary, build_port_summary
 from app.modules.shipments.service import build_shipment_item
+from app.modules.signal_engine.candidate_cache import invalidate_signal_candidate_cache
 from app.modules.stock.service import calculate_stock_cover_summary
 from app.modules.suppliers.schemas import (
     SupplierCreate,
@@ -96,6 +97,7 @@ def create_supplier(db: Session, context: RequestContext, payload: SupplierCreat
     except Exception:
         db.rollback()
         raise ValueError("Supplier name or code already exists for this tenant") from None
+    invalidate_signal_candidate_cache(context.tenant_id)
     db.refresh(supplier)
     return serialize_supplier(db, context, supplier)
 
@@ -127,6 +129,7 @@ def update_supplier(
     except Exception:
         db.rollback()
         raise ValueError("Supplier name or code already exists for this tenant") from None
+    invalidate_signal_candidate_cache(context.tenant_id)
     db.refresh(supplier)
     return serialize_supplier(db, context, supplier)
 
@@ -141,6 +144,7 @@ def soft_delete_supplier(
         return None
     supplier.is_active = False
     db.commit()
+    invalidate_signal_candidate_cache(context.tenant_id)
     db.refresh(supplier)
     return serialize_supplier(db, context, supplier)
 
@@ -164,6 +168,7 @@ def link_shipments_by_supplier_name(
     for shipment in linked:
         shipment.supplier_id = supplier.id
     db.commit()
+    invalidate_signal_candidate_cache(context.tenant_id)
     return SupplierLinkShipmentsResponse(
         supplier_id=supplier.id,
         matched_supplier_name=supplier.name,

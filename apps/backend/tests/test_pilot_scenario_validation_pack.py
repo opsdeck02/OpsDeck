@@ -138,7 +138,7 @@ def test_imported_critical_material_uses_configured_early_warning_thresholds() -
     )
 
 
-def test_protected_reserve_breach_creates_or_elevates_warning() -> None:
+def test_protected_reserve_breach_creates_reserve_warning() -> None:
     inventory = inventory_result(
         days_of_cover=Decimal("8"),
         threshold_days=Decimal("3"),
@@ -151,7 +151,9 @@ def test_protected_reserve_breach_creates_or_elevates_warning() -> None:
         uncertain=Decimal("0"),
     )
 
-    candidate = one_risk(evaluate_inventory_rules(inventory, now=NOW), "days_of_cover_breach")
+    risks = evaluate_inventory_rules(inventory, now=NOW)
+    assert not any(risk.risk_type == "days_of_cover_breach" for risk in risks)
+    candidate = one_risk(risks, "protected_reserve_breach")
 
     assert candidate.severity == "medium"
     assert any(

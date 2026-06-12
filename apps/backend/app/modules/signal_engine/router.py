@@ -17,11 +17,13 @@ from app.modules.shipments.schemas import ShipmentContinuityResult
 from app.modules.signal_engine.pilot_scenarios import SUPPORTED_PILOT_SCENARIOS
 from app.modules.signal_engine.service import (
     EscalationEvaluationResponse,
+    MaterialRiskRollup,
     RiskWorkspaceResponse,
     evaluate_and_record_risk_escalation,
     get_risk_workspace,
     get_signal_context_graph,
     list_inventory_continuity,
+    list_material_risk_rollups,
     list_shipment_continuity,
     list_signal_exposures,
     list_signal_risks,
@@ -99,6 +101,21 @@ def signal_risk_workspace(
         severity=severity,
         timeline_limit=timeline_limit,
         timeline_offset=timeline_offset,
+    )
+
+
+@router.get("/material-rollups", response_model=list[MaterialRiskRollup])
+def signal_material_rollups(
+    context: Annotated[RequestContext, Depends(get_request_context)],
+    db: Annotated[Session, Depends(get_db)],
+    plant_reference: Annotated[str | None, Query()] = None,
+    material_reference: Annotated[str | None, Query()] = None,
+) -> list[MaterialRiskRollup]:
+    return list_material_risk_rollups(
+        db,
+        context,
+        plant_reference=plant_reference,
+        material_reference=material_reference,
     )
 
 

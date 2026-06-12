@@ -57,6 +57,7 @@ from app.modules.operational_events.service import (
     emit_inventory_stock_updated,
     emit_shipment_update_event,
 )
+from app.modules.signal_engine.candidate_cache import invalidate_signal_candidate_cache
 from app.modules.suppliers.service import find_or_create_supplier_from_upload
 from app.modules.tenants.demo import is_demo_tenant
 from app.schemas.context import RequestContext
@@ -452,6 +453,8 @@ def process_upload_content(
         )
         job.completed_at = datetime.now(UTC)
         db.commit()
+        if result.rows_accepted > 0:
+            invalidate_signal_candidate_cache(context.tenant_id)
 
         if result.rows_accepted == 0:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=result.model_dump())
@@ -666,6 +669,8 @@ def process_workbook_upload(
             },
         )
         db.commit()
+        if rows_accepted > 0:
+            invalidate_signal_candidate_cache(context.tenant_id)
 
         if rows_accepted == 0:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=result.model_dump())
@@ -855,6 +860,7 @@ def delete_uploaded_data(db: Session, tenant_id: int) -> dict[str, int]:
     db.execute(delete(IngestionJob).where(IngestionJob.tenant_id == tenant_id))
     db.execute(delete(UploadedFile).where(UploadedFile.tenant_id == tenant_id))
     db.commit()
+    invalidate_signal_candidate_cache(tenant_id)
     return deleted_counts
 
 
@@ -978,6 +984,7 @@ def rollback_import_job(
         },
     }
     db.commit()
+    invalidate_signal_candidate_cache(context.tenant_id)
     return RollbackSummary(
         import_job_id=job.id,
         rollback_status="rolled_back",

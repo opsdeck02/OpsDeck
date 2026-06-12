@@ -65,6 +65,71 @@ export interface SignalRiskCandidate {
   operational_trust: RiskOperationalTrustResult | null;
 }
 
+export interface SignalMaterialRiskRollup {
+  plant_reference: string | null;
+  material_reference: string | null;
+  highest_severity: string;
+  exception_count: number;
+  risk_types: string[];
+  earliest_projected_exhaustion_date: string | null;
+  lowest_days_of_cover: string | null;
+  representative_shipment_reference: string | null;
+  last_updated_at: string | null;
+}
+
+export interface HistoricalValidationIncidentResult {
+  incident_id: number;
+  plant_id: number;
+  plant_name: string;
+  plant_reference: string | null;
+  material_id: number;
+  material_name: string;
+  material_reference: string | null;
+  incident_date: string;
+  incident_type: string;
+  line_stop_duration_hours: string | null;
+  business_impact: string | null;
+  opsdeck_detection_result: string | null;
+  incident_start_date: string | null;
+  earliest_detection_date: string | null;
+  warning_lead_time_hours: string | null;
+  warning_lead_time_days: string | null;
+  predicted_warning_date: string | null;
+  lead_time_gained_hours: string | null;
+  detection_signals: string[];
+  detection_chain: string[];
+  recommended_actions_replay: string[];
+  missed_signals: string[];
+  missed_incident_analysis: string[];
+  confidence_level: string;
+  confidence_classification: string | null;
+  confidence_rationale: string[];
+  calibration_status: string;
+}
+
+export interface HistoricalValidationSummary {
+  incidents_analyzed: number;
+  detected: number;
+  partially_detected: number;
+  missed: number;
+  detection_rate_percent: string;
+  average_warning_lead_time_days: string | null;
+  longest_warning_lead_time_days: string | null;
+  shortest_warning_lead_time_days: string | null;
+}
+
+export interface HistoricalValidationReport {
+  total_incidents: number;
+  incidents_with_warning: number;
+  incidents_missed: number;
+  average_lead_time_hours: string | null;
+  summary: HistoricalValidationSummary | null;
+  results: HistoricalValidationIncidentResult[];
+  generated_at: string | null;
+  tenant: string | null;
+  report_markdown: string | null;
+}
+
 export interface OperationalInterruptionImpact {
   calculation_status: string;
   currency: string;
@@ -321,6 +386,23 @@ export async function getRiskWorkspace(params?: {
   );
 }
 
+export async function getMaterialRiskRollups(params?: {
+  plant_reference?: string;
+  material_reference?: string;
+}): Promise<SignalMaterialRiskRollup[]> {
+  const query = new URLSearchParams();
+  if (params?.plant_reference)
+    query.set("plant_reference", params.plant_reference);
+  if (params?.material_reference)
+    query.set("material_reference", params.material_reference);
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  return (
+    (await getAuthenticatedJson<SignalMaterialRiskRollup[]>(
+      `/api/v1/signal-engine/material-rollups${suffix}`,
+    )) ?? []
+  );
+}
+
 export async function getSignalRisks(params?: {
   risk_type?: string;
   plant_reference?: string;
@@ -342,6 +424,17 @@ export async function getSignalRisks(params?: {
     (await getAuthenticatedJson<SignalRiskCandidate[]>(
       `/api/v1/signal-engine/risks${suffix}`,
     )) ?? []
+  );
+}
+
+export async function getHistoricalValidationReport(params?: {
+  limit?: number;
+}): Promise<HistoricalValidationReport | null> {
+  const query = new URLSearchParams();
+  if (params?.limit !== undefined) query.set("limit", String(params.limit));
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  return getAuthenticatedJson<HistoricalValidationReport>(
+    `/api/v1/line-stops/historical-validation${suffix}`,
   );
 }
 
@@ -451,9 +544,9 @@ export async function getStockCoverSummary(): Promise<StockCoverSummaryResponse 
 }
 
 export async function getPlantContextOptions(): Promise<PlantContextOption[]> {
-  const [stockSummary, risks] = await Promise.all([
+  const [stockSummary, rollups] = await Promise.all([
     getStockCoverSummary(),
-    getSignalRisks(),
+    getMaterialRiskRollups(),
   ]);
   const options = new Map<string, PlantContextOption>();
 
@@ -466,11 +559,11 @@ export async function getPlantContextOptions(): Promise<PlantContextOption[]> {
     });
   }
 
-  for (const risk of risks) {
-    if (!risk.plant_reference || options.has(risk.plant_reference)) continue;
-    options.set(risk.plant_reference, {
-      reference: risk.plant_reference,
-      label: risk.plant_reference,
+  for (const rollup of rollups) {
+    if (!rollup.plant_reference || options.has(rollup.plant_reference)) continue;
+    options.set(rollup.plant_reference, {
+      reference: rollup.plant_reference,
+      label: rollup.plant_reference,
     });
   }
 

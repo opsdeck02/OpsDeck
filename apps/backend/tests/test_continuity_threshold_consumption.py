@@ -20,6 +20,16 @@ def test_custom_warning_days_changes_warning_classification() -> None:
     assert "configured warning threshold" in " ".join(breach.rule_reasons)
 
 
+def test_healthy_material_above_warning_days_does_not_emit_cover_breach() -> None:
+    risks = evaluate_inventory_rules(
+        inventory(days_of_cover=Decimal("20"), warning_days=Decimal("8")),
+        now=NOW,
+    )
+
+    assert risk_by_type(risks, "days_of_cover_breach") is None
+    assert risk_by_type(risks, "protected_reserve_breach") is None
+
+
 def test_custom_threshold_days_changes_critical_classification() -> None:
     risks = evaluate_inventory_rules(
         inventory(days_of_cover=Decimal("10"), threshold_days=Decimal("15")),
@@ -59,7 +69,8 @@ def test_minimum_buffer_stock_days_elevates_protected_reserve_risk() -> None:
         now=NOW,
     )
 
-    breach = risk_by_type(risks, "days_of_cover_breach")
+    assert risk_by_type(risks, "days_of_cover_breach") is None
+    breach = risk_by_type(risks, "protected_reserve_breach")
     assert breach.severity == "medium"
     assert "Protected reserve days threshold was breached" in " ".join(breach.rule_reasons)
 
@@ -74,7 +85,8 @@ def test_minimum_buffer_stock_mt_elevates_protected_reserve_risk() -> None:
         now=NOW,
     )
 
-    breach = risk_by_type(risks, "days_of_cover_breach")
+    assert risk_by_type(risks, "days_of_cover_breach") is None
+    breach = risk_by_type(risks, "protected_reserve_breach")
     assert breach.severity == "medium"
     assert "Protected reserve quantity threshold was breached" in " ".join(breach.rule_reasons)
 

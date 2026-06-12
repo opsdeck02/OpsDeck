@@ -37,6 +37,7 @@ from app.modules.impact.schemas import (
 from app.modules.impact.shipment_inbound_trust import (
     get_active_shipment_inbound_trust_config,
 )
+from app.modules.signal_engine.candidate_cache import invalidate_signal_candidate_cache
 from app.schemas.context import RequestContext
 
 router = APIRouter(prefix="/impact", tags=["impact"])
@@ -114,6 +115,7 @@ def upsert_interruption_config(
     config.currency = payload.currency.upper()
     config.is_active = payload.is_active
     db.commit()
+    invalidate_signal_candidate_cache(context.tenant_id)
     db.refresh(config)
     return ProductionInterruptionImpactConfigRead.model_validate(config)
 
@@ -174,6 +176,7 @@ def upsert_continuity_threshold(
     threshold.quality_hold_quantity_mt = payload.quality_hold_quantity_mt
     threshold.stockout_alert_horizon_days = payload.stockout_alert_horizon_days
     db.commit()
+    invalidate_signal_candidate_cache(context.tenant_id)
     db.refresh(threshold)
     return ContinuityThresholdRead.model_validate(threshold)
 
@@ -231,6 +234,7 @@ def upsert_shipment_inbound_trust_config(
     config.allow_unverified_inbound_protection = payload.allow_unverified_inbound_protection
     config.is_active = payload.is_active
     db.commit()
+    invalidate_signal_candidate_cache(context.tenant_id)
     db.refresh(config)
     return ShipmentInboundTrustConfigRead.model_validate(config)
 
@@ -291,6 +295,7 @@ def create_production_line(
     )
     db.add(line)
     db.commit()
+    invalidate_signal_candidate_cache(context.tenant_id)
     db.refresh(line)
     return ProductionLineRead.model_validate(line)
 
@@ -312,6 +317,7 @@ def update_production_line(
     line.name = payload.name.strip()
     line.is_active = payload.is_active
     db.commit()
+    invalidate_signal_candidate_cache(context.tenant_id)
     db.refresh(line)
     return ProductionLineRead.model_validate(line)
 
@@ -363,6 +369,7 @@ def create_process_product_dependency(
     )
     db.add(row)
     db.commit()
+    invalidate_signal_candidate_cache(context.tenant_id)
     db.refresh(row)
     return ProcessProductDependencyRead.model_validate(row)
 
@@ -387,6 +394,7 @@ def update_process_product_dependency(
     row.operational_criticality_factor = payload.operational_criticality_factor
     row.is_active = payload.is_active
     db.commit()
+    invalidate_signal_candidate_cache(context.tenant_id)
     db.refresh(row)
     return ProcessProductDependencyRead.model_validate(row)
 
@@ -403,6 +411,7 @@ def deactivate_process_product_dependency(
     row = ensure_process_product_dependency(db, context, dependency_id)
     row.is_active = False
     db.commit()
+    invalidate_signal_candidate_cache(context.tenant_id)
     db.refresh(row)
     return ProcessProductDependencyRead.model_validate(row)
 
@@ -466,6 +475,7 @@ def create_material_process_dependency(
     )
     db.add(row)
     db.commit()
+    invalidate_signal_candidate_cache(context.tenant_id)
     db.refresh(row)
     return MaterialProcessDependencyRead.model_validate(row)
 
@@ -491,6 +501,7 @@ def update_material_process_dependency(
     row.survivability_hours = payload.survivability_hours
     row.is_active = payload.is_active
     db.commit()
+    invalidate_signal_candidate_cache(context.tenant_id)
     db.refresh(row)
     return MaterialProcessDependencyRead.model_validate(row)
 
@@ -507,6 +518,7 @@ def deactivate_material_process_dependency(
     row = ensure_material_process_dependency(db, context, dependency_id)
     row.is_active = False
     db.commit()
+    invalidate_signal_candidate_cache(context.tenant_id)
     db.refresh(row)
     return MaterialProcessDependencyRead.model_validate(row)
 

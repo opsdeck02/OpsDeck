@@ -9,6 +9,7 @@ import {
   Truck,
 } from "lucide-react";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
 import type {
   ShipmentProtectionEvaluation,
@@ -19,11 +20,12 @@ import { DailyBriefButton } from "@/components/reports/daily-brief-button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
+  getMaterialRiskRollups,
   getRiskWorkspace,
-  getSignalRisks,
   getTenantPlan,
   type RiskWorkspaceResponse,
   type SignalInventoryContinuity,
+  type SignalMaterialRiskRollup,
   type SignalRelationshipGraph,
   type SignalRiskCandidate,
   type SignalShipmentContinuity,
@@ -100,16 +102,21 @@ export default async function CriticalRiskWorkspacePage({
     timeline_limit: 50,
     timeline_offset: 0,
   };
-  const [requestedWorkspace, risks] = await Promise.all([
-    getRiskWorkspace(workspaceParams),
+  const shouldLoadWorkspaceDetail = Boolean(
+    activeScenario || searchParams?.material_reference,
+  );
+  const [requestedWorkspace, rollups] = await Promise.all([
+    shouldLoadWorkspaceDetail
+      ? getRiskWorkspace(workspaceParams)
+      : Promise.resolve(null),
     activeScenario
       ? Promise.resolve([])
-      : getSignalRisks({ plant_reference: searchParams?.plant_reference }),
+      : getMaterialRiskRollups({ plant_reference: searchParams?.plant_reference }),
   ]);
-  const workspace =
-    shouldRelaxWorkspaceSelection(searchParams, requestedWorkspace)
-      ? await getRelaxedRiskWorkspace(searchParams)
-      : requestedWorkspace;
+  if (shouldCleanStaleSignalSelection(searchParams, requestedWorkspace)) {
+    redirect(materialOnlyWorkspaceHref(searchParams));
+  }
+  const workspace = requestedWorkspace;
 
   return (
     <main className="grid w-full min-w-0 max-w-full gap-2.5 overflow-x-hidden">
@@ -119,15 +126,15 @@ export default async function CriticalRiskWorkspacePage({
         demoControlsEnabled={demoControlsEnabled}
         walkthroughControlsEnabled={walkthroughControlsEnabled}
       />
-      {risks.length > 0 ? (
+      {rollups.length > 0 ? (
         <ExposureSelector
-          risks={risks}
+          rollups={rollups}
           selected={workspace?.selected_risk ?? null}
           searchParams={searchParams}
         />
       ) : null}
-      {!workspace && risks.length === 0 ? <UnavailableState /> : null}
-      {!workspace && risks.length > 0 ? <DetailUnavailableState /> : null}
+      {!workspace && rollups.length === 0 ? <UnavailableState /> : null}
+      {!workspace && rollups.length > 0 ? <SelectMaterialState /> : null}
       {workspace?.is_demo_scenario ? (
         <DemoScenarioNotice
           workspace={workspace}
@@ -147,27 +154,31 @@ export default async function CriticalRiskWorkspacePage({
 }
 
 function ExposureSelector({
-  risks,
+  rollups,
   selected,
   searchParams,
 }: {
-  risks: SignalRiskCandidate[];
+  rollups: SignalMaterialRiskRollup[];
   selected: SignalRiskCandidate | null;
   searchParams?: SearchParams;
 }) {
-  const rollups = materialRiskRollups(risks);
   const selectedRollup =
     rollups.find(
       (rollup) =>
-        rollup.plantReference === selected?.plant_reference &&
-        rollup.materialReference === selected?.material_reference,
-    ) ?? rollups[0];
-  const scopedRisks = selectedRollup
-    ? risksForRollup(risks, selectedRollup).sort(riskSortKey)
-    : [...risks].sort(riskSortKey);
+        rollup.plant_reference ===
+          (selected?.plant_reference ?? searchParams?.plant_reference ?? null) &&
+        rollup.material_reference ===
+          (selected?.material_reference ??
+            searchParams?.material_reference ??
+            null),
+    ) ?? null;
+  const signalCount = rollups.reduce(
+    (total, rollup) => total + rollup.exception_count,
+    0,
+  );
   const severityCounts = rollups.reduce(
     (counts, rollup) => {
-      const key = severityCountKey(rollup.highestSeverity);
+      const key = severityCountKey(rollup.highest_severity);
       counts[key] += 1;
       return counts;
     },
@@ -180,14 +191,14 @@ function ExposureSelector({
           <div className="flex flex-wrap items-center justify-between gap-2">
             <CardTitle>Materials at risk</CardTitle>
             <span className="text-xs font-semibold text-mutedForeground">
-              {rollups.length} materials / {risks.length} contributing signals
+              {rollups.length} materials / {signalCount} contributing signals
             </span>
           </div>
         </CardHeader>
         <CardContent className="grid gap-3 px-4 pb-4">
           <div className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-6">
             <RollupMetric label="Materials At Risk" value={rollups.length} />
-            <RollupMetric label="Contributing Signals" value={risks.length} />
+            <RollupMetric label="Contributing Signals" value={signalCount} />
             <RollupMetric
               label="Critical Material Count"
               value={severityCounts.critical}
@@ -214,14 +225,14 @@ function ExposureSelector({
                   selectedRollup &&
                   materialRollupKey(rollup) === materialRollupKey(selectedRollup)
                     ? "border-slate-950 bg-slate-50 ring-slate-300"
-                    : `${severityBorder(rollup.highestSeverity)} bg-white ring-slate-900/5`
+                    : `${severityBorder(rollup.highest_severity)} bg-white ring-slate-900/5`
                 }`}
               >
                 <div className="flex min-w-0 items-center justify-between gap-2">
-                  <SeverityBadge value={rollup.highestSeverity} />
+                  <SeverityBadge value={rollup.highest_severity} />
                   <span className="shrink-0 text-xs font-semibold text-mutedForeground">
-                    {rollup.exceptionCount}{" "}
-                    {rollup.exceptionCount === 1 ? "Exception" : "Exceptions"}
+                    {rollup.exception_count}{" "}
+                    {rollup.exception_count === 1 ? "Exception" : "Exceptions"}
                   </span>
                 </div>
                 <div className="mt-1.5 flex min-w-0 items-center justify-between gap-2">
@@ -233,53 +244,7 @@ function ExposureSelector({
                   </p>
                 </div>
                 <p className="mt-1 truncate text-xs font-medium text-slate-600">
-                  {rollup.exceptionTypes.map(formatLabel).join(", ")}
-                </p>
-              </Link>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card className="min-w-0 max-w-full overflow-hidden bg-card/90 shadow-panel">
-        <CardHeader className="px-4 py-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <CardTitle>Signal drill-down</CardTitle>
-            <span className="text-xs font-semibold text-mutedForeground">
-              {selectedRollup
-                ? `${scopedRisks.length} for ${materialRollupMaterialLabel(selectedRollup)}`
-                : `${scopedRisks.length} active`}
-            </span>
-          </div>
-        </CardHeader>
-        <CardContent className="px-4 pb-4">
-          <div className="grid w-full min-w-0 max-w-full gap-1.5 lg:grid-cols-2 xl:grid-cols-4">
-            {scopedRisks.slice(0, 8).map((risk) => (
-              <Link
-                key={riskKey(risk)}
-                href={riskWorkspaceHref(risk)}
-                className={`block min-w-0 max-w-full overflow-hidden border-l-4 px-3 py-2 text-left ring-1 transition hover:bg-slate-50 ${
-                  isSelectedExposure(risk, selected)
-                    ? "border-slate-950 bg-slate-50 ring-slate-300"
-                    : `${severityBorder(risk.severity)} bg-white ring-slate-900/5`
-                }`}
-              >
-                <div className="flex min-w-0 items-center justify-between gap-2">
-                  <SeverityBadge value={risk.severity} />
-                  <span className="truncate text-xs font-semibold text-mutedForeground">
-                    {exposureTiming(risk)}
-                  </span>
-                </div>
-                <div className="mt-1.5 flex min-w-0 items-center justify-between gap-2">
-                  <p className="truncate text-sm font-semibold">
-                    {risk.material_reference ?? "Unknown material"}
-                  </p>
-                  <p className="shrink-0 text-xs text-mutedForeground">
-                    {risk.plant_reference ?? "Unknown plant"}
-                  </p>
-                </div>
-                <p className="mt-1 truncate text-xs font-medium text-slate-600">
-                  {formatLabel(risk.risk_type)}
+                  {rollup.risk_types.map(formatLabel).join(", ")}
                 </p>
               </Link>
             ))}
@@ -299,104 +264,16 @@ function RollupMetric({ label, value }: { label: string; value: number }) {
   );
 }
 
-type MaterialRiskRollup = {
-  plantReference: string | null;
-  materialReference: string | null;
-  highestSeverity: string;
-  exceptionCount: number;
-  exceptionTypes: string[];
-  earliestProjectedExhaustionDate: string | null;
-  lowestDaysOfCover: number | null;
-};
-
-function materialRiskRollups(risks: SignalRiskCandidate[]) {
-  const grouped = new Map<string, SignalRiskCandidate[]>();
-  for (const risk of risks) {
-    const key = [risk.plant_reference ?? "", risk.material_reference ?? ""].join(
-      "|",
-    );
-    grouped.set(key, [...(grouped.get(key) ?? []), risk]);
-  }
-  return Array.from(grouped.values())
-    .map(materialRollupFromRisks)
-    .sort(materialRollupSortKey);
+function materialRollupKey(rollup: SignalMaterialRiskRollup) {
+  return [rollup.plant_reference ?? "", rollup.material_reference ?? ""].join("|");
 }
 
-function materialRollupFromRisks(
-  groupedRisks: SignalRiskCandidate[],
-): MaterialRiskRollup {
-  const ordered = [...groupedRisks].sort(riskSortKey);
-  const highest = ordered[0];
-  const dates = groupedRisks
-    .map((risk) => risk.projected_exhaustion_date)
-    .filter((value): value is string => Boolean(value))
-    .sort((left, right) => new Date(left).getTime() - new Date(right).getTime());
-  const coverValues = groupedRisks
-    .map((risk) =>
-      risk.days_of_cover === null || risk.days_of_cover === undefined
-        ? null
-        : Number(risk.days_of_cover),
-    )
-    .filter((value): value is number => value !== null && Number.isFinite(value))
-    .sort((left, right) => left - right);
-
-  return {
-    plantReference: highest.plant_reference,
-    materialReference: highest.material_reference,
-    highestSeverity: highest.severity,
-    exceptionCount: groupedRisks.length,
-    exceptionTypes: Array.from(
-      new Set(groupedRisks.map((risk) => risk.risk_type)),
-    ).sort(),
-    earliestProjectedExhaustionDate: dates[0] ?? null,
-    lowestDaysOfCover: coverValues[0] ?? null,
-  };
+function materialRollupMaterialLabel(rollup: SignalMaterialRiskRollup) {
+  return rollup.material_reference ?? "Unknown material";
 }
 
-function materialRollupSortKey(
-  left: MaterialRiskRollup,
-  right: MaterialRiskRollup,
-) {
-  const severity =
-    (severityRank[left.highestSeverity] ?? 99) -
-    (severityRank[right.highestSeverity] ?? 99);
-  if (severity !== 0) return severity;
-  const exceptionCount = right.exceptionCount - left.exceptionCount;
-  if (exceptionCount !== 0) return exceptionCount;
-  const leftDate = left.earliestProjectedExhaustionDate
-    ? new Date(left.earliestProjectedExhaustionDate).getTime()
-    : Number.POSITIVE_INFINITY;
-  const rightDate = right.earliestProjectedExhaustionDate
-    ? new Date(right.earliestProjectedExhaustionDate).getTime()
-    : Number.POSITIVE_INFINITY;
-  if (leftDate !== rightDate) return leftDate - rightDate;
-  const leftCover = left.lowestDaysOfCover ?? Number.POSITIVE_INFINITY;
-  const rightCover = right.lowestDaysOfCover ?? Number.POSITIVE_INFINITY;
-  if (leftCover !== rightCover) return leftCover - rightCover;
-  return materialRollupKey(left).localeCompare(materialRollupKey(right));
-}
-
-function materialRollupKey(rollup: MaterialRiskRollup) {
-  return [rollup.plantReference ?? "", rollup.materialReference ?? ""].join("|");
-}
-
-function materialRollupMaterialLabel(rollup: MaterialRiskRollup) {
-  return rollup.materialReference ?? "Unknown material";
-}
-
-function materialRollupPlantLabel(rollup: MaterialRiskRollup) {
-  return rollup.plantReference ?? "Unknown plant";
-}
-
-function risksForRollup(
-  risks: SignalRiskCandidate[],
-  rollup: MaterialRiskRollup,
-) {
-  return risks.filter(
-    (risk) =>
-      risk.plant_reference === rollup.plantReference &&
-      risk.material_reference === rollup.materialReference,
-  );
+function materialRollupPlantLabel(rollup: SignalMaterialRiskRollup) {
+  return rollup.plant_reference ?? "Unknown plant";
 }
 
 function severityCountKey(
@@ -409,12 +286,12 @@ function severityCountKey(
 }
 
 function materialWorkspaceHref(
-  rollup: MaterialRiskRollup,
+  rollup: SignalMaterialRiskRollup,
   searchParams?: SearchParams,
 ) {
   const params = new URLSearchParams();
-  setParam(params, "plant_reference", rollup.plantReference ?? undefined);
-  setParam(params, "material_reference", rollup.materialReference ?? undefined);
+  setParam(params, "plant_reference", rollup.plant_reference ?? undefined);
+  setParam(params, "material_reference", rollup.material_reference ?? undefined);
   setParam(params, "walkthrough", searchParams?.walkthrough);
   const query = params.toString();
   return query
@@ -422,49 +299,30 @@ function materialWorkspaceHref(
     : "/dashboard/risk-workspace";
 }
 
-function shouldRelaxWorkspaceSelection(
+function shouldCleanStaleSignalSelection(
   searchParams: SearchParams | undefined,
   workspace: RiskWorkspaceResponse | null,
 ) {
   if (
-    !searchParams?.risk_type &&
-    !searchParams?.shipment_reference &&
-    !searchParams?.severity
+    !searchParams?.material_reference ||
+    (!searchParams.risk_type &&
+      !searchParams.shipment_reference &&
+      !searchParams.severity)
   ) {
     return false;
   }
   return workspace === null || workspace.empty;
 }
 
-async function getRelaxedRiskWorkspace(searchParams: SearchParams | undefined) {
-  const scopedWorkspace =
-    searchParams?.plant_reference || searchParams?.material_reference
-      ? await getRiskWorkspace({
-          plant_reference: searchParams?.plant_reference,
-          material_reference: searchParams?.material_reference,
-          timeline_limit: 50,
-          timeline_offset: 0,
-        })
-      : null;
-  if (scopedWorkspace && !scopedWorkspace.empty) {
-    return scopedWorkspace;
-  }
-
-  const plantWorkspace = searchParams?.plant_reference
-    ? await getRiskWorkspace({
-        plant_reference: searchParams.plant_reference,
-        timeline_limit: 50,
-        timeline_offset: 0,
-      })
-    : null;
-  if (plantWorkspace && !plantWorkspace.empty) {
-    return plantWorkspace;
-  }
-
-  return getRiskWorkspace({
-    timeline_limit: 50,
-    timeline_offset: 0,
-  });
+function materialOnlyWorkspaceHref(searchParams: SearchParams | undefined) {
+  const params = new URLSearchParams();
+  setParam(params, "plant_reference", searchParams?.plant_reference);
+  setParam(params, "material_reference", searchParams?.material_reference);
+  setParam(params, "walkthrough", searchParams?.walkthrough);
+  const query = params.toString();
+  return query
+    ? `/dashboard/risk-workspace?${query}`
+    : "/dashboard/risk-workspace";
 }
 
 function WorkspaceContent({
@@ -2125,49 +1983,6 @@ function actionLabel(value: string) {
   return labels[value] ?? formatLabel(value);
 }
 
-const severityRank: Record<string, number> = {
-  critical: 0,
-  high: 1,
-  medium: 2,
-  low: 3,
-};
-
-function riskSortKey(left: SignalRiskCandidate, right: SignalRiskCandidate) {
-  const severity =
-    (severityRank[left.severity] ?? 99) - (severityRank[right.severity] ?? 99);
-  if (severity !== 0) return severity;
-  const leftDate = left.projected_exhaustion_date
-    ? new Date(left.projected_exhaustion_date).getTime()
-    : Number.POSITIVE_INFINITY;
-  const rightDate = right.projected_exhaustion_date
-    ? new Date(right.projected_exhaustion_date).getTime()
-    : Number.POSITIVE_INFINITY;
-  if (leftDate !== rightDate) return leftDate - rightDate;
-  return riskKey(left).localeCompare(riskKey(right));
-}
-
-function riskKey(risk: SignalRiskCandidate) {
-  return [
-    risk.severity,
-    risk.risk_type,
-    risk.plant_reference ?? "",
-    risk.material_reference ?? "",
-    risk.shipment_reference ?? "",
-  ].join("|");
-}
-
-function riskWorkspaceHref(risk: SignalRiskCandidate) {
-  const params = new URLSearchParams();
-  params.set("risk_type", risk.risk_type);
-  params.set("severity", risk.severity);
-  if (risk.plant_reference) params.set("plant_reference", risk.plant_reference);
-  if (risk.material_reference)
-    params.set("material_reference", risk.material_reference);
-  if (risk.shipment_reference)
-    params.set("shipment_reference", risk.shipment_reference);
-  return `/dashboard/risk-workspace?${params.toString()}`;
-}
-
 function walkthroughHref(
   searchParams: SearchParams | undefined,
   enabled: boolean,
@@ -2208,24 +2023,6 @@ function scenarioWalkthroughNote(scenarioKey?: string | null) {
     ?.note;
 }
 
-function isSelectedExposure(
-  risk: SignalRiskCandidate,
-  selected: SignalRiskCandidate | null,
-) {
-  if (!selected) return false;
-  return riskKey(risk) === riskKey(selected);
-}
-
-function exposureTiming(risk: SignalRiskCandidate) {
-  if (risk.days_of_cover !== null && risk.days_of_cover !== undefined) {
-    return `${formatNumber(risk.days_of_cover)} days cover`;
-  }
-  if (risk.projected_exhaustion_date) {
-    return formatDate(risk.projected_exhaustion_date);
-  }
-  return "timing unknown";
-}
-
 function workspaceTone(severity?: string | null) {
   if (severity === "critical") return "bg-slate-950 shadow-nerve";
   if (severity === "high") return "bg-slate-950 shadow-panel";
@@ -2259,15 +2056,15 @@ function UnavailableState() {
   );
 }
 
-function DetailUnavailableState() {
+function SelectMaterialState() {
   return (
     <Card className="min-w-0 max-w-full overflow-hidden bg-card/90 shadow-panel">
       <CardHeader>
-        <CardTitle>Risk detail is refreshing</CardTitle>
+        <CardTitle>Select a material to review detail</CardTitle>
       </CardHeader>
       <CardContent className="text-sm leading-6 text-mutedForeground">
-        Material rollups are available. Select a material to reload the focused
-        risk detail.
+        Material rollups are ready. Open one material to load focused
+        explainability, recommendations, trust context, and continuity detail.
       </CardContent>
     </Card>
   );
