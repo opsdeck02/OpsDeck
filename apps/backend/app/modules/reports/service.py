@@ -5,6 +5,7 @@ from datetime import UTC, datetime, time, timedelta
 from decimal import Decimal
 from typing import Iterable
 
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -19,6 +20,7 @@ from app.models import (
 )
 from app.models.enums import ExceptionStatus, OperationalEventFreshnessStatus
 from app.modules.exceptions.service import list_exceptions
+from app.modules.line_stops.service import build_historical_validation_report
 from app.modules.reports.pdf import (
     AMBER,
     BLUE,
@@ -36,13 +38,88 @@ from app.modules.reports.pdf import (
 )
 from app.modules.rules.engine import RiskCandidate
 from app.modules.signal_engine.service import (
+    AssessmentCalibration,
+    MaterialRiskRollup,
     RiskWorkspaceResponse,
     get_risk_workspace,
+    list_material_risk_rollups,
     list_signal_risks,
 )
 from app.schemas.context import RequestContext
 
 REPORT_FILENAME_PREFIX = "opsdeck-daily-continuity-brief"
+EXECUTIVE_CONTINUITY_REPORT_TITLE = "Executive Continuity Report"
+
+
+class ExecutiveReportSummary(BaseModel):
+    generated_at: datetime
+    tenant: str
+    plant_scope: str
+    material_scope: str | None = None
+    materials_assessed: int
+    critical_materials: int
+    high_risk_materials: int
+    average_assessment_calibration_score: Decimal | None
+    average_assessment_calibration: str
+    average_operational_trust_score: Decimal | None
+    average_operational_trust: str
+    historical_validation_detection_rate: Decimal | None
+
+
+class ExecutiveInboundProtection(BaseModel):
+    physical_inbound: Decimal | None
+    trusted_inbound: Decimal | None
+    visibility_uncertainty: Decimal | None
+    interpretation: str
+
+
+class ExecutiveContinuityProjection(BaseModel):
+    warning_threshold_days: Decimal | None
+    reserve_threshold_days: Decimal | None
+    critical_threshold_days: Decimal | None
+    interruption_threshold_days: Decimal | None
+    warning_date: datetime | None
+    reserve_breach_date: datetime | None
+    critical_breach_date: datetime | None
+    interruption_date: datetime | None
+    interpretation: str
+
+
+class ExecutiveMaterialRisk(BaseModel):
+    material: str
+    material_reference: str | None
+    plant: str
+    plant_reference: str | None
+    severity: str
+    current_usable_cover: Decimal | None
+    earliest_breach_date: datetime | None
+    operational_trust: str
+    operational_trust_score: Decimal | None
+    assessment_calibration: AssessmentCalibration | None
+    recommended_priority: str
+    why_escalating: list[str]
+    inbound_protection: ExecutiveInboundProtection | None
+    continuity_projection: ExecutiveContinuityProjection | None
+    immediate_actions: list[str]
+    short_term_actions: list[str]
+    calibration_actions: list[str]
+
+
+class ExecutiveHistoricalValidationEvidence(BaseModel):
+    detection_rate: Decimal | None
+    average_warning_lead_time_days: Decimal | None
+    detected_incidents: int
+    missed_incidents: int
+    interpretation: str
+
+
+class ExecutiveContinuityReport(BaseModel):
+    summary: ExecutiveReportSummary
+    critical_materials: list[ExecutiveMaterialRisk]
+    historical_validation: ExecutiveHistoricalValidationEvidence
+    recommended_actions: dict[str, list[str]]
+    markdown_report: str
+    pdf_ready_content: str
 
 
 @dataclass
@@ -92,6 +169,470 @@ def build_daily_continuity_brief_pdf(db: Session, context: RequestContext) -> by
 def daily_brief_filename(generated_at: datetime | None = None) -> str:
     value = generated_at or datetime.now(UTC)
     return f"{REPORT_FILENAME_PREFIX}-{value.date().isoformat()}.pdf"
+
+
+def build_executive_continuity_report(
+    db: Session,
+    context: RequestContext,
+    *,
+    plant_reference: str | None = None,
+    material_reference: str | None = None,
+    generated_at: datetime | None = None,
+) -> ExecutiveContinuityReport:
+    report_time = generated_at or datetime.now(UTC)
+    tenant = db.get(Tenant, context.tenant_id)
+    rollups = list_material_risk_rollups(
+        db,
+        context,
+        plant_reference=plant_reference,
+        material_reference=material_reference,
+        now=report_time,
+    )
+    priority_rollups = [
+        rollup for rollup in rollups if rollup.highest_severity in {"critical", "high"}
+    ]
+    material_risks = [
+        executive_material_risk_from_workspace(
+            db,
+            context,
+            rollup,
+            now=report_time,
+        )
+        for rollup in priority_rollups
+    ]
+    historical = build_historical_validation_report(db, context, limit=100)
+    historical_evidence = executive_historical_evidence(historical)
+    summary = executive_report_summary(
+        tenant_name=tenant.name if tenant else context.tenant_slug,
+        generated_at=report_time,
+        plant_scope=plant_reference or "All plants",
+        material_scope=material_reference,
+        rollups=rollups,
+        material_risks=material_risks,
+        historical_detection_rate=historical_evidence.detection_rate,
+    )
+    actions = aggregate_executive_actions(material_risks)
+    markdown = executive_report_markdown(summary, material_risks, historical_evidence, actions)
+    return ExecutiveContinuityReport(
+        summary=summary,
+        critical_materials=material_risks,
+        historical_validation=historical_evidence,
+        recommended_actions=actions,
+        markdown_report=markdown,
+        pdf_ready_content=markdown,
+    )
+
+
+def executive_material_risk_from_workspace(
+    db: Session,
+    context: RequestContext,
+    rollup: MaterialRiskRollup,
+    *,
+    now: datetime,
+) -> ExecutiveMaterialRisk:
+    workspace = get_risk_workspace(
+        db,
+        context,
+        plant_reference=rollup.plant_reference,
+        material_reference=rollup.material_reference,
+        timeline_limit=12,
+        timeline_offset=0,
+        now=now,
+    )
+    risk = workspace.selected_risk
+    inventory = first_or_none(workspace.inventory_continuity)
+    plant_name, material_name = plant_material_labels(
+        db,
+        context,
+        plant_reference=rollup.plant_reference,
+        material_reference=rollup.material_reference,
+    )
+    operational_trust = risk.operational_trust if risk else None
+    return ExecutiveMaterialRisk(
+        material=material_name,
+        material_reference=rollup.material_reference,
+        plant=plant_name,
+        plant_reference=rollup.plant_reference,
+        severity=rollup.highest_severity,
+        current_usable_cover=inventory.days_of_cover if inventory else None,
+        earliest_breach_date=rollup.earliest_projected_exhaustion_date,
+        operational_trust=(
+            operational_trust.risk_precision_band if operational_trust else "unknown"
+        ),
+        operational_trust_score=(
+            operational_trust.operational_trust_score if operational_trust else None
+        ),
+        assessment_calibration=workspace.assessment_calibration,
+        recommended_priority=recommended_priority(rollup.highest_severity),
+        why_escalating=why_escalating(workspace),
+        inbound_protection=inbound_protection_summary(inventory),
+        continuity_projection=continuity_projection_summary(inventory),
+        immediate_actions=immediate_actions(risk),
+        short_term_actions=short_term_actions(workspace),
+        calibration_actions=(
+            workspace.assessment_calibration.improvement_actions
+            if workspace.assessment_calibration
+            else []
+        ),
+    )
+
+
+def executive_report_summary(
+    *,
+    tenant_name: str,
+    generated_at: datetime,
+    plant_scope: str,
+    material_scope: str | None,
+    rollups: list[MaterialRiskRollup],
+    material_risks: list[ExecutiveMaterialRisk],
+    historical_detection_rate: Decimal | None,
+) -> ExecutiveReportSummary:
+    calibration_scores = [
+        item.assessment_calibration.score
+        for item in material_risks
+        if item.assessment_calibration is not None
+    ]
+    trust_scores = [
+        item.operational_trust_score
+        for item in material_risks
+        if item.operational_trust_score is not None
+    ]
+    average_calibration = average_decimal(calibration_scores)
+    average_trust = average_decimal(trust_scores)
+    return ExecutiveReportSummary(
+        generated_at=generated_at,
+        tenant=tenant_name,
+        plant_scope=plant_scope,
+        material_scope=material_scope,
+        materials_assessed=len(rollups),
+        critical_materials=sum(1 for item in rollups if item.highest_severity == "critical"),
+        high_risk_materials=sum(1 for item in rollups if item.highest_severity == "high"),
+        average_assessment_calibration_score=average_calibration,
+        average_assessment_calibration=calibration_band(average_calibration),
+        average_operational_trust_score=average_trust,
+        average_operational_trust=trust_band(average_trust),
+        historical_validation_detection_rate=historical_detection_rate,
+    )
+
+
+def executive_historical_evidence(report) -> ExecutiveHistoricalValidationEvidence:
+    summary = report.summary
+    detection_rate = summary.detection_rate_percent if summary else None
+    average_lead = summary.average_warning_lead_time_days if summary else None
+    detected = summary.detected if summary else 0
+    missed = summary.missed if summary else 0
+    if detected > 0:
+        interpretation = (
+            "Historical validation detection evidence shows OpsDeck has detected prior continuity "
+            "incidents before disruption occurred."
+        )
+    elif missed > 0:
+        interpretation = (
+            "Historical validation includes missed incidents; review data gaps before "
+            "treating the model as proven."
+        )
+    else:
+        interpretation = "No historical incident evidence is available yet."
+    return ExecutiveHistoricalValidationEvidence(
+        detection_rate=detection_rate,
+        average_warning_lead_time_days=average_lead,
+        detected_incidents=detected,
+        missed_incidents=missed,
+        interpretation=interpretation,
+    )
+
+
+def inbound_protection_summary(
+    inventory,
+) -> ExecutiveInboundProtection | None:
+    if inventory is None:
+        return None
+    physical = inventory.physical_inbound_quantity_mt
+    trusted = inventory.trusted_inbound_protection_mt
+    uncertainty = inventory.visibility_uncertain_quantity_mt
+    if physical and physical > 0 and trusted < physical:
+        interpretation = (
+            f"{physical} MT is physically inbound, but only {trusted} MT is trusted "
+            "as continuity protection with current visibility."
+        )
+    elif trusted and trusted > 0:
+        interpretation = "Inbound protection is currently trusted for continuity cover."
+    else:
+        interpretation = "No trusted inbound protection is available for this material."
+    return ExecutiveInboundProtection(
+        physical_inbound=physical,
+        trusted_inbound=trusted,
+        visibility_uncertainty=uncertainty,
+        interpretation=interpretation,
+    )
+
+
+def continuity_projection_summary(
+    inventory,
+) -> ExecutiveContinuityProjection | None:
+    if inventory is None:
+        return None
+    cover = inventory.time_phased_cover
+    if cover is None:
+        return ExecutiveContinuityProjection(
+            warning_threshold_days=inventory.warning_days,
+            reserve_threshold_days=inventory.minimum_buffer_stock_days,
+            critical_threshold_days=inventory.threshold_days,
+            interruption_threshold_days=None,
+            warning_date=None,
+            reserve_breach_date=None,
+            critical_breach_date=None,
+            interruption_date=inventory.projected_exhaustion_date,
+            interpretation="Time-phased continuity projection is not available yet.",
+        )
+    return ExecutiveContinuityProjection(
+        warning_threshold_days=inventory.warning_days,
+        reserve_threshold_days=inventory.minimum_buffer_stock_days,
+        critical_threshold_days=inventory.threshold_days,
+        interruption_threshold_days=None,
+        warning_date=cover.warning_date,
+        reserve_breach_date=cover.reserve_breach_date,
+        critical_breach_date=cover.critical_breach_date,
+        interruption_date=cover.interruption_date,
+        interpretation=projection_interpretation(cover.interruption_date or cover.warning_date),
+    )
+
+
+def aggregate_executive_actions(
+    material_risks: list[ExecutiveMaterialRisk],
+) -> dict[str, list[str]]:
+    return {
+        "immediate": dedupe(
+            action for material in material_risks for action in material.immediate_actions
+        )[:8],
+        "short_term": dedupe(
+            action for material in material_risks for action in material.short_term_actions
+        )[:8],
+        "calibration": dedupe(
+            action for material in material_risks for action in material.calibration_actions
+        )[:8],
+    }
+
+
+def executive_report_markdown(
+    summary: ExecutiveReportSummary,
+    material_risks: list[ExecutiveMaterialRisk],
+    historical: ExecutiveHistoricalValidationEvidence,
+    actions: dict[str, list[str]],
+) -> str:
+    lines = [
+        f"# {EXECUTIVE_CONTINUITY_REPORT_TITLE}",
+        "",
+        "## Executive Summary",
+        f"Generated Date: {summary.generated_at.date().isoformat()}",
+        f"Tenant: {summary.tenant}",
+        f"Plant Scope: {summary.plant_scope}",
+        f"Materials Assessed: {summary.materials_assessed}",
+        f"Critical Materials: {summary.critical_materials}",
+        f"High Risk Materials: {summary.high_risk_materials}",
+        f"Average Assessment Calibration: {summary.average_assessment_calibration}",
+        f"Average Operational Trust: {summary.average_operational_trust}",
+        (
+            "Historical Validation Detection Rate: "
+            f"{summary.historical_validation_detection_rate or 'N/A'}%"
+        ),
+        "",
+        "## Critical Materials",
+    ]
+    if not material_risks:
+        lines.append("No critical or high material risks are active in the selected scope.")
+    for material in material_risks:
+        lines.extend(
+            [
+                "",
+                f"### {material.material} at {material.plant}",
+                f"Severity: {material.severity.title()}",
+                f"Current Usable Cover: {material.current_usable_cover or 'N/A'} days",
+                f"Earliest Breach Date: {date_or_na(material.earliest_breach_date)}",
+                f"Operational Trust: {material.operational_trust}",
+                (
+                    "Assessment Calibration: "
+                    f"{material.assessment_calibration.status}"
+                    if material.assessment_calibration
+                    else "Assessment Calibration: N/A"
+                ),
+                f"Recommended Priority: {material.recommended_priority}",
+                "",
+                "Why This Is Escalating:",
+                *[f"- {item}" for item in material.why_escalating],
+                "",
+                "Inbound Protection Quality:",
+                (
+                    f"- {material.inbound_protection.interpretation}"
+                    if material.inbound_protection
+                    else "- Unavailable"
+                ),
+                "",
+                "Assessment Calibration:",
+                *[
+                    f"- {item}"
+                    for item in (
+                        material.assessment_calibration.limitations
+                        if material.assessment_calibration
+                        else ["Calibration unavailable."]
+                    )
+                ],
+            ]
+        )
+    lines.extend(
+        [
+            "",
+            "## Historical Validation",
+            f"Detection Rate: {historical.detection_rate or 'N/A'}%",
+            f"Average Warning Lead Time: {historical.average_warning_lead_time_days or 'N/A'} days",
+            f"Detected Incidents: {historical.detected_incidents}",
+            f"Missed Incidents: {historical.missed_incidents}",
+            historical.interpretation,
+            "",
+            "## Recommended Actions",
+            "Immediate Actions:",
+            *[
+                f"- {item}"
+                for item in actions.get("immediate", [])
+                or ["No immediate actions returned."]
+            ],
+            "Short-Term Actions:",
+            *[
+                f"- {item}"
+                for item in actions.get("short_term", [])
+                or ["No short-term actions returned."]
+            ],
+            "Data / Calibration Actions:",
+            *[
+                f"- {item}"
+                for item in actions.get("calibration", [])
+                or ["No calibration actions returned."]
+            ],
+        ]
+    )
+    return "\n".join(lines)
+
+
+def plant_material_labels(
+    db: Session,
+    context: RequestContext,
+    *,
+    plant_reference: str | None,
+    material_reference: str | None,
+) -> tuple[str, str]:
+    plant = (
+        db.scalar(
+            select(Plant).where(
+                Plant.tenant_id == context.tenant_id,
+                Plant.code == plant_reference,
+            )
+        )
+        if plant_reference
+        else None
+    )
+    material = (
+        db.scalar(
+            select(Material).where(
+                Material.tenant_id == context.tenant_id,
+                Material.code == material_reference,
+            )
+        )
+        if material_reference
+        else None
+    )
+    return (
+        plant.name if plant else plant_reference or "All plants",
+        material.name if material else material_reference or "Material",
+    )
+
+
+def recommended_priority(severity: str) -> str:
+    if severity == "critical":
+        return "Immediate Review"
+    if severity == "high":
+        return "Priority Review"
+    return "Monitor"
+
+
+def why_escalating(workspace: RiskWorkspaceResponse) -> list[str]:
+    reasons = []
+    if workspace.explainability is not None:
+        reasons.extend(workspace.explainability.reason_chain[:5])
+    if workspace.selected_risk is not None:
+        reasons.extend(workspace.selected_risk.rule_reasons[:5])
+    return dedupe(reasons)[:6] or ["OpsDeck returned an active continuity signal."]
+
+
+def immediate_actions(risk: RiskCandidate | None) -> list[str]:
+    if risk is None:
+        return []
+    actions = []
+    for action in risk.operational_recommendations:
+        urgency = action.urgency.lower()
+        if urgency in {"immediate", "critical", "high"}:
+            actions.append(action.operational_reason)
+    if not actions and risk.severity in {"critical", "high"}:
+        actions.append("Review this material risk in the Risk Workspace.")
+    return dedupe(actions)
+
+
+def short_term_actions(workspace: RiskWorkspaceResponse) -> list[str]:
+    actions = []
+    risk = workspace.selected_risk
+    if risk is not None:
+        for action in risk.operational_recommendations:
+            urgency = action.urgency.lower()
+            if urgency not in {"immediate", "critical", "high"}:
+                actions.append(action.operational_reason)
+    if workspace.inventory_continuity:
+        actions.append("Review reserve strategy and confirm alternate sourcing options.")
+    return dedupe(actions)
+
+
+def projection_interpretation(date_value: datetime | None) -> str:
+    if date_value is None:
+        return "Projected continuity exposure date is not available yet."
+    return f"Continuity becomes exposed around {date_value.date().isoformat()}."
+
+
+def average_decimal(values: list[Decimal]) -> Decimal | None:
+    if not values:
+        return None
+    return quantize_decimal(sum(values, start=Decimal("0")) / Decimal(len(values)))
+
+
+def quantize_decimal(value: Decimal) -> Decimal:
+    return value.quantize(Decimal("0.01"))
+
+
+def calibration_band(score: Decimal | None) -> str:
+    if score is None:
+        return "Not Available"
+    if score >= Decimal("80"):
+        return "Calibrated"
+    if score >= Decimal("55"):
+        return "Partially Calibrated"
+    if score > Decimal("0"):
+        return "Uncalibrated"
+    return "Insufficient Data"
+
+
+def trust_band(score: Decimal | None) -> str:
+    if score is None:
+        return "Unknown"
+    if score >= Decimal("75"):
+        return "Strong"
+    if score >= Decimal("50"):
+        return "Moderate"
+    return "Weak"
+
+
+def date_or_na(value: datetime | None) -> str:
+    return value.date().isoformat() if value is not None else "N/A"
+
+
+def first_or_none(items: list):
+    return items[0] if items else None
 
 
 def collect_report_data(

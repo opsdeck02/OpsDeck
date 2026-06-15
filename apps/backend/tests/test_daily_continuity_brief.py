@@ -16,8 +16,10 @@ from app.db.base import Base
 from app.main import app
 from app.models import (
     ExceptionCase,
+    LineStopIncident,
     Material,
     Plant,
+    PlantMaterialThreshold,
     Role,
     Shipment,
     StockSnapshot,
@@ -135,6 +137,74 @@ def test_daily_continuity_brief_groups_duplicate_risk_clusters() -> None:
     assert clusters[0].freshness_status == "stale"
 
 
+def test_executive_continuity_report_returns_executive_briefing(
+    client: TestClient,
+) -> None:
+    response = client.get("/api/v1/reports/executive-continuity", headers=auth_headers(client))
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["summary"]["tenant"] == "Tenant A Steel"
+    assert body["summary"]["materials_assessed"] >= 1
+    assert body["summary"]["critical_materials"] + body["summary"]["high_risk_materials"] >= 1
+    assert body["critical_materials"]
+    material = body["critical_materials"][0]
+    assert material["material_reference"] == "COKING_COAL"
+    assert material["plant_reference"] == "JAM"
+    assert material["assessment_calibration"] is not None
+    assert material["why_escalating"]
+    assert "Executive Summary" in body["markdown_report"]
+    assert "Critical Materials" in body["markdown_report"]
+    assert "Historical Validation" in body["markdown_report"]
+    assert body["pdf_ready_content"] == body["markdown_report"]
+
+
+def test_executive_continuity_report_reuses_historical_validation_and_calibration(
+    client: TestClient,
+) -> None:
+    response = client.get("/api/v1/reports/executive-continuity", headers=auth_headers(client))
+
+    assert response.status_code == 200
+    body = response.json()
+    historical = body["historical_validation"]
+    assert historical["detected_incidents"] + historical["missed_incidents"] >= 1
+    assert "detection" in historical["interpretation"].lower()
+    calibration = body["critical_materials"][0]["assessment_calibration"]
+    assert calibration["status"] in {
+        "CALIBRATED",
+        "PARTIALLY_CALIBRATED",
+        "UNCALIBRATED",
+        "INSUFFICIENT_DATA",
+    }
+    assert calibration["summary"]
+
+
+def test_executive_continuity_report_supports_plant_filter(
+    client: TestClient,
+) -> None:
+    response = client.get(
+        "/api/v1/reports/executive-continuity",
+        headers=auth_headers(client),
+        params={"plant_reference": "JAM"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["summary"]["plant_scope"] == "JAM"
+    assert all(item["plant_reference"] == "JAM" for item in body["critical_materials"])
+
+
+def test_executive_continuity_report_respects_tenant_isolation(
+    client: TestClient,
+) -> None:
+    response = client.get("/api/v1/reports/executive-continuity", headers=auth_headers(client))
+
+    assert response.status_code == 200
+    payload = response.text
+    assert "COKING_COAL" in payload
+    assert "SECRET_TENANT_B_MATERIAL" not in payload
+
+
 def seed_report_data(db: Session) -> None:
     tenant_a = Tenant(name="Tenant A Steel", slug="tenant-a")
     tenant_b = Tenant(name="Tenant B Steel", slug="tenant-b")
@@ -214,6 +284,21 @@ def seed_report_data(db: Session) -> None:
                 snapshot_time=NOW,
             ),
             shipment,
+            PlantMaterialThreshold(
+                tenant_id=tenant_a.id,
+                plant_id=plant_a.id,
+                material_id=material_a.id,
+                threshold_days=Decimal("3"),
+                warning_days=Decimal("5"),
+                minimum_buffer_stock_days=Decimal("2"),
+            ),
+            LineStopIncident(
+                tenant_id=tenant_a.id,
+                plant_id=plant_a.id,
+                material_id=material_a.id,
+                stopped_at=NOW + timedelta(days=6),
+                duration_hours=Decimal("8"),
+            ),
         ]
     )
     db.flush()

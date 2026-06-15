@@ -928,16 +928,107 @@ def seed_coking_coal_story_shipments(
             )
         )
 
+    seed_historical_validation_demo_incident(
+        db,
+        tenant_id=tenant_id,
+        plant=plant,
+        material=material,
+        supplier=supplier,
+        config=config,
+        now=now,
+    )
+
+
+def seed_historical_validation_demo_incident(
+    db: Session,
+    *,
+    tenant_id: int,
+    plant: Plant,
+    material: Material,
+    supplier: Supplier,
+    config: DemoMaterialConfig,
+    now: datetime,
+) -> None:
+    incident_time = (now - timedelta(days=45)).replace(hour=9, minute=0, second=0)
+    snapshot_time = incident_time - timedelta(days=10)
+    db.add(
+        StockSnapshot(
+            tenant_id=tenant_id,
+            plant_id=plant.id,
+            material_id=material.id,
+            on_hand_mt=Decimal("100"),
+            quality_held_mt=Decimal("0"),
+            available_to_consume_mt=Decimal("100"),
+            daily_consumption_mt=Decimal("10"),
+            snapshot_time=snapshot_time,
+        )
+    )
+    historical_shipments = (
+        {
+            "shipment_id": "DEMO-HIST-COAL-DELAY-01",
+            "quantity_mt": Decimal("80"),
+            "planned_eta": incident_time - timedelta(days=1),
+            "current_eta": incident_time + timedelta(days=2),
+            "latest_update_at": incident_time - timedelta(days=6),
+            "eta_confidence": Decimal("0.82"),
+            "delay_days": 3,
+            "delay_status": "delayed",
+            "vessel_name": "MV Eastern Recovery",
+            "origin_port": "Hay Point",
+        },
+        {
+            "shipment_id": "DEMO-HIST-COAL-DELAY-02",
+            "quantity_mt": Decimal("40"),
+            "planned_eta": incident_time + timedelta(days=1),
+            "current_eta": incident_time + timedelta(days=4),
+            "latest_update_at": incident_time - timedelta(days=5, hours=4),
+            "eta_confidence": Decimal("0.78"),
+            "delay_days": 3,
+            "delay_status": "delayed",
+            "vessel_name": "MV Blast Furnace Relief",
+            "origin_port": "Newcastle",
+        },
+    )
+    for item in historical_shipments:
+        db.add(
+            Shipment(
+                tenant_id=tenant_id,
+                shipment_id=item["shipment_id"],
+                plant_id=plant.id,
+                material_id=material.id,
+                supplier_id=supplier.id,
+                supplier_name=supplier.name,
+                quantity_mt=item["quantity_mt"],
+                vessel_name=item["vessel_name"],
+                imo_number="9899001",
+                mmsi="419100001",
+                origin_port=item["origin_port"],
+                destination_port=config.destination_port,
+                planned_eta=item["planned_eta"],
+                current_eta=item["current_eta"],
+                latest_eta=item["current_eta"],
+                delay_days=item["delay_days"],
+                delay_status=item["delay_status"],
+                current_milestone="ocean_transit_delay_confirmed",
+                current_location="Indian Ocean",
+                last_tracking_update_at=item["latest_update_at"],
+                eta_confidence=item["eta_confidence"],
+                current_state=ShipmentState.DELIVERED,
+                source_of_truth="demo_historical_validation",
+                latest_update_at=item["latest_update_at"],
+            )
+        )
+
     db.add(
         LineStopIncident(
             tenant_id=tenant_id,
             plant_id=plant.id,
             material_id=material.id,
-            stopped_at=now + timedelta(days=12),
+            stopped_at=incident_time,
             duration_hours=Decimal("8"),
             notes=(
-                "Demo coking-coal line-stop incident used for historical validation "
-                "lead-time review."
+                "Coking Coal Continuity Incident - Material Continuity Failure. "
+                "Operational impact: Blast Furnace Production Exposure."
             ),
         )
     )

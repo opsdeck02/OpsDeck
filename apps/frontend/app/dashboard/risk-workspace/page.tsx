@@ -353,6 +353,9 @@ function WorkspaceContent({
             </WalkthroughNote>
           ) : null}
           <WhyThisMatters workspace={workspace} />
+          <AssessmentCalibrationCard
+            calibration={workspace.assessment_calibration}
+          />
         </div>
 
         <div className="grid h-fit min-w-0 content-start gap-2.5">
@@ -1065,6 +1068,84 @@ function OperationalTrustSummary({
       </CardContent>
     </Card>
   );
+}
+
+function AssessmentCalibrationCard({
+  calibration,
+}: {
+  calibration: RiskWorkspaceResponse["assessment_calibration"];
+}) {
+  return (
+    <Card className="min-w-0 max-w-full overflow-hidden">
+      <CardHeader className="px-4 py-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <ShieldCheck className="h-5 w-5 text-primary" />
+            <CardTitle>Assessment Calibration</CardTitle>
+          </div>
+          {calibration ? (
+            <CalibrationBadge value={calibration.status} />
+          ) : null}
+        </div>
+        <p className="text-xs leading-5 text-mutedForeground">
+          Calibration shows how proven this assessment is for this
+          plant/material. Current evidence strength remains separate from
+          historical support.
+        </p>
+      </CardHeader>
+      <CardContent className="px-4 pb-4">
+        {calibration ? (
+          <div className="grid gap-2">
+            <div className="grid gap-1.5 sm:grid-cols-2">
+              <ContextPill
+                label="Calibration"
+                value={`${formatNumber(calibration.score)}% · ${formatLabel(calibration.status)}`}
+              />
+              <ContextPill
+                label="Current evidence strength"
+                value="Shown separately in confidence and trust"
+              />
+            </div>
+            <p className="rounded-xl bg-slate-50 px-3 py-3 text-sm leading-6 text-mutedForeground ring-1 ring-slate-900/5">
+              {calibration.summary}
+            </p>
+            <CompactSignalList
+              title="Historical support and drivers"
+              items={calibration.drivers}
+              empty="No calibration drivers returned."
+            />
+            <CompactSignalList
+              title="Data limitations"
+              items={calibration.limitations}
+              empty="No calibration limitations returned."
+            />
+            <CompactSignalList
+              title="What would improve trust"
+              items={calibration.improvement_actions}
+              empty="No improvement actions returned."
+            />
+          </div>
+        ) : (
+          <p className="rounded-xl bg-slate-50 px-3 py-3 text-sm text-mutedForeground ring-1 ring-slate-900/5">
+            Assessment calibration is not available for this risk yet.
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function CalibrationBadge({ value }: { value: string }) {
+  const normalized = value.toUpperCase();
+  const tone =
+    normalized === "CALIBRATED"
+      ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
+      : normalized === "PARTIALLY_CALIBRATED"
+        ? "bg-amber-50 text-amber-700 ring-amber-200"
+        : normalized === "UNCALIBRATED"
+          ? "bg-slate-50 text-slate-700 ring-slate-200"
+          : "bg-red-50 text-red-700 ring-red-200";
+  return <Badge className={`ring-1 ${tone}`}>{formatLabel(value)}</Badge>;
 }
 
 function CompactSignalList({

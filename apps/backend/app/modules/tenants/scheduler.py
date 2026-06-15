@@ -7,9 +7,19 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 
 from app.db.session import SessionLocal
-from app.models import ExternalDataSource, MicrosoftConnection, MicrosoftDataSource, Role, TenantMembership
+from app.models import (
+    ExternalDataSource,
+    MicrosoftConnection,
+    MicrosoftDataSource,
+    Role,
+    TenantMembership,
+)
 from app.modules.auth.constants import TENANT_ADMIN
 from app.modules.microsoft.service import sync_microsoft_data_source
+from app.modules.notifications.service import (
+    send_due_critical_alerts_once,
+    send_due_weekly_digests_once,
+)
 from app.modules.tenants.service import classify_data_freshness
 from app.modules.tenants.sync_service import sync_loaded_data_source
 from app.schemas.context import RequestContext
@@ -24,6 +34,10 @@ async def scheduler_loop(stop_event: asyncio.Event) -> None:
             process_due_data_sources_once()
         except Exception:
             logger.exception("Automated data-source scheduler loop failed")
+        try:
+            process_due_notifications_once()
+        except Exception:
+            logger.exception("Automated notification scheduler loop failed")
 
         try:
             await asyncio.wait_for(stop_event.wait(), timeout=SCHEDULER_SCAN_INTERVAL_SECONDS)
@@ -90,6 +104,14 @@ def process_due_data_sources_once(now: datetime | None = None) -> None:
                     source.id,
                 )
                 db.rollback()
+
+
+def process_due_notifications_once(now: datetime | None = None) -> int:
+    current_time = now or datetime.now(UTC)
+    with SessionLocal() as db:
+        critical_count = send_due_critical_alerts_once(db, now=current_time)
+        digest_count = send_due_weekly_digests_once(db, now=current_time)
+        return critical_count + digest_count
 
 
 def is_source_due(source: ExternalDataSource, now: datetime | None = None) -> bool:

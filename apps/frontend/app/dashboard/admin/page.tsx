@@ -1,7 +1,14 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
-import { ArrowRight, FileClock, Settings2, UsersRound } from "lucide-react";
+import {
+  ArrowRight,
+  BellRing,
+  FileClock,
+  ScrollText,
+  Settings2,
+  UsersRound,
+} from "lucide-react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getCurrentUser } from "@/lib/api";
@@ -43,6 +50,18 @@ export default async function AdminPage() {
           icon={<FileClock className="h-4 w-4" />}
           title="Historical Validation"
           description="Review whether OpsDeck would have detected past continuity incidents before disruption."
+        />
+        <AdminCard
+          href="/dashboard/admin/executive-continuity-report"
+          icon={<ScrollText className="h-4 w-4" />}
+          title="Executive Continuity Report"
+          description="Create a shareable continuity briefing for pilot and operating reviews."
+        />
+        <AdminCard
+          href="/dashboard/admin/notifications"
+          icon={<BellRing className="h-4 w-4" />}
+          title="Notification Settings"
+          description="Configure critical email alerts, weekly digests, recipients, and cooldowns."
         />
       </div>
     </div>

@@ -192,6 +192,26 @@ def test_seed_demo_creates_complete_coking_coal_pilot_story(monkeypatch, capsys)
             )
             assert coking_result.predicted_warning_date is not None
             assert coking_result.lead_time_gained_hours is not None
-            assert coking_result.lead_time_gained_hours > Decimal("0")
+            assert coking_result.opsdeck_detection_result == "DETECTED"
+            assert coking_result.confidence_classification == "HIGH CONFIDENCE"
+            assert coking_result.warning_lead_time_days == Decimal("5.00")
+            assert report.summary is not None
+            assert report.summary.incidents_analyzed == 1
+            assert report.summary.detected == 1
+            assert report.summary.partially_detected == 0
+            assert report.summary.missed == 0
+            assert report.summary.detection_rate_percent == Decimal("100.00")
+            assert report.summary.average_warning_lead_time_days == Decimal("5.00")
+            assert "Days of Cover Breach" in coking_result.detection_signals
+            assert "Inbound Delay Against Cover" in coking_result.detection_signals
+            assert "Shipment Degraded" in coking_result.detection_signals
+            assert "Trusted Inbound Reduction" in coking_result.detection_signals
+            assert "Verify inbound shipment status" in coking_result.recommended_actions_replay
+            assert "Escalate supplier" in coking_result.recommended_actions_replay
+            assert "Review reserve stock" in coking_result.recommended_actions_replay
+            assert "Activate contingency sourcing" in coking_result.recommended_actions_replay
+            assert "Operational impact: Blast Furnace Production Exposure." in (
+                incident.notes or ""
+            )
     finally:
         Base.metadata.drop_all(bind=engine)

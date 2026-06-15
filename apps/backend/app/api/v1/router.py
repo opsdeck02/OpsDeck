@@ -8,6 +8,7 @@ from app.modules.impact.router import router as impact_router
 from app.modules.ingestion.router import router as ingestion_router
 from app.modules.line_stops.router import router as line_stops_router
 from app.modules.microsoft.router import router as microsoft_router
+from app.modules.notifications.router import router as notifications_router
 from app.modules.reports.router import router as reports_router
 from app.modules.rules.router import router as rules_router
 from app.modules.shipments.router import router as shipments_router
@@ -28,6 +29,7 @@ api_router.include_router(impact_router)
 api_router.include_router(ingestion_router)
 api_router.include_router(line_stops_router)
 api_router.include_router(microsoft_router)
+api_router.include_router(notifications_router)
 api_router.include_router(shipments_router)
 api_router.include_router(stock_router)
 api_router.include_router(suppliers_router)

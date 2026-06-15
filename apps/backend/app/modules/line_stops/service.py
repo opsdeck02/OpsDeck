@@ -419,6 +419,7 @@ def detection_signals_for(
     ):
         signals.append("Inbound Delay Against Cover")
         signals.append("Shipment Degraded")
+        signals.append("Trusted Inbound Reduction")
     if any(not item.protects_reserve_breach for item in cover.shipment_evaluations):
         signals.append("Trusted Inbound Reduction")
     if any("supplier" in reason.lower() for reason in cover.assumptions_used):
@@ -471,13 +472,26 @@ def recommended_actions_for(
         "Inbound Delay Against Cover" in detection_signals
         or "Shipment Degraded" in detection_signals
     ):
-        actions.extend(["Verify inbound shipment status", "Validate ETA", "Expedite transport"])
+        actions.extend(
+            [
+                "Verify inbound shipment status",
+                "Escalate supplier",
+                "Validate ETA",
+                "Expedite transport",
+            ]
+        )
     if "Supplier Reliability Weak" in detection_signals:
         actions.append("Escalate supplier reliability review")
     if "Protected Reserve Breach" in detection_signals:
-        actions.append("Activate reserve material review")
+        actions.append("Review reserve stock")
     if "Critical Cover Breach" in detection_signals or "Projected Stockout" in detection_signals:
-        actions.extend(["Review substitution options", "Escalate continuity recovery plan"])
+        actions.extend(
+            [
+                "Activate contingency sourcing",
+                "Review substitution options",
+                "Escalate continuity recovery plan",
+            ]
+        )
     if confidence_classification != "HIGH CONFIDENCE":
         actions.append("Validate missing historical context before executive sign-off")
     return sorted(set(actions), key=actions.index)

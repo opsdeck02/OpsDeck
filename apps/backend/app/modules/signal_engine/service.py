@@ -9,9 +9,11 @@ from sqlalchemy.orm import Session
 
 from app.models import (
     ContinuityRiskSnapshot,
+    LineStopIncident,
     Material,
     OperationalEvent,
     Plant,
+    PlantMaterialThreshold,
     Shipment,
     StockSnapshot,
 )
@@ -28,6 +30,7 @@ from app.modules.impact.production_interruption import (
     get_active_interruption_config,
 )
 from app.modules.impact.shipment_inbound_trust import get_active_shipment_inbound_trust_config
+from app.modules.line_stops.service import validate_historical_incident
 from app.modules.operational_events.timeline import (
     ContinuityTimelineEntry,
     ContinuityTimelineFilters,
@@ -87,10 +90,20 @@ class TimelineWindow(BaseModel):
     total: int
 
 
+class AssessmentCalibration(BaseModel):
+    status: str
+    score: Decimal
+    summary: str
+    drivers: list[str]
+    limitations: list[str]
+    improvement_actions: list[str]
+
+
 class RiskWorkspaceResponse(BaseModel):
     selected_risk: RiskCandidate | None = None
     explainability: RiskExplainability | None = None
     exposure: OperationalExposureMapping | None = None
+    assessment_calibration: AssessmentCalibration | None = None
     timeline: TimelineWindow
     context_graph: OperationalRelationshipGraph | None = None
     inventory_continuity: list[InventoryContinuityResult]
@@ -301,10 +314,18 @@ def get_risk_workspace(
         inventory=first_or_none(inventory_continuity),
         now=now,
     )
+    assessment_calibration = assess_risk_calibration(
+        db,
+        context,
+        selected,
+        inventory_continuity=inventory_continuity,
+        shipment_continuity=shipment_continuity,
+    )
     return RiskWorkspaceResponse(
         selected_risk=selected,
         explainability=selected.explainability,
         exposure=exposure,
+        assessment_calibration=assessment_calibration,
         timeline=timeline_window(timeline_items, timeline_limit, timeline_offset),
         context_graph=context_graph,
         inventory_continuity=inventory_continuity,
@@ -417,6 +438,7 @@ def empty_workspace(
         selected_risk=None,
         explainability=None,
         exposure=None,
+        assessment_calibration=None,
         timeline=TimelineWindow(
             items=[],
             limit=timeline_limit,
@@ -1110,6 +1132,330 @@ def apply_operational_trust(
             ]
         )
     return updated
+
+
+def assess_risk_calibration(
+    db: Session,
+    context: RequestContext,
+    candidate: RiskCandidate,
+    *,
+    inventory_continuity: list[InventoryContinuityResult],
+    shipment_continuity: list[ShipmentContinuityResult],
+) -> AssessmentCalibration:
+    plant, material = resolve_plant_material(
+        db,
+        tenant_id=context.tenant_id,
+        plant_reference=candidate.plant_reference,
+        material_reference=candidate.material_reference,
+    )
+    if plant is None or material is None:
+        return AssessmentCalibration(
+            status="INSUFFICIENT_DATA",
+            score=Decimal("0.00"),
+            summary=(
+                "OpsDeck cannot assess calibration because the plant or material "
+                "context is missing."
+            ),
+            drivers=[],
+            limitations=["Plant/material context is unavailable."],
+            improvement_actions=["Confirm plant and material mapping for this risk."],
+        )
+
+    inventory = first_or_none(inventory_continuity)
+    threshold = db.scalar(
+        select(PlantMaterialThreshold).where(
+            PlantMaterialThreshold.tenant_id == context.tenant_id,
+            PlantMaterialThreshold.plant_id == plant.id,
+            PlantMaterialThreshold.material_id == material.id,
+        )
+    )
+    if inventory is None:
+        return AssessmentCalibration(
+            status="INSUFFICIENT_DATA",
+            score=Decimal("0.00"),
+            summary=(
+                "OpsDeck cannot assess calibration because current inventory context "
+                "is missing for this material."
+            ),
+            drivers=[],
+            limitations=["Current inventory continuity context is unavailable."],
+            improvement_actions=["Upload a fresh inventory snapshot for this plant/material."],
+        )
+
+    score = Decimal("0")
+    drivers: list[str] = []
+    limitations: list[str] = []
+    actions: list[str] = []
+
+    if threshold is not None:
+        score += Decimal("20")
+        drivers.append("Continuity thresholds are configured for this plant/material.")
+    else:
+        limitations.append("Continuity thresholds are not configured.")
+        actions.append("Configure warning, critical, and buffer thresholds.")
+
+    inventory_score = inventory_calibration_score(inventory, drivers, limitations, actions)
+    score += inventory_score
+
+    shipment_score = shipment_calibration_score(
+        db,
+        context,
+        plant_id=plant.id,
+        material_id=material.id,
+        shipment_continuity=shipment_continuity,
+        drivers=drivers,
+        limitations=limitations,
+        actions=actions,
+    )
+    score += shipment_score
+
+    historical_score = historical_calibration_score(
+        db,
+        context,
+        plant_id=plant.id,
+        material_id=material.id,
+        drivers=drivers,
+        limitations=limitations,
+        actions=actions,
+    )
+    score += historical_score
+
+    trust = candidate.operational_trust
+    if trust is not None:
+        trust_score = Decimal(trust.operational_trust_score)
+        if trust_score >= Decimal("75"):
+            score += Decimal("10")
+            drivers.append("Current operational trust is strong.")
+        elif trust_score >= Decimal("50"):
+            score += Decimal("5")
+            limitations.append("Current operational trust is only moderate.")
+        else:
+            limitations.append("Current operational trust is weak.")
+            actions.append("Complete missing operational trust inputs.")
+    else:
+        limitations.append("Operational trust score is not available for this assessment.")
+
+    score = quantize_decimal(max(Decimal("0"), min(Decimal("100"), score)))
+    status = calibration_status_for(
+        score=score,
+        has_threshold=threshold is not None,
+        has_historical_signal=historical_score > Decimal("0"),
+        limitations=limitations,
+    )
+    return AssessmentCalibration(
+        status=status,
+        score=score,
+        summary=calibration_summary(status, drivers, limitations),
+        drivers=dedupe_calibration_items(drivers),
+        limitations=dedupe_calibration_items(limitations),
+        improvement_actions=dedupe_calibration_items(actions)
+        or ["Validate historical detection results for this material context."],
+    )
+
+
+def inventory_calibration_score(
+    inventory: InventoryContinuityResult,
+    drivers: list[str],
+    limitations: list[str],
+    actions: list[str],
+) -> Decimal:
+    score = Decimal("0")
+    if inventory.daily_consumption_rate is not None and inventory.days_of_cover is not None:
+        score += Decimal("15")
+        drivers.append("Inventory cover and consumption are available.")
+    else:
+        limitations.append("Inventory cover or consumption is incomplete.")
+        actions.append("Upload inventory with daily consumption and available stock.")
+    if inventory.freshness_status in {"fresh", "delayed"}:
+        score += Decimal("5")
+        drivers.append("Inventory freshness is acceptable.")
+    else:
+        limitations.append("Inventory freshness limits calibration.")
+        actions.append("Refresh inventory snapshots more frequently.")
+    if (
+        inventory.cover_confidence_score is not None
+        and inventory.cover_confidence_score >= Decimal("0.70")
+    ):
+        score += Decimal("5")
+        drivers.append("Current evidence strength is acceptable.")
+    elif inventory.cover_confidence_score is not None:
+        limitations.append("Current evidence strength is limited.")
+    return score
+
+
+def shipment_calibration_score(
+    db: Session,
+    context: RequestContext,
+    *,
+    plant_id: int,
+    material_id: int,
+    shipment_continuity: list[ShipmentContinuityResult],
+    drivers: list[str],
+    limitations: list[str],
+    actions: list[str],
+) -> Decimal:
+    shipments = list(
+        db.scalars(
+            select(Shipment).where(
+                Shipment.tenant_id == context.tenant_id,
+                Shipment.plant_id == plant_id,
+                Shipment.material_id == material_id,
+            )
+        )
+    )
+    if not shipments:
+        limitations.append("No shipment visibility exists for this material context.")
+        actions.append("Upload inbound shipment history and current ETAs.")
+        return Decimal("0")
+
+    score = Decimal("10")
+    drivers.append("Inbound shipment visibility exists for this material context.")
+    stale_statuses = {"stale", "critical", "unknown"}
+    if shipment_continuity and any(
+        item.tracking_freshness_status not in stale_statuses for item in shipment_continuity
+    ):
+        score += Decimal("5")
+        drivers.append("Inbound visibility freshness is acceptable.")
+    else:
+        limitations.append("Inbound visibility freshness is incomplete or stale.")
+        actions.append("Improve shipment milestone freshness.")
+
+    linked = sum(1 for shipment in shipments if shipment.supplier_id is not None)
+    if linked == len(shipments):
+        score += Decimal("10")
+        drivers.append("Suppliers are linked to inbound shipments.")
+    elif linked > 0:
+        score += Decimal("5")
+        limitations.append("Some inbound shipments are not linked to supplier records.")
+        actions.append("Link suppliers to all inbound shipments.")
+    else:
+        limitations.append("Inbound shipments are not linked to supplier records.")
+        actions.append("Link suppliers to shipments.")
+    return score
+
+
+def historical_calibration_score(
+    db: Session,
+    context: RequestContext,
+    *,
+    plant_id: int,
+    material_id: int,
+    drivers: list[str],
+    limitations: list[str],
+    actions: list[str],
+) -> Decimal:
+    incidents = list(
+        db.scalars(
+            select(LineStopIncident)
+            .where(
+                LineStopIncident.tenant_id == context.tenant_id,
+                LineStopIncident.plant_id == plant_id,
+                LineStopIncident.material_id == material_id,
+            )
+            .order_by(LineStopIncident.stopped_at.desc())
+            .limit(10)
+        )
+    )
+    if not incidents:
+        limitations.append("No historical incident replay exists for this plant/material.")
+        actions.append("Upload more historical line-stop incidents.")
+        return Decimal("0")
+
+    results = [validate_historical_incident(db, context, incident) for incident in incidents]
+    detected = [result for result in results if result.opsdeck_detection_result == "DETECTED"]
+    partial = [
+        result for result in results if result.opsdeck_detection_result == "PARTIALLY DETECTED"
+    ]
+    missed = [result for result in results if result.opsdeck_detection_result == "MISSED"]
+    high_confidence = [
+        result for result in results if result.confidence_classification == "HIGH CONFIDENCE"
+    ]
+    score = Decimal("5")
+    drivers.append(f"{len(results)} historical incident replay result is available.")
+    if detected:
+        score += Decimal("15")
+        drivers.append(f"{len(detected)} prior incident was detected with warning lead time.")
+    if partial:
+        score += Decimal("8")
+        limitations.append("Some historical incidents were only partially detected.")
+        actions.append("Validate historical detection results.")
+    if high_confidence:
+        score += Decimal("5")
+        drivers.append("Historical replay includes high-confidence evidence.")
+    if missed:
+        score -= Decimal("10")
+        limitations.append("Historical validation includes missed incidents.")
+        actions.append("Review missed incident data gaps.")
+    if any(result.warning_lead_time_days is not None for result in results):
+        score += Decimal("5")
+        drivers.append("Historical replay produced warning lead time.")
+    return max(Decimal("0"), score)
+
+
+def calibration_status_for(
+    *,
+    score: Decimal,
+    has_threshold: bool,
+    has_historical_signal: bool,
+    limitations: list[str],
+) -> str:
+    if not has_threshold:
+        return "INSUFFICIENT_DATA"
+    blocking_limitations = ("missed incidents", "not linked", "stale", "incomplete", "missing")
+    if score >= Decimal("80") and has_historical_signal and not any(
+        any(blocking in limitation.lower() for blocking in blocking_limitations)
+        for limitation in limitations
+    ):
+        return "CALIBRATED"
+    if not has_historical_signal and score < Decimal("70"):
+        return "UNCALIBRATED"
+    if score >= Decimal("55"):
+        return "PARTIALLY_CALIBRATED"
+    return "UNCALIBRATED"
+
+
+def calibration_summary(
+    status: str,
+    drivers: list[str],
+    limitations: list[str],
+) -> str:
+    if status == "CALIBRATED":
+        return (
+            "This assessment is calibrated: OpsDeck has configuration, current data, "
+            "and historical support for this plant/material context."
+        )
+    if status == "PARTIALLY_CALIBRATED":
+        if limitations:
+            return (
+                "This assessment is partially calibrated: OpsDeck can evaluate the risk, "
+                f"but trust is limited by {plain_join(limitations[:2])}."
+            )
+        return "This assessment is partially calibrated with usable but incomplete support."
+    if status == "UNCALIBRATED":
+        return (
+            "This assessment is uncalibrated: current risk logic can operate, but there "
+            "is limited proof for this plant/material context."
+        )
+    return (
+        "OpsDeck has insufficient data to assess calibration for this risk assessment."
+    )
+
+
+def plain_join(items: list[str]) -> str:
+    if len(items) == 1:
+        return items[0].rstrip(".").lower()
+    return " and ".join(item.rstrip(".").lower() for item in items)
+
+
+def dedupe_calibration_items(items: list[str]) -> list[str]:
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for item in items:
+        if item in seen:
+            continue
+        seen.add(item)
+        deduped.append(item)
+    return deduped
 
 
 def escalation_for_snapshot(

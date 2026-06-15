@@ -16,12 +16,15 @@ from app.core.config import settings
 from app.db.base import Base
 from app.main import app
 from app.models import (
+    LineStopIncident,
     Material,
     OperationalEvent,
     Plant,
+    PlantMaterialThreshold,
     Role,
     Shipment,
     StockSnapshot,
+    Supplier,
     Tenant,
     TenantMembership,
     User,
@@ -618,6 +621,119 @@ def test_risk_workspace_includes_trust_summary(client: TestClient) -> None:
     assert "warnings" in trust
 
 
+def test_risk_workspace_returns_insufficient_calibration_when_threshold_missing(
+    client: TestClient,
+) -> None:
+    response = client.get(
+        "/api/v1/signal-engine/risk-workspace",
+        headers=auth_headers(client),
+        params={"plant_reference": "P1", "material_reference": "M1"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    calibration = body["assessment_calibration"]
+    assert calibration["status"] == "INSUFFICIENT_DATA"
+    assert Decimal(calibration["score"]) > Decimal("0")
+    assert "confidence_score" in body["selected_risk"]
+    assert "assessment_calibration" not in body["selected_risk"]
+
+
+def test_risk_workspace_returns_uncalibrated_when_historical_support_is_limited(
+    client: TestClient,
+) -> None:
+    add_threshold_for_m1()
+
+    response = client.get(
+        "/api/v1/signal-engine/risk-workspace",
+        headers=auth_headers(client),
+        params={"plant_reference": "P1", "material_reference": "M1"},
+    )
+
+    assert response.status_code == 200
+    calibration = response.json()["assessment_calibration"]
+    assert calibration["status"] == "UNCALIBRATED"
+    assert "No historical incident replay" in " ".join(calibration["limitations"])
+    assert any("historical" in item.lower() for item in calibration["improvement_actions"])
+
+
+def test_risk_workspace_returns_partially_calibrated_with_detected_history_and_limits(
+    client: TestClient,
+) -> None:
+    add_threshold_for_m1()
+    add_line_stop_for_m1()
+
+    response = client.get(
+        "/api/v1/signal-engine/risk-workspace",
+        headers=auth_headers(client),
+        params={"plant_reference": "P1", "material_reference": "M1"},
+    )
+
+    assert response.status_code == 200
+    calibration = response.json()["assessment_calibration"]
+    assert calibration["status"] == "PARTIALLY_CALIBRATED"
+    assert Decimal(calibration["score"]) >= Decimal("55")
+    assert any("historical" in item.lower() for item in calibration["drivers"])
+    assert any("supplier" in item.lower() for item in calibration["limitations"])
+
+
+def test_risk_workspace_returns_calibrated_when_history_and_data_are_strong(
+    client: TestClient,
+) -> None:
+    add_threshold_for_m1()
+    link_supplier_for_m1()
+    add_historical_shipment_for_m1()
+    refresh_current_visibility_for_m1()
+    add_line_stop_for_m1()
+
+    response = client.get(
+        "/api/v1/signal-engine/risk-workspace",
+        headers=auth_headers(client),
+        params={"plant_reference": "P1", "material_reference": "M1"},
+    )
+
+    assert response.status_code == 200
+    calibration = response.json()["assessment_calibration"]
+    assert calibration["status"] == "CALIBRATED"
+    assert Decimal(calibration["score"]) >= Decimal("80")
+    assert any("prior incident" in item.lower() for item in calibration["drivers"])
+    assert any("supplier" in item.lower() for item in calibration["drivers"])
+
+
+def test_calibration_reduces_when_historical_validation_misses(
+    client: TestClient,
+) -> None:
+    add_threshold_for_m1()
+    link_supplier_for_m1()
+    add_line_stop_for_m1()
+    with next(app.dependency_overrides[get_db]()) as db:
+        plant = db.scalar(select(Plant).where(Plant.code == "P1"))
+        material = db.scalar(select(Material).where(Material.code == "M1"))
+        assert plant is not None
+        assert material is not None
+        db.add(
+            LineStopIncident(
+                tenant_id=plant.tenant_id,
+                plant_id=plant.id,
+                material_id=material.id,
+                stopped_at=NOW - timedelta(days=5),
+                duration_hours=Decimal("4"),
+            )
+        )
+        db.commit()
+
+    response = client.get(
+        "/api/v1/signal-engine/risk-workspace",
+        headers=auth_headers(client),
+        params={"plant_reference": "P1", "material_reference": "M1"},
+    )
+
+    assert response.status_code == 200
+    calibration = response.json()["assessment_calibration"]
+    assert calibration["status"] == "PARTIALLY_CALIBRATED"
+    assert any("missed" in item.lower() for item in calibration["limitations"])
+
+
 def test_risk_workspace_returns_empty_response_when_no_candidate_matches(
     client: TestClient,
 ) -> None:
@@ -921,6 +1037,122 @@ def enable_demo_tenant(slug: str = "tenant-a") -> None:
         tenant = db.scalar(select(Tenant).where(Tenant.slug == slug))
         assert tenant is not None
         tenant.is_demo_tenant = True
+        db.commit()
+
+
+def add_threshold_for_m1() -> None:
+    with next(app.dependency_overrides[get_db]()) as db:
+        plant = db.scalar(select(Plant).where(Plant.code == "P1"))
+        material = db.scalar(select(Material).where(Material.code == "M1"))
+        assert plant is not None
+        assert material is not None
+        db.add(
+            PlantMaterialThreshold(
+                tenant_id=plant.tenant_id,
+                plant_id=plant.id,
+                material_id=material.id,
+                threshold_days=Decimal("1"),
+                warning_days=Decimal("5"),
+                minimum_buffer_stock_days=Decimal("2"),
+            )
+        )
+        db.commit()
+
+
+def add_line_stop_for_m1() -> None:
+    with next(app.dependency_overrides[get_db]()) as db:
+        plant = db.scalar(select(Plant).where(Plant.code == "P1"))
+        material = db.scalar(select(Material).where(Material.code == "M1"))
+        assert plant is not None
+        assert material is not None
+        db.add(
+            LineStopIncident(
+                tenant_id=plant.tenant_id,
+                plant_id=plant.id,
+                material_id=material.id,
+                stopped_at=NOW + timedelta(days=6),
+                duration_hours=Decimal("8"),
+            )
+        )
+        db.commit()
+
+
+def link_supplier_for_m1() -> None:
+    with next(app.dependency_overrides[get_db]()) as db:
+        tenant = db.scalar(select(Tenant).where(Tenant.slug == "tenant-a"))
+        shipment = db.scalar(select(Shipment).where(Shipment.shipment_id == "SHIP-1"))
+        assert tenant is not None
+        assert shipment is not None
+        supplier = Supplier(
+            tenant_id=tenant.id,
+            name="Supplier 1",
+            code="SUP-1",
+            is_active=True,
+        )
+        db.add(supplier)
+        db.flush()
+        shipment.supplier_id = supplier.id
+        db.commit()
+
+
+def add_historical_shipment_for_m1() -> None:
+    with next(app.dependency_overrides[get_db]()) as db:
+        tenant = db.scalar(select(Tenant).where(Tenant.slug == "tenant-a"))
+        plant = db.scalar(select(Plant).where(Plant.code == "P1"))
+        material = db.scalar(select(Material).where(Material.code == "M1"))
+        supplier = db.scalar(select(Supplier).where(Supplier.code == "SUP-1"))
+        assert tenant is not None
+        assert plant is not None
+        assert material is not None
+        assert supplier is not None
+        db.add(
+            Shipment(
+                tenant_id=tenant.id,
+                shipment_id="HIST-SHIP-1",
+                material_id=material.id,
+                plant_id=plant.id,
+                supplier_id=supplier.id,
+                supplier_name=supplier.name,
+                quantity_mt=Decimal("50"),
+                planned_eta=NOW + timedelta(days=3),
+                current_eta=NOW + timedelta(days=3),
+                latest_eta=NOW + timedelta(days=2),
+                current_milestone="in_transit",
+                last_tracking_update_at=NOW + timedelta(days=2),
+                current_state=ShipmentState.IN_TRANSIT,
+                source_of_truth="historical_validation_fixture",
+                latest_update_at=NOW + timedelta(days=2),
+            )
+        )
+        db.commit()
+
+
+def refresh_current_visibility_for_m1() -> None:
+    with next(app.dependency_overrides[get_db]()) as db:
+        plant = db.scalar(select(Plant).where(Plant.code == "P1"))
+        material = db.scalar(select(Material).where(Material.code == "M1"))
+        shipment = db.scalar(select(Shipment).where(Shipment.shipment_id == "SHIP-1"))
+        assert plant is not None
+        assert material is not None
+        assert shipment is not None
+        current_time = datetime.now(UTC)
+        db.add(
+            StockSnapshot(
+                tenant_id=plant.tenant_id,
+                plant_id=plant.id,
+                material_id=material.id,
+                on_hand_mt=Decimal("20"),
+                quality_held_mt=Decimal("0"),
+                available_to_consume_mt=Decimal("20"),
+                daily_consumption_mt=Decimal("10"),
+                snapshot_time=current_time - timedelta(hours=1),
+            )
+        )
+        shipment.planned_eta = current_time + timedelta(days=1)
+        shipment.current_eta = current_time + timedelta(days=4)
+        shipment.latest_eta = current_time + timedelta(days=1)
+        shipment.last_tracking_update_at = current_time - timedelta(hours=2)
+        shipment.latest_update_at = current_time - timedelta(hours=2)
         db.commit()
 
 

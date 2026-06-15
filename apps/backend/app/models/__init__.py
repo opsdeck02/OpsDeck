@@ -12,6 +12,7 @@ from app.models.membership import TenantMembership
 from app.models.microsoft_connection import MicrosoftConnection
 from app.models.microsoft_data_source import MicrosoftDataSource
 from app.models.microsoft_oauth_state import MicrosoftOAuthState
+from app.models.notification import NotificationDeliveryLog, NotificationSettings
 from app.models.operational_event import OperationalEvent
 from app.models.operations import (
     AuditLog,
@@ -47,6 +48,8 @@ __all__ = [
     "MicrosoftConnection",
     "MicrosoftDataSource",
     "MicrosoftOAuthState",
+    "NotificationDeliveryLog",
+    "NotificationSettings",
     "MaterialProcessDependency",
     "OperationalEvent",
     "Plant",

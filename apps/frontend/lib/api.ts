@@ -130,6 +130,80 @@ export interface HistoricalValidationReport {
   report_markdown: string | null;
 }
 
+export interface AssessmentCalibration {
+  status: string;
+  score: string;
+  summary: string;
+  drivers: string[];
+  limitations: string[];
+  improvement_actions: string[];
+}
+
+export interface ExecutiveReportSummary {
+  generated_at: string;
+  tenant: string;
+  plant_scope: string;
+  material_scope: string | null;
+  materials_assessed: number;
+  critical_materials: number;
+  high_risk_materials: number;
+  average_assessment_calibration_score: string | null;
+  average_assessment_calibration: string;
+  average_operational_trust_score: string | null;
+  average_operational_trust: string;
+  historical_validation_detection_rate: string | null;
+}
+
+export interface ExecutiveMaterialRisk {
+  material: string;
+  material_reference: string | null;
+  plant: string;
+  plant_reference: string | null;
+  severity: string;
+  current_usable_cover: string | null;
+  earliest_breach_date: string | null;
+  operational_trust: string;
+  operational_trust_score: string | null;
+  assessment_calibration: AssessmentCalibration | null;
+  recommended_priority: string;
+  why_escalating: string[];
+  inbound_protection: {
+    physical_inbound: string | null;
+    trusted_inbound: string | null;
+    visibility_uncertainty: string | null;
+    interpretation: string;
+  } | null;
+  continuity_projection: {
+    warning_threshold_days: string | null;
+    reserve_threshold_days: string | null;
+    critical_threshold_days: string | null;
+    interruption_threshold_days: string | null;
+    warning_date: string | null;
+    reserve_breach_date: string | null;
+    critical_breach_date: string | null;
+    interruption_date: string | null;
+    interpretation: string;
+  } | null;
+  immediate_actions: string[];
+  short_term_actions: string[];
+  calibration_actions: string[];
+}
+
+export interface ExecutiveContinuityReport {
+  summary: ExecutiveReportSummary;
+  critical_materials: ExecutiveMaterialRisk[];
+  historical_validation: {
+    detection_rate: string | null;
+    average_warning_lead_time_days: string | null;
+    detected_incidents: number;
+    missed_incidents: number;
+    interpretation: string;
+  };
+  recommended_actions: Record<string, string[]>;
+  markdown_report: string;
+  pdf_ready_content: string;
+}
+
 export interface OperationalInterruptionImpact {
   calculation_status: string;
   currency: string;
@@ -337,6 +411,7 @@ export interface RiskWorkspaceResponse {
   selected_risk: SignalRiskCandidate | null;
   explainability: SignalRiskExplainability | null;
   exposure: SignalExposureMapping | null;
+  assessment_calibration: AssessmentCalibration | null;
   timeline: {
     items: SignalTimelineEntry[];
     limit: number;
@@ -435,6 +510,21 @@ export async function getHistoricalValidationReport(params?: {
   const suffix = query.toString() ? `?${query.toString()}` : "";
   return getAuthenticatedJson<HistoricalValidationReport>(
     `/api/v1/line-stops/historical-validation${suffix}`,
+  );
+}
+
+export async function getExecutiveContinuityReport(params?: {
+  plant_reference?: string;
+  material_reference?: string;
+}): Promise<ExecutiveContinuityReport | null> {
+  const query = new URLSearchParams();
+  if (params?.plant_reference)
+    query.set("plant_reference", params.plant_reference);
+  if (params?.material_reference)
+    query.set("material_reference", params.material_reference);
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  return getAuthenticatedJson<ExecutiveContinuityReport>(
+    `/api/v1/reports/executive-continuity${suffix}`,
   );
 }
 
