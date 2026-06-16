@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   getCurrentUser,
   getExecutiveContinuityReport,
+  getPilotReadiness,
   type ExecutiveMaterialRisk,
 } from "@/lib/api";
 
@@ -17,7 +18,10 @@ export default async function ExecutiveContinuityReportPage() {
   const isTenantAdmin = user.memberships[0]?.role === "tenant_admin";
   if (!isTenantAdmin && !user.is_superadmin) redirect("/dashboard");
 
-  const report = await getExecutiveContinuityReport();
+  const [report, readiness] = await Promise.all([
+    getExecutiveContinuityReport(),
+    getPilotReadiness(),
+  ]);
   if (!report) {
     return (
       <Card className="bg-card/90 shadow-panel">
@@ -37,6 +41,12 @@ export default async function ExecutiveContinuityReportPage() {
 
   return (
     <div className="grid gap-4">
+      {readiness && !readiness.safe_to_rely_on ? (
+        <section className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900 shadow-panel">
+          <span className="font-semibold">Pilot setup is incomplete.</span> Treat these results as
+          preliminary until required data is reviewed. {readiness.safe_to_rely_on_reason}
+        </section>
+      ) : null}
       <section className="rounded-2xl bg-card/90 p-6 shadow-panel ring-1 ring-slate-900/5">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="max-w-3xl">
@@ -113,7 +123,10 @@ export default async function ExecutiveContinuityReportPage() {
       <section className="grid gap-3 lg:grid-cols-2">
         <Card className="bg-card/90 shadow-panel">
           <CardHeader>
-            <CardTitle>Historical Validation</CardTitle>
+            <CardTitle>Past Incident Analysis</CardTitle>
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-mutedForeground">
+              Incident Replay
+            </p>
             <p className="text-sm leading-6 text-mutedForeground">
               {report.historical_validation.interpretation}
             </p>

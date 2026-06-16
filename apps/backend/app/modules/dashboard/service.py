@@ -5,7 +5,17 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import AuditLog, ExternalDataSource, IngestionJob, MicrosoftDataSource, UploadedFile
+from app.models import (
+    AuditLog,
+    ExternalDataSource,
+    IngestionJob,
+    MicrosoftDataSource,
+    PlantMaterialThreshold,
+    ProductionInterruptionImpactConfig,
+    Shipment,
+    StockSnapshot,
+    UploadedFile,
+)
 from app.modules.exceptions.service import list_exceptions, serialize_exception
 from app.modules.shipments.confidence import assess_freshness, ensure_utc
 from app.modules.shipments.movement import list_inland_monitoring, list_port_monitoring
@@ -29,6 +39,7 @@ from app.schemas.dashboard import (
     PilotReadinessCheck,
     PilotReadinessCounts,
     PilotReadinessResponse,
+    PilotSetupChecklistItem,
     SupplierPerformanceItem,
 )
 
@@ -234,6 +245,30 @@ def build_pilot_readiness(
         + (1 if executive.stock_freshness.freshness_label == "stale" else 0)
         + (1 if executive.exception_freshness.freshness_label == "stale" else 0)
     )
+    setup = pilot_setup_facts(db, context, ingestion_jobs)
+    setup_checklist = build_pilot_setup_checklist(setup)
+    mandatory_blockers = [
+        item
+        for item in setup_checklist
+        if item.category == "mandatory" and item.state == "Not started"
+    ]
+    needs_review = [
+        item
+        for item in setup_checklist
+        if item.category == "mandatory" and item.state == "Needs attention"
+    ]
+    if mandatory_blockers:
+        setup_status = "Pilot setup incomplete"
+        safe_to_rely = False
+        safe_reason = mandatory_blockers[0].next_action
+    elif needs_review:
+        setup_status = "Pilot setup needs review"
+        safe_to_rely = False
+        safe_reason = needs_review[0].next_action
+    else:
+        setup_status = "Pilot setup ready for guided review"
+        safe_to_rely = True
+        safe_reason = "Pilot setup is ready for guided review."
     checks = [
         PilotReadinessCheck(
             key="onboarding_uploads",
@@ -294,6 +329,9 @@ def build_pilot_readiness(
 
     return PilotReadinessResponse(
         tenant=context.tenant_slug,
+        setup_status=setup_status,
+        safe_to_rely_on=safe_to_rely,
+        safe_to_rely_on_reason=safe_reason,
         counts=PilotReadinessCounts(
             uploaded_files=len(uploaded_files),
             ingestion_jobs=len(ingestion_jobs),
@@ -306,6 +344,286 @@ def build_pilot_readiness(
         last_exception_update_at=executive.exception_freshness.last_updated_at,
         last_movement_update_at=executive.movement_freshness.last_updated_at,
         checks=checks,
+        setup_checklist=setup_checklist,
+    )
+
+
+def pilot_setup_facts(
+    db: Session,
+    context: RequestContext,
+    ingestion_jobs: list[IngestionJob],
+) -> dict[str, int | bool]:
+    stock_count = int(
+        db.scalar(
+            select(StockSnapshot.id).where(StockSnapshot.tenant_id == context.tenant_id).limit(1)
+        )
+        is not None
+    )
+    consumption_count = int(
+        db.scalar(
+            select(StockSnapshot.id)
+            .where(
+                StockSnapshot.tenant_id == context.tenant_id,
+                StockSnapshot.daily_consumption_mt > 0,
+            )
+            .limit(1)
+        )
+        is not None
+    )
+    threshold_count = int(
+        db.scalar(
+            select(PlantMaterialThreshold.id)
+            .where(PlantMaterialThreshold.tenant_id == context.tenant_id)
+            .limit(1)
+        )
+        is not None
+    )
+    shipment_eta_count = int(
+        db.scalar(
+            select(Shipment.id)
+            .where(
+                Shipment.tenant_id == context.tenant_id,
+                Shipment.current_eta.is_not(None),
+            )
+            .limit(1)
+        )
+        is not None
+    )
+    impact_configured = (
+        db.scalar(
+            select(ProductionInterruptionImpactConfig.id)
+            .where(
+                ProductionInterruptionImpactConfig.tenant_id == context.tenant_id,
+                ProductionInterruptionImpactConfig.is_active.is_(True),
+            )
+            .limit(1)
+        )
+        is not None
+    )
+    rejected_rows = sum(job.records_failed for job in ingestion_jobs)
+    new_master_review_count = 0
+    for job in ingestion_jobs:
+        summary = (job.metadata_json or {}).get("operational_summary") or {}
+        new_master_review_count += len(summary.get("new_plants_created") or [])
+        new_master_review_count += len(summary.get("new_materials_created") or [])
+        new_master_review_count += len(summary.get("new_suppliers_created") or [])
+    return {
+        "has_stock": stock_count > 0,
+        "has_consumption": consumption_count > 0,
+        "has_thresholds": threshold_count > 0,
+        "has_inbound_eta": shipment_eta_count > 0,
+        "rejected_rows": rejected_rows,
+        "new_master_review_count": new_master_review_count,
+        "impact_configured": impact_configured,
+    }
+
+
+def build_pilot_setup_checklist(
+    facts: dict[str, int | bool],
+) -> list[PilotSetupChecklistItem]:
+    rejected_rows = int(facts["rejected_rows"])
+    new_master_review_count = int(facts["new_master_review_count"])
+    return [
+        checklist_item(
+            "upload_stock",
+            "Upload latest stock snapshot",
+            "mandatory",
+            complete=bool(facts["has_stock"]),
+            attention=False,
+            detail="Latest stock snapshot is available."
+            if facts["has_stock"]
+            else "No stock snapshot has been loaded.",
+            next_action="Upload stock before reviewing material risk.",
+            href="/dashboard/onboarding",
+            blocking=True,
+        ),
+        checklist_item(
+            "confirm_consumption",
+            "Confirm daily consumption",
+            "mandatory",
+            complete=bool(facts["has_consumption"]),
+            attention=False,
+            detail="Daily consumption is available."
+            if facts["has_consumption"]
+            else "Daily consumption is missing.",
+            next_action=(
+                "Daily consumption is missing, so OpsDeck cannot calculate days of cover."
+            ),
+            href="/dashboard/onboarding",
+            blocking=True,
+        ),
+        checklist_item(
+            "upload_shipments",
+            "Upload inbound shipments with ETA",
+            "mandatory",
+            complete=bool(facts["has_inbound_eta"]),
+            attention=False,
+            detail="Inbound shipments with ETA are available."
+            if facts["has_inbound_eta"]
+            else "No inbound shipment ETA is available.",
+            next_action=(
+                "Upload shipments with ETA before relying on inbound protection."
+            ),
+            href="/dashboard/onboarding",
+            blocking=True,
+        ),
+        checklist_item(
+            "upload_thresholds",
+            "Upload continuity thresholds",
+            "mandatory",
+            complete=bool(facts["has_thresholds"]),
+            attention=False,
+            detail="Continuity thresholds are available."
+            if facts["has_thresholds"]
+            else "Continuity thresholds are missing.",
+            next_action="Thresholds are missing, so severity may not be reliable.",
+            href="/dashboard/admin/operational-configuration/continuity-thresholds",
+            blocking=True,
+        ),
+        checklist_item(
+            "review_rejected_rows",
+            "Review rejected rows",
+            "mandatory",
+            complete=rejected_rows == 0,
+            attention=rejected_rows > 0,
+            detail=(
+                "No rejected upload rows are currently recorded."
+                if rejected_rows == 0
+                else f"{rejected_rows} rejected upload rows need review."
+            ),
+            next_action="Review rejected rows in Upload Center before relying on risk results.",
+            href="/dashboard/onboarding",
+            blocking=True,
+        ),
+        checklist_item(
+            "review_master_data",
+            "Review new plants/materials/suppliers",
+            "mandatory",
+            complete=new_master_review_count == 0,
+            attention=new_master_review_count > 0,
+            detail=(
+                "No new master data review is currently required."
+                if new_master_review_count == 0
+                else f"{new_master_review_count} uploaded master-data names need review."
+            ),
+            next_action="Review newly created materials before relying on risk results.",
+            href="/dashboard/onboarding",
+            blocking=True,
+        ),
+        checklist_item(
+            "configure_impact",
+            "Configure production interruption impact",
+            "recommended",
+            complete=bool(facts["impact_configured"]),
+            attention=False,
+            detail="Impact configuration is available."
+            if facts["impact_configured"]
+            else "Impact configuration is not set yet.",
+            next_action="Configure interruption impact before executive value discussions.",
+            href="/dashboard/admin/operational-configuration",
+        ),
+        checklist_item(
+            "incident_replay",
+            "Run Past Incident Analysis / Incident Replay",
+            "recommended",
+            complete=False,
+            attention=False,
+            detail="Use this once historical incident rows are loaded.",
+            next_action="Open Past Incident Analysis to replay known disruptions.",
+            href="/dashboard/admin/past-incident-analysis",
+        ),
+        checklist_item(
+            "risk_workspace",
+            "Open Risk Workspace",
+            "recommended",
+            complete=False,
+            attention=False,
+            detail="Review current material continuity risks.",
+            next_action="Open Risk Workspace after mandatory setup is complete.",
+            href="/dashboard/risk-workspace",
+        ),
+        checklist_item(
+            "executive_report",
+            "Export Executive Continuity Report",
+            "recommended",
+            complete=False,
+            attention=False,
+            detail="Export after risk results are reviewed.",
+            next_action="Export the executive report for the pilot review meeting.",
+            href="/dashboard/admin/executive-continuity-report",
+        ),
+        checklist_item(
+            "supplier_history",
+            "Supplier reliability history",
+            "optional",
+            complete=False,
+            attention=False,
+            detail="Optional for the first guided pilot.",
+            next_action="Add supplier history after the core pilot workflow is working.",
+            href="/dashboard/suppliers",
+        ),
+        checklist_item(
+            "microsoft_sync",
+            "OneDrive/Microsoft sync",
+            "optional",
+            complete=False,
+            attention=False,
+            detail="Optional; CSV/XLSX uploads are enough for the guided pilot.",
+            next_action="Configure Microsoft sync after pilot data mapping is stable.",
+            href="/dashboard/onboarding/microsoft",
+        ),
+        checklist_item(
+            "notification_settings",
+            "Notification settings",
+            "optional",
+            complete=False,
+            attention=False,
+            detail="Optional; the guided pilot can run with manual review meetings.",
+            next_action="Configure notifications after the pilot escalation path is agreed.",
+            href="/dashboard/admin",
+        ),
+        checklist_item(
+            "advanced_dependencies",
+            "Advanced process/product dependencies",
+            "optional",
+            complete=False,
+            attention=False,
+            detail="Optional for the first guided pilot.",
+            next_action="Add advanced dependencies after core continuity risks are trusted.",
+            href="/dashboard/admin/operational-configuration",
+        ),
+    ]
+
+
+def checklist_item(
+    key: str,
+    label: str,
+    category: str,
+    *,
+    complete: bool,
+    attention: bool,
+    detail: str,
+    next_action: str,
+    href: str,
+    blocking: bool = False,
+) -> PilotSetupChecklistItem:
+    if category == "optional":
+        state = "Optional"
+    elif complete:
+        state = "Complete"
+    elif attention:
+        state = "Needs attention"
+    else:
+        state = "Not started"
+    return PilotSetupChecklistItem(
+        key=key,
+        label=label,
+        category=category,
+        state=state,
+        detail=detail,
+        next_action=next_action,
+        href=href,
+        blocking=blocking,
     )
 
 

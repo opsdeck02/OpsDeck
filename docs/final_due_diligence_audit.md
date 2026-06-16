@@ -10,7 +10,7 @@ OpsDeck today is a real continuity intelligence MVP, not a pure mock. It has aut
 
 It is not pilot-safe yet.
 
-The system is demo-capable if the environment is controlled and the Demo Steel Plant seed is used. It is not safe to present as a complete pilot platform for messy real customer onboarding without fixing session consistency, calibration assumptions, historical validation, supplier onboarding, and demo-side-effect behavior.
+The system is demo-capable if the environment is controlled and the Demo Steel Plant seed is used. It is not safe to present as a complete pilot platform for messy real customer onboarding without fixing session consistency, calibration assumptions, Past Incident Analysis, supplier onboarding, and demo-side-effect behavior.
 
 Biggest risks:
 
@@ -18,7 +18,7 @@ Biggest risks:
 2. Inbound cover can be overtrusted because all non-delivered/non-cancelled shipments can contribute to physical/trusted inbound without a clear ETA horizon filter.
 3. Supplier reliability exists, but often collapses to `unknown` when supplier master linking is incomplete.
 4. Demo scenario loading mutates database state from the risk workspace read flow.
-5. Historical validation, replay, and backtesting are not real product capabilities yet.
+5. Past Incident Analysis, replay, and backtesting are not real product capabilities yet.
 6. Broad upload-data deletion is available to operators, not just tenant admins.
 7. Risk and impact engines rely on deterministic defaults and fallbacks that may look precise while being uncalibrated.
 
@@ -370,11 +370,11 @@ Evidence: ingestion has correct fallback for both cookie names, proving the patt
 Issue: many frontend API routes 401 locally despite a valid local login.  
 Impact: local demo can break after login on shipments, suppliers, tenant plan, exports, tracking, users, impact config, and other pages.
 
-### Historical Validation / Replay / Backtesting
+### Past Incident Analysis / Incident Replay / Backtesting
 
 File: no executable end-to-end module found.  
 Evidence: tests cover snapshots and comparison, but no route/module replays historical stock/shipment/incident timelines to answer “would OpsDeck have detected this shortage early?”  
-Issue: claimed pilot Week 3 validation is not productized.  
+Issue: claimed pilot Week 3 replay proof is not productized.  
 Impact: must be done manually or built.
 
 ### Frontend Test Script Missing
@@ -769,7 +769,7 @@ First 10 things to fix:
 4. Add ETA horizon filtering to trusted inbound cover.
 5. Make missing thresholds an explicit uncalibrated state.
 6. Build supplier master onboarding/linking as a required pilot step.
-7. Add historical validation/backtesting for Week 3 pilot proof.
+7. Add Past Incident Analysis/backtesting for Week 3 pilot proof.
 8. Add frontend Playwright smoke tests for login, upload, configs, risk workspace, saved configs.
 9. Gate background scheduler with env config and add a single-run lock.
 10. Add India-only deployment/runtime guardrails before making data residency claims.
@@ -780,5 +780,4 @@ Next Codex task prompts:
 2. "Add backend tests and implementation so inbound shipments only contribute to trusted cover if ETA is inside the configured continuity horizon."
 3. "Refactor demo scenario loading so risk workspace GET requests do not mutate database state."
 4. "Restrict tenant-wide ingestion delete to tenant admin and add tests proving operators cannot clear uploads."
-5. "Design and implement a historical validation report that replays uploaded stock, shipment, threshold, and incident history."
-
+5. "Design and implement a Past Incident Analysis report that replays uploaded stock, shipment, threshold, and incident history."

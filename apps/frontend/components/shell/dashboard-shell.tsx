@@ -74,7 +74,7 @@ const navItems: Array<{ href: string; label: string; roles: RoleName[] }> = [
   },
   {
     href: "/dashboard/onboarding",
-    label: "Source health",
+    label: "Upload Center",
     roles: ["tenant_admin", "buyer_user", "logistics_user", "planner_user"],
   },
   {

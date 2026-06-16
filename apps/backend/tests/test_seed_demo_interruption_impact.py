@@ -5,7 +5,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.db.base import Base
-from app.models import LineStopIncident, Material, Plant, Shipment, Tenant
+from app.models import LineStopIncident, Material, Plant, Shipment, StockSnapshot, Supplier, Tenant
 from app.modules.impact.configuration_validation import validate_operational_configuration
 from app.modules.line_stops.service import build_historical_validation_report
 from app.modules.stock.service import calculate_stock_cover_detail
@@ -34,7 +34,7 @@ def test_seed_demo_keeps_only_current_demo_sources(monkeypatch, capsys) -> None:
                 db.scalar(
                     select(Plant).where(
                         Plant.tenant_id == tenant.id,
-                        Plant.code.in_(["JAM", "KAL"]),
+                        Plant.code == "KAL",
                     )
                 )
                 is None
@@ -43,7 +43,7 @@ def test_seed_demo_keeps_only_current_demo_sources(monkeypatch, capsys) -> None:
                 db.scalar(
                     select(Material).where(
                         Material.tenant_id == tenant.id,
-                        Material.code.in_(["COKING_COAL", "LIMESTONE"]),
+                        Material.code == "LIMESTONE",
                     )
                 )
                 is None
@@ -57,6 +57,68 @@ def test_seed_demo_keeps_only_current_demo_sources(monkeypatch, capsys) -> None:
                 )
                 is None
             )
+            jam = db.scalar(select(Plant).where(Plant.tenant_id == tenant.id, Plant.code == "JAM"))
+            assert jam is not None
+            assert (
+                db.scalar(
+                    select(StockSnapshot).where(
+                        StockSnapshot.tenant_id == tenant.id,
+                        StockSnapshot.plant_id == jam.id,
+                    )
+                )
+                is None
+            )
+    finally:
+        Base.metadata.drop_all(bind=engine)
+
+
+def test_seed_demo_includes_pilot_template_master_references(monkeypatch, capsys) -> None:
+    engine = create_engine(
+        "sqlite+pysqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    Base.metadata.create_all(bind=engine)
+    monkeypatch.setattr(seed_demo, "SessionLocal", SessionLocal)
+    try:
+        seed_demo.seed()
+        capsys.readouterr()
+
+        with SessionLocal() as db:
+            tenant = db.scalar(select(Tenant).where(Tenant.slug == "demo-steel"))
+            assert tenant is not None
+            plant = db.scalar(
+                select(Plant).where(
+                    Plant.tenant_id == tenant.id,
+                    Plant.code == seed_demo.PILOT_TEMPLATE_PLANT_CODE,
+                )
+            )
+            material = db.scalar(
+                select(Material).where(
+                    Material.tenant_id == tenant.id,
+                    Material.code == seed_demo.PILOT_TEMPLATE_MATERIAL_CODE,
+                )
+            )
+            template_supplier = db.scalar(
+                select(Supplier).where(
+                    Supplier.tenant_id == tenant.id,
+                    Supplier.name == "BHP Mitsubishi Alliance",
+                )
+            )
+            docs_supplier = db.scalar(
+                select(Supplier).where(
+                    Supplier.tenant_id == tenant.id,
+                    Supplier.name == "ABC Minerals",
+                )
+            )
+
+            assert plant is not None
+            assert plant.name == "Jamshedpur Works"
+            assert material is not None
+            assert material.name == "Coking Coal"
+            assert template_supplier is not None
+            assert docs_supplier is not None
     finally:
         Base.metadata.drop_all(bind=engine)
 

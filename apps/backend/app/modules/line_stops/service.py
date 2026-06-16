@@ -31,6 +31,11 @@ from app.modules.stock.time_phased_cover import (
 )
 from app.schemas.context import RequestContext
 
+REPLAY_CAVEAT = (
+    "This replay uses the historical stock, threshold, and inbound records available "
+    "to OpsDeck. It is not statistical ML validation."
+)
+
 
 def create_line_stop_incident(
     db: Session,
@@ -176,6 +181,9 @@ def validate_historical_incident(
             confidence_level="low",
             calibration_status="UNCALIBRATED",
             cover=None,
+            snapshot=None,
+            threshold=threshold,
+            shipments=[],
         )
     if threshold is None:
         missed_signals.append("Continuity thresholds were missing for the incident context.")
@@ -192,6 +200,9 @@ def validate_historical_incident(
             confidence_level="low",
             calibration_status="UNCALIBRATED",
             cover=None,
+            snapshot=snapshot,
+            threshold=threshold,
+            shipments=[],
         )
 
     shipments = historical_inbounds(db, context, incident, incident_time)
@@ -232,6 +243,9 @@ def validate_historical_incident(
         confidence_level=confidence_from_score(cover.confidence_score),
         calibration_status=cover.calibration_status,
         cover=cover,
+        snapshot=snapshot,
+        threshold=threshold,
+        shipments=shipments,
     )
 
 
@@ -247,6 +261,9 @@ def incident_result(
     confidence_level: str,
     calibration_status: str,
     cover: TimePhasedCoverResult | None,
+    snapshot: StockSnapshot | None,
+    threshold: PlantMaterialThreshold | None,
+    shipments: list[TimePhasedInbound],
 ) -> HistoricalValidationIncidentResult:
     detection_result = detection_result_for(
         predicted_warning_date=predicted_warning_date,
@@ -276,6 +293,14 @@ def incident_result(
         missed_signals=missed_signals,
         confidence_classification=confidence_classification,
     )
+    limitations = missing_data_limitations_for(
+        missed_signals=missed_signals,
+        cover=cover,
+        shipments=shipments,
+        incident_time=incident_time,
+        snapshot=snapshot,
+        threshold=threshold,
+    )
     return HistoricalValidationIncidentResult(
         incident_id=incident.id,
         plant_id=incident.plant_id,
@@ -297,6 +322,37 @@ def incident_result(
         warning_lead_time_days=lead_days,
         predicted_warning_date=predicted_warning_date,
         lead_time_gained_hours=lead_time_gained_hours,
+        status_explanation=status_explanation_for(detection_result),
+        replay_caveat=REPLAY_CAVEAT,
+        stock_snapshot_time_used=(
+            ensure_utc(snapshot.snapshot_time) if snapshot is not None else None
+        ),
+        available_stock_at_snapshot=(
+            quantize_decimal(snapshot.available_to_consume_mt)
+            if snapshot is not None
+            else None
+        ),
+        daily_consumption_used=(
+            quantize_decimal(snapshot.daily_consumption_mt)
+            if snapshot is not None
+            else None
+        ),
+        threshold_days_used=(
+            quantize_decimal(threshold.threshold_days)
+            if threshold is not None
+            else None
+        ),
+        warning_days_used=(
+            quantize_decimal(threshold.warning_days)
+            if threshold is not None
+            else None
+        ),
+        inbound_quantity_due_before_incident=inbound_quantity_due_before(
+            shipments,
+            incident_time,
+        ),
+        first_inbound_eta=first_inbound_eta(shipments),
+        missing_data_limitations=limitations,
         detection_signals=detection_signals,
         detection_chain=detection_chain,
         recommended_actions_replay=recommended_actions,
@@ -362,6 +418,74 @@ def detection_result_for(
     if confidence_level == "low" or missed_signals:
         return "PARTIALLY DETECTED"
     return "DETECTED"
+
+
+def status_explanation_for(status: str) -> str:
+    if status == "DETECTED":
+        return "OpsDeck would have raised a warning before the incident."
+    if status == "PARTIALLY DETECTED":
+        return (
+            "OpsDeck found some warning signs, but the available data was incomplete or late."
+        )
+    if status == "MISSED":
+        return "OpsDeck would not have warned early enough from the available records."
+    return "Replay status is unavailable from the available records."
+
+
+def inbound_quantity_due_before(
+    shipments: list[TimePhasedInbound],
+    incident_time: datetime,
+) -> Decimal:
+    quantity = sum(
+        (
+            shipment.raw_quantity_mt
+            for shipment in shipments
+            if ensure_utc(shipment.eta) <= incident_time
+        ),
+        start=Decimal("0"),
+    )
+    return quantize_decimal(quantity)
+
+
+def first_inbound_eta(shipments: list[TimePhasedInbound]) -> datetime | None:
+    if not shipments:
+        return None
+    return min(ensure_utc(shipment.eta) for shipment in shipments)
+
+
+def missing_data_limitations_for(
+    *,
+    missed_signals: list[str],
+    cover: TimePhasedCoverResult | None,
+    shipments: list[TimePhasedInbound],
+    incident_time: datetime,
+    snapshot: StockSnapshot | None,
+    threshold: PlantMaterialThreshold | None,
+) -> list[str]:
+    limitations = list(missed_signals)
+    if snapshot is None:
+        limitations.append("No stock snapshot available before incident.")
+    if threshold is None:
+        limitations.append("Thresholds missing for this material.")
+    if not shipments:
+        limitations.append("No inbound shipment records linked.")
+    if cover is not None:
+        for shipment in cover.shipment_evaluations:
+            status = shipment.protection_status
+            if status in {"TOO_LATE", "LATE_AFTER_RESERVE", "CRITICAL_ON_ARRIVAL"}:
+                limitations.append(
+                    f"Inbound {shipment.shipment_id} was late or did not protect cover."
+                )
+            if ensure_utc(shipment.eta) > incident_time:
+                limitations.append(
+                    f"Inbound {shipment.shipment_id} ETA was after the incident."
+                )
+            if not shipment.protects_reserve_breach:
+                limitations.append(
+                    f"Inbound {shipment.shipment_id} was uncertain for reserve protection."
+                )
+    limitations.append("Historical records may have been corrected after the event.")
+    return dedupe(limitations)
 
 
 def confidence_classification_for(
@@ -549,10 +673,20 @@ def historical_validation_markdown(
     tenant_name: str,
 ) -> str:
     lines = [
-        "# Historical Validation Report",
+        "# Past Incident Analysis",
+        "",
+        "Subtitle: Incident Replay",
         "",
         f"Generated Date: {datetime.now(UTC).date().isoformat()}",
         f"Tenant: {tenant_name}",
+        "",
+        REPLAY_CAVEAT,
+        "",
+        "## Status Meanings",
+        "- Detected: OpsDeck would have raised a warning before the incident.",
+        "- Partially detected: OpsDeck found some warning signs, but the available "
+        "data was incomplete or late.",
+        "- Missed: OpsDeck would not have warned early enough from the available records.",
         "",
         "## Executive Summary",
         f"Incidents Analyzed: {summary.incidents_analyzed}",
@@ -573,8 +707,23 @@ def historical_validation_markdown(
                 f"Incident Type: {format_label(result.incident_type)}",
                 f"Line Stop Duration: {result.line_stop_duration_hours or 'Unavailable'} hours",
                 f"Detection Result: {result.opsdeck_detection_result}",
+                f"Status Meaning: {result.status_explanation or 'Unavailable'}",
+                f"Stock Snapshot Used: {date_or_na(result.stock_snapshot_time_used)}",
+                f"Available Stock: {result.available_stock_at_snapshot or 'N/A'} MT",
+                f"Daily Consumption: {result.daily_consumption_used or 'N/A'} MT/day",
+                f"Threshold Days: {result.threshold_days_used or 'N/A'}",
+                f"Warning Days: {result.warning_days_used or 'N/A'}",
+                f"Inbound Due Before Incident: {result.inbound_quantity_due_before_incident} MT",
+                f"First Inbound ETA: {date_or_na(result.first_inbound_eta)}",
+                f"OpsDeck Warning Date: {date_or_na(result.predicted_warning_date)}",
                 f"Warning Lead Time: {result.warning_lead_time_days or 'N/A'} days",
                 f"Confidence: {result.confidence_classification}",
+                "Limitations:",
+                *[
+                    f"- {item}"
+                    for item in result.missing_data_limitations
+                    or ["No replay limitations recorded."]
+                ],
                 "Detection Evidence:",
                 *[
                     f"- {item}"
@@ -610,6 +759,16 @@ def hours_to_days(value: Decimal | None) -> Decimal | None:
 
 def format_label(value: str) -> str:
     return value.replace("_", " ").title()
+
+
+def date_or_na(value: datetime | None) -> str:
+    if value is None:
+        return "N/A"
+    return ensure_utc(value).date().isoformat()
+
+
+def dedupe(values: list[str]) -> list[str]:
+    return list(dict.fromkeys(values))
 
 
 def serialize_incident(db: Session, incident: LineStopIncident) -> LineStopIncidentOut:

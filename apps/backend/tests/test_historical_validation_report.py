@@ -65,8 +65,20 @@ def test_historical_validation_report_calculates_warning_lead_time() -> None:
         assert report.summary.incidents_analyzed == 1
         assert report.summary.partially_detected == 1
         assert report.report_markdown is not None
-        assert "Historical Validation Report" in report.report_markdown
+        assert "Past Incident Analysis" in report.report_markdown
+        assert "It is not statistical ML validation" in report.report_markdown
         assert "Recommended Actions Replay" in report.report_markdown
+        result = report.results[0]
+        assert result.replay_caveat is not None
+        assert "not statistical ML validation" in result.replay_caveat
+        assert result.stock_snapshot_time_used == datetime(2026, 6, 1, tzinfo=UTC)
+        assert result.available_stock_at_snapshot == Decimal("100.00")
+        assert result.daily_consumption_used == Decimal("10.00")
+        assert result.threshold_days_used == Decimal("2.00")
+        assert result.warning_days_used == Decimal("5.00")
+        assert result.status_explanation == (
+            "OpsDeck found some warning signs, but the available data was incomplete or late."
+        )
     finally:
         Base.metadata.drop_all(bind=engine)
 
@@ -127,6 +139,13 @@ def test_historical_validation_v2_summary_and_incident_classification() -> None:
         assert missed.missed_incident_analysis == [
             "No stock snapshot existed before the incident date."
         ]
+        assert "No stock snapshot available before incident." in missed.missing_data_limitations
+
+        late = by_material["COKE"]
+        assert any(
+            "SHIP-COKE-LATE" in limitation and "late" in limitation.lower()
+            for limitation in late.missing_data_limitations
+        )
     finally:
         Base.metadata.drop_all(bind=engine)
 
@@ -185,6 +204,68 @@ def test_historical_validation_is_tenant_scoped() -> None:
         assert report_a.summary.incidents_analyzed == 1
         assert report_a.results[0].plant_name == "Plant 1"
         assert report_a.results[0].material_name == "Coking coal"
+    finally:
+        Base.metadata.drop_all(bind=engine)
+
+
+def test_incident_replay_missing_threshold_shows_limitation() -> None:
+    engine = create_engine(
+        "sqlite+pysqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    Base.metadata.create_all(bind=engine)
+    try:
+        with SessionLocal() as db:
+            tenant = Tenant(name="Tenant A", slug="tenant-a")
+            db.add(tenant)
+            db.flush()
+            plant = Plant(tenant_id=tenant.id, code="P1", name="Plant 1", location="India")
+            material = Material(
+                tenant_id=tenant.id,
+                code="COKE",
+                name="Coking coal",
+                category="coal",
+                uom="MT",
+            )
+            db.add_all([plant, material])
+            db.flush()
+            db.add(
+                StockSnapshot(
+                    tenant_id=tenant.id,
+                    plant_id=plant.id,
+                    material_id=material.id,
+                    on_hand_mt=Decimal("100"),
+                    quality_held_mt=Decimal("0"),
+                    available_to_consume_mt=Decimal("100"),
+                    daily_consumption_mt=Decimal("10"),
+                    snapshot_time=datetime(2026, 6, 1, tzinfo=UTC),
+                )
+            )
+            db.add(
+                LineStopIncident(
+                    tenant_id=tenant.id,
+                    plant_id=plant.id,
+                    material_id=material.id,
+                    stopped_at=datetime(2026, 6, 10, tzinfo=UTC),
+                    duration_hours=Decimal("8"),
+                )
+            )
+            db.commit()
+            report = build_historical_validation_report(
+                db,
+                RequestContext(
+                    tenant_id=tenant.id,
+                    tenant_slug=tenant.slug,
+                    role="tenant_admin",
+                    user_id=1,
+                ),
+            )
+
+        result = report.results[0]
+        assert result.threshold_days_used is None
+        assert "Thresholds missing for this material." in result.missing_data_limitations
     finally:
         Base.metadata.drop_all(bind=engine)
 
@@ -358,6 +439,23 @@ def seed_mixed_historical_validation_data(db: Session) -> Tenant:
             planned_eta=datetime(2026, 6, 7, tzinfo=UTC),
             current_eta=datetime(2026, 6, 7, tzinfo=UTC),
             delay_status="on_time",
+            current_state=ShipmentState.IN_TRANSIT,
+            source_of_truth="historical_upload",
+            latest_update_at=datetime(2026, 6, 5, tzinfo=UTC),
+        )
+    )
+    db.add(
+        Shipment(
+            tenant_id=tenant.id,
+            shipment_id="SHIP-COKE-LATE",
+            plant_id=plant.id,
+            material_id=materials["COKE"].id,
+            supplier_id=supplier.id,
+            supplier_name=supplier.name,
+            quantity_mt=Decimal("50"),
+            planned_eta=datetime(2026, 6, 12, tzinfo=UTC),
+            current_eta=datetime(2026, 6, 12, tzinfo=UTC),
+            delay_status="late",
             current_state=ShipmentState.IN_TRANSIT,
             source_of_truth="historical_upload",
             latest_update_at=datetime(2026, 6, 5, tzinfo=UTC),

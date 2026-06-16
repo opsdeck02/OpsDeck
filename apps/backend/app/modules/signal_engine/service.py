@@ -278,7 +278,10 @@ def get_risk_workspace(
 
     resolved_plant_reference = plant_reference or selected.plant_reference
     resolved_material_reference = material_reference or selected.material_reference
-    resolved_shipment_reference = shipment_reference or selected.shipment_reference
+    # Only an explicit shipment filter should narrow shipment cards. A selected
+    # shipment-level risk must not hide other inbound rows that contribute to the
+    # selected material's aggregate protection buckets.
+    resolved_shipment_reference = shipment_reference
     exposure = build_exposure_mapping(
         db,
         context,
@@ -716,6 +719,9 @@ def enrich_shipment_protection(
                 "physical_quantity": shipment.quantity_mt,
                 "trusted_quantity": None,
                 "protective_quantity": None,
+                "trusted_but_late_quantity": None,
+                "uncertain_quantity": shipment.quantity_mt,
+                "inbound_bucket": "uncertain",
                 "protective_value_label": "Unknown protection",
                 "trust_level": "unknown",
                 "trust_reason": "Shipment is missing plant or material linkage.",
@@ -735,6 +741,9 @@ def enrich_shipment_protection(
                 "physical_quantity": shipment.quantity_mt,
                 "trusted_quantity": Decimal("0.00"),
                 "protective_quantity": Decimal("0.00"),
+                "trusted_but_late_quantity": Decimal("0.00"),
+                "uncertain_quantity": Decimal("0.00"),
+                "inbound_bucket": "not_physical_inbound",
                 "protective_value_label": "Not currently protective",
                 "trust_level": "not_protective",
                 "trust_reason": "Shipment state is not eligible for physical inbound protection.",
@@ -776,15 +785,28 @@ def enrich_shipment_protection(
             + supplier_reliability_modifier(supplier.reliability_band),
         ),
     )
+    minimum_trust = (
+        trust_config.minimum_trusted_inbound_ratio
+        if trust_config is not None and trust_config.minimum_trusted_inbound_ratio is not None
+        else Decimal("0.40")
+    )
     physical = visibility.physical_inbound_quantity_mt
     trusted = quantize_decimal(physical * adjusted_confidence)
-    arrives_before_cover_loss = arrives_before_projected_exhaustion(shipment, inventory)
+    arrives_before_cover_loss = arrives_before_baseline_exhaustion(shipment, inventory)
     label, trust_level, is_protective, reason = protection_status(
         continuity,
         adjusted_confidence=adjusted_confidence,
         arrives_before_cover_loss=arrives_before_cover_loss,
+        minimum_trust=minimum_trust,
+        abnormal_visibility=visibility.abnormal_visibility_behavior,
     )
     protective_quantity = trusted if is_protective else Decimal("0.00")
+    trusted_but_late_quantity, uncertain_quantity, inbound_bucket = shipment_bucket_quantities(
+        physical=physical,
+        trusted=trusted,
+        trust_level=trust_level,
+        is_protective=is_protective,
+    )
     explanation = protection_explanation(
         shipment,
         continuity,
@@ -799,6 +821,9 @@ def enrich_shipment_protection(
             "physical_quantity": physical,
             "trusted_quantity": trusted,
             "protective_quantity": protective_quantity,
+            "trusted_but_late_quantity": trusted_but_late_quantity,
+            "uncertain_quantity": uncertain_quantity,
+            "inbound_bucket": inbound_bucket,
             "protective_value_label": label,
             "trust_level": trust_level,
             "trust_reason": reason,
@@ -806,23 +831,47 @@ def enrich_shipment_protection(
             "movement_condition": continuity.status,
             "eta_status": visibility.eta_behavior_status,
             "eta_drift_days": continuity.eta_slip_days,
+            "confidence": adjusted_confidence,
+            "confidence_band": confidence_band(adjusted_confidence),
+            "protection_status": trust_level,
+            "protection_reason": reason,
+            "eta_deterioration_days": continuity.eta_slip_days,
+            "tracking_freshness": continuity.tracking_freshness_status,
+            "supplier_reliability": supplier.reliability_band,
             "is_currently_protective": is_protective,
             "protection_explanation": explanation,
         }
     )
 
 
-def arrives_before_projected_exhaustion(
+def shipment_bucket_quantities(
+    *,
+    physical: Decimal,
+    trusted: Decimal,
+    trust_level: str,
+    is_protective: bool | None,
+) -> tuple[Decimal, Decimal, str]:
+    visibility_uncertainty = max(Decimal("0.00"), physical - trusted)
+    if trust_level == "trusted_but_late":
+        return trusted, visibility_uncertainty, "trusted_but_late"
+    if trust_level == "uncertain":
+        return Decimal("0.00"), physical, "uncertain"
+    if is_protective:
+        return Decimal("0.00"), visibility_uncertainty, "eta_protective_trusted"
+    return Decimal("0.00"), physical, "uncertain"
+
+
+def arrives_before_baseline_exhaustion(
     shipment: Shipment,
     inventory: InventoryContinuityResult | None,
 ) -> bool | None:
     if (
         shipment.current_eta is None
         or inventory is None
-        or inventory.projected_exhaustion_date is None
+        or inventory.baseline_exhaustion_date is None
     ):
         return None
-    return ensure_utc(shipment.current_eta) <= ensure_utc(inventory.projected_exhaustion_date)
+    return ensure_utc(shipment.current_eta) <= ensure_utc(inventory.baseline_exhaustion_date)
 
 
 def protection_status(
@@ -830,27 +879,36 @@ def protection_status(
     *,
     adjusted_confidence: Decimal,
     arrives_before_cover_loss: bool | None,
+    minimum_trust: Decimal = Decimal("0.40"),
+    abnormal_visibility: bool = False,
 ) -> tuple[str, str, bool | None, str]:
-    if arrives_before_cover_loss is False:
-        return (
-            "Not currently protective",
-            "not_protective",
-            False,
-            "Inbound ETA is after projected cover loss.",
-        )
     if continuity.eta is None:
         return (
             "Unknown protection",
-            "unknown",
-            None,
+            "uncertain",
+            False,
             "Current ETA is missing, so protection timing cannot be confirmed.",
         )
-    if continuity.status == "degraded" or continuity.tracking_freshness_status == "critical":
+    if adjusted_confidence < minimum_trust:
         return (
-            "Weak protection",
-            "weak",
-            adjusted_confidence > Decimal("0"),
+            "Uncertain inbound",
+            "uncertain",
+            False,
+            "Visibility confidence low; inbound is not counted as operational protection.",
+        )
+    if continuity.tracking_freshness_status in {"stale", "critical"} or abnormal_visibility:
+        return (
+            "Uncertain inbound",
+            "uncertain",
+            False,
             "Movement condition, ETA, or visibility freshness is degraded.",
+        )
+    if arrives_before_cover_loss is False:
+        return (
+            "Trusted but late",
+            "trusted_but_late",
+            False,
+            "Inbound ETA is after baseline cover loss.",
         )
     if adjusted_confidence >= Decimal("0.80") and arrives_before_cover_loss is not False:
         return (
@@ -899,19 +957,19 @@ def protection_explanation(
     if label == "Strong protection":
         return (
             f"Inbound {shipment.shipment_id} provides strong protection: ETA is before "
-            f"projected cover loss and {trusted} MT is trusted for continuity cover."
+            f"baseline cover loss and {trusted} MT is trusted for continuity cover."
         )
     if label == "Partial protection":
         return (
             f"Inbound {shipment.shipment_id} provides partial protection: {trust_reason}"
         )
-    if label == "Weak protection":
+    if label in {"Weak protection", "Uncertain inbound"}:
         return (
-            f"Inbound {shipment.shipment_id} is weak protection: {trust_reason}"
+            f"Inbound {shipment.shipment_id} is uncertain for protection: {trust_reason}"
         )
-    if label == "Not currently protective":
+    if label in {"Not currently protective", "Trusted but late"}:
         timing = (
-            " ETA is after projected cover loss."
+            " ETA is after baseline cover loss."
             if arrives_before_cover_loss is False
             else ""
         )
@@ -928,6 +986,16 @@ def ensure_utc(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=UTC)
     return value.astimezone(UTC)
+
+
+def confidence_band(value: Decimal) -> str:
+    if value >= Decimal("0.80"):
+        return "high"
+    if value >= Decimal("0.60"):
+        return "medium"
+    if value >= Decimal("0.40"):
+        return "low"
+    return "very_low"
 
 
 def enrich_candidates_with_latest_escalation(

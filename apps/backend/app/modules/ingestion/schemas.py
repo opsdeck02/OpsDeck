@@ -36,6 +36,15 @@ class OperationalUnderstandingSummary(BaseModel):
     materials_detected: list[str] = []
     shipments_detected: list[str] = []
     suppliers_detected: list[str] = []
+    new_plants_created: list[str] = []
+    new_materials_created: list[str] = []
+    new_suppliers_created: list[str] = []
+    duplicate_rows_detected: int = 0
+    missing_eta_count: int = 0
+    missing_consumption_count: int = 0
+    missing_threshold_count: int = 0
+    can_opsdeck_safely_use_data: bool = False
+    safe_to_use_explanation: str | None = None
     risks_or_exposures_generated: int | None = None
     refreshed_operational_visibility: bool = False
     warnings: list[str] = []

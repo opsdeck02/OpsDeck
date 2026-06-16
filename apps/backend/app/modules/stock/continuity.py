@@ -8,10 +8,12 @@ from sqlalchemy.orm import Session
 
 from app.models import Material, Plant, PlantMaterialThreshold, Shipment, StockSnapshot
 from app.models.enums import ShipmentState
+from app.models.impact import ShipmentInboundTrustConfig
 from app.modules.impact.production_interruption import get_active_interruption_config
 from app.modules.impact.shipment_inbound_trust import (
     get_active_shipment_inbound_trust_config,
 )
+from app.modules.shipments.continuity import tracking_freshness, tracking_source_type_for
 from app.modules.shipments.visibility_confidence import (
     calculate_visibility_confidence,
     is_physical_inbound_candidate,
@@ -43,6 +45,8 @@ UNCERTAIN_INBOUND_STATES = {
     ShipmentState.DELAYED,
 }
 
+DEFAULT_MINIMUM_TRUSTED_INBOUND_RATIO = Decimal("0.40")
+
 
 def calculate_inventory_continuity(
     *,
@@ -60,6 +64,7 @@ def calculate_inventory_continuity(
     uncertain_inbound_quantity: Decimal | None = None,
     physical_inbound_quantity_mt: Decimal | None = None,
     trusted_inbound_protection_mt: Decimal | None = None,
+    trusted_but_late_inbound_quantity: Decimal | None = None,
     visibility_uncertain_quantity_mt: Decimal | None = None,
     visibility_reason_chain: list[str] | None = None,
     threshold_days: Decimal | None = None,
@@ -86,6 +91,7 @@ def calculate_inventory_continuity(
     )
     usable_quantity = on_hand_quantity - reserved - blocked - quality_hold
     trusted_cover_quantity = usable_quantity + trusted_inbound
+    trusted_but_late = trusted_but_late_inbound_quantity or Decimal("0")
     physical_inbound = (
         physical_inbound_quantity_mt
         if physical_inbound_quantity_mt is not None
@@ -111,7 +117,9 @@ def calculate_inventory_continuity(
 
     days_of_cover: Decimal | None = None
     trusted_days_of_cover: Decimal | None = None
+    baseline_exhaustion_date: datetime | None = None
     projected_exhaustion_date: datetime | None = None
+    evaluated_at = ensure_utc(now or datetime.now(UTC))
     if daily_consumption_rate is None or daily_consumption_rate <= 0:
         calculation_reasons.append(
             "Days of cover is unknown because daily consumption rate is missing, zero, or negative"
@@ -120,17 +128,29 @@ def calculate_inventory_continuity(
     else:
         days_of_cover = quantize_decimal(usable_quantity / daily_consumption_rate)
         calculation_reasons.append("Days of cover calculated using daily consumption rate")
-        trusted_days_of_cover = quantize_decimal(trusted_cover_quantity / daily_consumption_rate)
-        calculation_reasons.append("Trusted cover includes only inbound with reliable visibility")
-        projected_exhaustion_date = ensure_utc(now or datetime.now(UTC)) + timedelta(
-            days=float(trusted_days_of_cover)
+        baseline_exhaustion_date = evaluated_at + timedelta(days=float(days_of_cover))
+        calculation_reasons.append(
+            "Baseline exhaustion date calculated from usable stock before inbound"
         )
-        calculation_reasons.append("Projected exhaustion date calculated from trusted cover")
+        trusted_days_of_cover = quantize_decimal(trusted_cover_quantity / daily_consumption_rate)
+        calculation_reasons.append(
+            "Trusted cover includes only ETA-protective inbound with reliable visibility"
+        )
+        projected_exhaustion_date = evaluated_at + timedelta(days=float(trusted_days_of_cover))
+        calculation_reasons.append(
+            "Projected exhaustion date calculated from usable stock plus "
+            "ETA-protective trusted inbound"
+        )
 
     if usable_quantity < 0:
         calculation_reasons.append("Usable stock is negative after inventory adjustments")
     if uncertain_inbound > 0:
         warnings.append("Inbound contribution excluded from trusted cover due to weak visibility.")
+    if trusted_but_late > 0:
+        warnings.append(
+            "Trusted-but-late inbound is excluded from operational protection because ETA is "
+            "after baseline cover loss."
+        )
     if cover_confidence_score is None:
         cover_confidence_score = Decimal("1.00") if not warnings else Decimal("0.70")
 
@@ -146,6 +166,9 @@ def calculate_inventory_continuity(
         inbound_uncertain_quantity=quantize_decimal(inbound_uncertain),
         physical_inbound_quantity_mt=quantize_decimal(physical_inbound),
         trusted_inbound_protection_mt=quantize_decimal(trusted_protection),
+        physical_inbound_quantity=quantize_decimal(physical_inbound),
+        eta_protective_trusted_inbound_quantity=quantize_decimal(trusted_protection),
+        trusted_but_late_inbound_quantity=quantize_decimal(trusted_but_late),
         visibility_uncertain_quantity_mt=quantize_decimal(visibility_uncertain),
         raw_days_of_cover=days_of_cover,
         threshold_days=quantize_decimal(threshold_days) if threshold_days is not None else None,
@@ -168,6 +191,7 @@ def calculate_inventory_continuity(
         trusted_inbound_quantity=quantize_decimal(trusted_inbound),
         uncertain_inbound_quantity=quantize_decimal(uncertain_inbound),
         trusted_days_of_cover=trusted_days_of_cover,
+        baseline_exhaustion_date=baseline_exhaustion_date,
         daily_consumption_rate=(
             quantize_decimal(daily_consumption_rate) if daily_consumption_rate is not None else None
         ),
@@ -224,8 +248,14 @@ def calculate_inventory_continuity_for(
         material_id=material_id,
     )
 
+    baseline_exhaustion_date = baseline_exhaustion_date_for(
+        available_stock=snapshot.available_to_consume_mt,
+        daily_consumption=snapshot.daily_consumption_mt,
+        now=now,
+    )
     (
         trusted_inbound,
+        trusted_but_late_inbound,
         uncertain_inbound,
         physical_inbound,
         freshness_status,
@@ -237,6 +267,7 @@ def calculate_inventory_continuity_for(
         context.tenant_id,
         plant_id,
         material_id,
+        baseline_exhaustion_date=baseline_exhaustion_date,
         now=now,
     )
     inbound_committed, inbound_uncertain = inbound_quantities(
@@ -260,6 +291,7 @@ def calculate_inventory_continuity_for(
         uncertain_inbound_quantity=uncertain_inbound,
         physical_inbound_quantity_mt=physical_inbound,
         trusted_inbound_protection_mt=trusted_inbound,
+        trusted_but_late_inbound_quantity=trusted_but_late_inbound,
         visibility_uncertain_quantity_mt=uncertain_inbound,
         visibility_reason_chain=visibility_reasons,
         threshold_days=threshold.threshold_days if threshold else None,
@@ -339,10 +371,12 @@ def trusted_inbound_quantities(
     plant_id: int,
     material_id: int,
     *,
+    baseline_exhaustion_date: datetime | None = None,
     now: datetime | None = None,
-) -> tuple[Decimal, Decimal, Decimal, str, list[str], Decimal, list[str]]:
+) -> tuple[Decimal, Decimal, Decimal, Decimal, str, list[str], Decimal, list[str]]:
     evaluated_at = ensure_utc(now or datetime.now(UTC))
     trusted = Decimal("0")
+    trusted_but_late = Decimal("0")
     uncertain = Decimal("0")
     physical = Decimal("0")
     warnings: list[str] = []
@@ -383,6 +417,7 @@ def trusted_inbound_quantities(
             Decimal("0.00"),
             min(Decimal("1.00"), result.visibility_confidence + modifier),
         )
+        minimum_trust = minimum_trusted_inbound_ratio(trust_config)
         trusted_protection = quantize_visibility_decimal(
             result.physical_inbound_quantity_mt * adjusted_confidence
         )
@@ -390,9 +425,70 @@ def trusted_inbound_quantities(
             result.physical_inbound_quantity_mt - trusted_protection
         )
         physical += result.physical_inbound_quantity_mt
-        trusted += trusted_protection
-        uncertain += visibility_uncertainty
         confidence_sum += adjusted_confidence
+        eta = ensure_utc(shipment.current_eta) if shipment.current_eta is not None else None
+        missing_eta = eta is None
+        tracked_at = (
+            shipment.last_tracking_update_at or shipment.latest_update_at or shipment.updated_at
+        )
+        tracking_freshness_status = tracking_freshness(
+            tracked_at,
+            evaluated_at,
+            tracking_source_type_for(shipment),
+        )
+        stale_tracking = tracking_freshness_status in {
+            "stale",
+            "critical",
+        } or visibility_freshness_label(adjusted_confidence) in {"stale", "critical"}
+        low_confidence = adjusted_confidence < minimum_trust
+        abnormal_visibility = result.abnormal_visibility_behavior
+        baseline_unknown = baseline_exhaustion_date is None
+        if (
+            baseline_unknown
+            or missing_eta
+            or stale_tracking
+            or low_confidence
+            or abnormal_visibility
+        ):
+            uncertain += result.physical_inbound_quantity_mt
+            if baseline_unknown:
+                reason_chain.append(
+                    f"Shipment {shipment.shipment_id}: Baseline cover loss is unknown, "
+                    "so ETA-protective status cannot be confirmed."
+                )
+            if missing_eta:
+                reason_chain.append(f"Shipment {shipment.shipment_id}: ETA missing.")
+            if stale_tracking:
+                reason_chain.append(
+                    f"Shipment {shipment.shipment_id}: Tracking update "
+                    f"{tracking_freshness_status}."
+                )
+            if low_confidence:
+                reason_chain.append(
+                    f"Shipment {shipment.shipment_id}: Visibility confidence low "
+                    f"({adjusted_confidence}) against trust threshold {minimum_trust}."
+                )
+            if abnormal_visibility:
+                reason_chain.append(
+                    f"Shipment {shipment.shipment_id}: Abnormal movement state or milestone "
+                    "makes inbound protection uncertain."
+                )
+        elif (
+            baseline_exhaustion_date is not None
+            and eta is not None
+            and eta > ensure_utc(baseline_exhaustion_date)
+        ):
+            trusted_but_late += trusted_protection
+            uncertain += visibility_uncertainty
+            reason_chain.append(
+                f"Shipment {shipment.shipment_id}: ETA arrives after baseline cover loss."
+            )
+        else:
+            trusted += trusted_protection
+            uncertain += visibility_uncertainty
+            reason_chain.append(
+                f"Shipment {shipment.shipment_id}: ETA arrives before projected cover loss."
+            )
         reason_chain.extend(
             f"Shipment {shipment.shipment_id}: {reason}" for reason in result.reason_chain
         )
@@ -412,7 +508,16 @@ def trusted_inbound_quantities(
             )
 
     if total_count == 0:
-        return Decimal("0"), Decimal("0"), Decimal("0"), "unknown", [], Decimal("1.00"), []
+        return (
+            Decimal("0"),
+            Decimal("0"),
+            Decimal("0"),
+            Decimal("0"),
+            "unknown",
+            [],
+            Decimal("1.00"),
+            [],
+        )
     confidence = confidence_sum / Decimal(str(total_count))
     if uncertain > 0:
         warnings.append(
@@ -422,6 +527,7 @@ def trusted_inbound_quantities(
     freshness = visibility_freshness_label(quantize_decimal(confidence))
     return (
         quantize_decimal(trusted),
+        quantize_decimal(trusted_but_late),
         quantize_decimal(uncertain),
         quantize_decimal(physical),
         freshness,
@@ -429,6 +535,27 @@ def trusted_inbound_quantities(
         quantize_decimal(confidence),
         dedupe(reason_chain),
     )
+
+
+def minimum_trusted_inbound_ratio(
+    trust_config: ShipmentInboundTrustConfig | None,
+) -> Decimal:
+    if trust_config is None or trust_config.minimum_trusted_inbound_ratio is None:
+        return DEFAULT_MINIMUM_TRUSTED_INBOUND_RATIO
+    return trust_config.minimum_trusted_inbound_ratio
+
+
+def baseline_exhaustion_date_for(
+    *,
+    available_stock: Decimal,
+    daily_consumption: Decimal | None,
+    now: datetime | None = None,
+) -> datetime | None:
+    if daily_consumption is None or daily_consumption <= 0:
+        return None
+    evaluated_at = ensure_utc(now or datetime.now(UTC))
+    days = quantize_decimal(available_stock / daily_consumption)
+    return evaluated_at + timedelta(days=float(days))
 
 
 def visibility_freshness_label(confidence: Decimal) -> str:

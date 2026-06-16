@@ -81,11 +81,25 @@ SHEET_TYPE_KEYWORDS = {
 UPLOAD_DIR = Path("uploaded_files")
 
 ALIASES = {
-    "shipment_id": {"shipmentid", "shipment", "shipmentref", "reference", "shipmentreference"},
+    "shipment_id": {
+        "shipmentid",
+        "shipment",
+        "shipmentref",
+        "reference",
+        "shipmentreference",
+        "rakeno",
+        "wagonno",
+        "truckno",
+        "lrno",
+        "grnno",
+        "ponumber",
+        "pono",
+        "po",
+    },
     "plant_code": {"plantcode", "plant", "plantid", "plantname"},
     "material_code": {"materialcode", "material", "materialid", "materialname"},
     "material_name": {"materialname"},
-    "supplier_name": {"suppliername", "supplier", "vendor"},
+    "supplier_name": {"suppliername", "supplier", "vendor", "vendorcode"},
     "quantity_mt": {
         "quantitymt",
         "quantity",
@@ -94,8 +108,30 @@ ALIASES = {
         "inboundqtytons",
         "inboundquantitytons",
     },
-    "planned_eta": {"plannedeta", "originaleta", "eta", "dispatchdate", "shipmentdate"},
-    "current_eta": {"currenteta", "latesteta", "revisedeta", "expectedarrivaldate", "arrivaldate"},
+    "planned_eta": {
+        "plannedeta",
+        "originaleta",
+        "eta",
+        "dispatchdate",
+        "shipmentdate",
+        "expectedarrival",
+        "expectedarrivaldate",
+        "expectedreceiptdate",
+        "gateentrydate",
+    },
+    "current_eta": {
+        "currenteta",
+        "latesteta",
+        "revisedeta",
+        "expectedarrivaldate",
+        "arrivaldate",
+        "eta",
+        "etaplant",
+        "etaatplant",
+        "expectedarrival",
+        "expectedreceiptdate",
+        "gateentrydate",
+    },
     "latest_eta": {"lasteta", "previouseta", "prioreta", "etaold", "etalast"},
     "delay_days": {"delaydays", "delay", "delays", "etadelaydays", "etadelay", "delayindays"},
     "current_state": {"currentstate", "state", "status", "shipmentstate", "shipmentstatus"},
@@ -115,11 +151,22 @@ ALIASES = {
     "eta_confidence": {"etaconfidence", "confidence"},
     "po_number": {"ponumber", "po", "purchaseorder", "purchaseordernumber"},
     "remarks": {"remarks", "remark", "comments", "notes"},
-    "on_hand_mt": {"onhandmt", "onhand", "stockmt", "stock", "currentstocktons", "currentstock"},
+    "on_hand_mt": {
+        "onhandmt",
+        "onhand",
+        "stockmt",
+        "stock",
+        "currentstocktons",
+        "currentstock",
+        "closingstock",
+        "yardstock",
+        "stockposition",
+    },
     "quality_held_mt": {
         "qualityheldmt",
         "qualityheld",
         "heldmt",
+        "qualityhold",
         "blockedstocktons",
         "blockedstock",
     },
@@ -128,6 +175,8 @@ ALIASES = {
         "availablemt",
         "available",
         "availableunrestrictedtons",
+        "unrestrictedstock",
+        "availablestock",
     },
     "daily_consumption_mt": {
         "dailyconsumptionmt",
@@ -135,8 +184,13 @@ ALIASES = {
         "consumptionmt",
         "dailyconsumptiontons",
         "usage",
+        "usagerate",
         "dailyusage",
         "consumption",
+        "avgconsumption",
+        "consumptionrate",
+        "burnrate",
+        "dailyrequirement",
     },
     "snapshot_time": {"snapshottime", "snapshotat", "asof", "asoftime", "lastupdatedat"},
     "in_transit_open_tons": {"intransitopentons"},
@@ -149,9 +203,18 @@ ALIASES = {
         "criticaldays",
         "criticalcoverdays",
         "criticalthresholddays",
+        "minimumstock",
+        "safetystock",
+        "reorderlevel",
     },
-    "minimum_buffer_stock_mt": {"minimumbufferstockmt"},
-    "reserve_quantity_mt": {"reservequantitymt", "reservequantity", "reserveqtymt", "reserveqty"},
+    "minimum_buffer_stock_mt": {"minimumbufferstockmt", "minimumstock", "safetystock"},
+    "reserve_quantity_mt": {
+        "reservequantitymt",
+        "reservequantity",
+        "reserveqtymt",
+        "reserveqty",
+        "reservestock",
+    },
     "quality_hold_quantity_mt": {
         "qualityholdquantitymt",
         "qualityholdquantity",
@@ -1503,6 +1566,11 @@ def normalize_rows(
     validation_errors: list[RowValidationError] = []
     summary = IngestionSummary()
     demo_upload_allowed = is_demo_tenant(db, context.tenant_id)
+    duplicate_rows_detected = duplicate_row_count(file_type, rows)
+    existing_plants = existing_name_tokens(db, Plant, context.tenant_id)
+    existing_materials = existing_name_tokens(db, Material, context.tenant_id)
+    existing_suppliers = existing_name_tokens(db, Supplier, context.tenant_id)
+    accepted_rows: list[ParsedRow] = []
 
     for row in rows:
         if not demo_upload_allowed:
@@ -1558,9 +1626,31 @@ def normalize_rows(
         if import_job_id is not None:
             record_import_change(db, context.tenant_id, import_job_id, change)
         setattr(summary, change.action, getattr(summary, change.action) + 1)
+        accepted_rows.append(row)
 
     rows_accepted = summary.created + summary.updated + summary.unchanged
     rows_rejected = len(validation_errors)
+    warning_inputs = upload_warnings(db, context, file_type, rows)
+    missing_counts = missing_setup_counts(validation_errors)
+    new_plants = new_master_values(accepted_rows, "plant_code", existing_plants)
+    new_materials = new_master_values(accepted_rows, "material_code", existing_materials)
+    new_suppliers = (
+        new_master_values(accepted_rows, "supplier_name", existing_suppliers)
+        if file_type == "shipment"
+        else []
+    )
+    if duplicate_rows_detected:
+        warning_inputs.append(
+            f"{duplicate_rows_detected} duplicate row"
+            f"{'' if duplicate_rows_detected == 1 else 's'} detected. OpsDeck updated "
+            "existing records instead of creating new ones where matching records existed."
+        )
+    if new_plants or new_materials or new_suppliers:
+        warning_inputs.append(
+            "OpsDeck created new master data from this upload. Review these names before "
+            "relying on risk results."
+        )
+    warning_inputs.extend(setup_warning_messages(missing_counts))
     return UploadResult(
         upload_id=0,
         ingestion_job_id=0,
@@ -1578,8 +1668,15 @@ def normalize_rows(
             rows_accepted=rows_accepted,
             rows_rejected=rows_rejected,
             summary=summary,
-            warnings=upload_warnings(db, context, file_type, rows),
+            warnings=warning_inputs,
             supplier_validation=supplier_onboarding_validation(db, context, file_type, rows),
+            new_plants_created=new_plants,
+            new_materials_created=new_materials,
+            new_suppliers_created=new_suppliers,
+            duplicate_rows_detected=duplicate_rows_detected,
+            missing_eta_count=missing_counts["missing_eta_count"],
+            missing_consumption_count=missing_counts["missing_consumption_count"],
+            missing_threshold_count=missing_counts["missing_threshold_count"],
         ),
     )
 
@@ -1667,9 +1764,25 @@ def build_operational_summary(
     summary: IngestionSummary,
     warnings: list[str] | None = None,
     supplier_validation: dict[str, object] | None = None,
+    new_plants_created: list[str] | None = None,
+    new_materials_created: list[str] | None = None,
+    new_suppliers_created: list[str] | None = None,
+    duplicate_rows_detected: int = 0,
+    missing_eta_count: int = 0,
+    missing_consumption_count: int = 0,
+    missing_threshold_count: int = 0,
 ) -> OperationalUnderstandingSummary:
     warnings = warnings or []
     supplier_validation = supplier_validation or {}
+    can_safely_use = (
+        rows_accepted > 0
+        and rows_rejected == 0
+        and duplicate_rows_detected == 0
+        and missing_eta_count == 0
+        and missing_consumption_count == 0
+        and missing_threshold_count == 0
+        and not (new_plants_created or new_materials_created or new_suppliers_created)
+    )
     return OperationalUnderstandingSummary(
         file_received=True,
         rows_detected=rows_received,
@@ -1685,6 +1798,23 @@ def build_operational_summary(
         ),
         suppliers_detected=(
             unique_row_values(rows, "supplier_name") if file_type == "shipment" else []
+        ),
+        new_plants_created=new_plants_created or [],
+        new_materials_created=new_materials_created or [],
+        new_suppliers_created=new_suppliers_created or [],
+        duplicate_rows_detected=duplicate_rows_detected,
+        missing_eta_count=missing_eta_count,
+        missing_consumption_count=missing_consumption_count,
+        missing_threshold_count=missing_threshold_count,
+        can_opsdeck_safely_use_data=can_safely_use,
+        safe_to_use_explanation=(
+            "Yes. Accepted rows have the required setup fields and no duplicate "
+            "or new master-data warnings."
+            if can_safely_use
+            else (
+                "Not yet. Review rejected rows, duplicate rows, setup warnings, "
+                "or newly created master data before relying on risk results."
+            )
         ),
         risks_or_exposures_generated=None,
         refreshed_operational_visibility=rows_accepted > 0,
@@ -1735,6 +1865,28 @@ def aggregate_workbook_operational_summary(
     warnings = [warning for summary in summaries for warning in summary.warnings]
     if ignored_sheets:
         warnings.append("Ignored workbook sheets: " + ", ".join(sorted(set(ignored_sheets))))
+    duplicate_rows = sum(summary.duplicate_rows_detected for summary in summaries)
+    missing_eta = sum(summary.missing_eta_count for summary in summaries)
+    missing_consumption = sum(summary.missing_consumption_count for summary in summaries)
+    missing_threshold = sum(summary.missing_threshold_count for summary in summaries)
+    new_plants = unique_values(
+        value for summary in summaries for value in summary.new_plants_created
+    )
+    new_materials = unique_values(
+        value for summary in summaries for value in summary.new_materials_created
+    )
+    new_suppliers = unique_values(
+        value for summary in summaries for value in summary.new_suppliers_created
+    )
+    can_safely_use = (
+        rows_accepted > 0
+        and rows_rejected == 0
+        and duplicate_rows == 0
+        and missing_eta == 0
+        and missing_consumption == 0
+        and missing_threshold == 0
+        and not (new_plants or new_materials or new_suppliers)
+    )
     return OperationalUnderstandingSummary(
         file_received=True,
         rows_detected=rows_received,
@@ -1754,6 +1906,23 @@ def aggregate_workbook_operational_summary(
         ),
         suppliers_detected=unique_values(
             value for summary in summaries for value in summary.suppliers_detected
+        ),
+        new_plants_created=new_plants,
+        new_materials_created=new_materials,
+        new_suppliers_created=new_suppliers,
+        duplicate_rows_detected=duplicate_rows,
+        missing_eta_count=missing_eta,
+        missing_consumption_count=missing_consumption,
+        missing_threshold_count=missing_threshold,
+        can_opsdeck_safely_use_data=can_safely_use,
+        safe_to_use_explanation=(
+            "Yes. Accepted workbook rows have the required setup fields and no "
+            "duplicate or new master-data warnings."
+            if can_safely_use
+            else (
+                "Not yet. Review rejected rows, duplicate rows, setup warnings, "
+                "or newly created master data before relying on risk results."
+            )
         ),
         risks_or_exposures_generated=None,
         refreshed_operational_visibility=rows_accepted > 0,
@@ -1786,6 +1955,89 @@ def unique_values(values: Iterable[str | None]) -> list[str]:
         seen.add(key)
         result.append(normalized)
     return result[:12]
+
+
+def duplicate_row_count(file_type: str, rows: list[ParsedRow]) -> int:
+    seen: set[tuple[str, ...]] = set()
+    duplicates = 0
+    for row in rows:
+        key = duplicate_key(file_type, row.data)
+        if not key:
+            continue
+        if key in seen:
+            duplicates += 1
+        else:
+            seen.add(key)
+    return duplicates
+
+
+def duplicate_key(file_type: str, data: dict[str, str]) -> tuple[str, ...] | None:
+    if file_type == "shipment":
+        value = data.get("shipment_id")
+        return (normalize_text_token(value),) if value else None
+    if file_type == "stock":
+        values = [data.get("plant_code"), data.get("material_code"), data.get("snapshot_time")]
+        return tuple(normalize_text_token(value) for value in values) if all(values) else None
+    if file_type == "threshold":
+        values = [data.get("plant_code"), data.get("material_code")]
+        return tuple(normalize_text_token(value) for value in values) if all(values) else None
+    return None
+
+
+def existing_name_tokens(db: Session, model, tenant_id: int) -> set[str]:
+    values: set[str] = set()
+    for item in db.scalars(select(model).where(model.tenant_id == tenant_id)):
+        for attr in ("code", "name"):
+            value = getattr(item, attr, None)
+            if value:
+                values.add(normalize_text_token(value))
+    return values
+
+
+def new_master_values(
+    rows: list[ParsedRow],
+    field: str,
+    existing_tokens: set[str],
+) -> list[str]:
+    return [
+        value
+        for value in unique_row_values(rows, field)
+        if normalize_text_token(value) not in existing_tokens
+    ]
+
+
+def missing_setup_counts(errors: list[RowValidationError]) -> dict[str, int]:
+    counts = {
+        "missing_eta_count": 0,
+        "missing_consumption_count": 0,
+        "missing_threshold_count": 0,
+    }
+    for row_error in errors:
+        fields = {error.field for error in row_error.field_errors}
+        if "current_eta" in fields or "planned_eta" in fields:
+            counts["missing_eta_count"] += 1
+        if "daily_consumption_mt" in fields:
+            counts["missing_consumption_count"] += 1
+        if "threshold_days" in fields or "warning_days" in fields:
+            counts["missing_threshold_count"] += 1
+    return counts
+
+
+def setup_warning_messages(counts: dict[str, int]) -> list[str]:
+    warnings: list[str] = []
+    if counts["missing_eta_count"]:
+        warnings.append(
+            "ETA is required because OpsDeck cannot judge whether inbound protects "
+            "production without arrival timing."
+        )
+    if counts["missing_consumption_count"]:
+        warnings.append("Daily consumption is required to calculate days of cover.")
+    if counts["missing_threshold_count"]:
+        warnings.append(
+            "Thresholds are required before OpsDeck can classify material risk as "
+            "Critical, High, Medium, or Low."
+        )
+    return warnings
 
 
 def upload_warnings(
@@ -1946,8 +2198,11 @@ def missing_required_field_errors(
         errors.append(
             FieldValidationError(
                 field="current_eta",
-                reason="Planned ETA or Current ETA is required for inbound continuity.",
-                suggested_fix="Provide either Planned ETA or Current ETA for this row.",
+                reason=(
+                    "ETA is required because OpsDeck cannot judge whether inbound protects "
+                    "production without arrival timing."
+                ),
+                suggested_fix="Provide ETA, ETA Plant, Expected Arrival, or Current ETA.",
             )
         )
     return errors
@@ -1975,9 +2230,21 @@ def missing_required_reason(field: str) -> str:
             "dependency produced this inbound signal."
         )
     if field in {"planned_eta", "current_eta", "latest_update_at", "snapshot_time"}:
+        if field in {"planned_eta", "current_eta"}:
+            return (
+                "ETA is required because OpsDeck cannot judge whether inbound protects "
+                "production without arrival timing."
+            )
         return (
             f"{field_label(field)} is missing. OpsDeck needs this timing to assess "
             "continuity freshness."
+        )
+    if field == "daily_consumption_mt":
+        return "Daily consumption is required to calculate days of cover."
+    if field in {"threshold_days", "warning_days"}:
+        return (
+            "Thresholds are required before OpsDeck can classify material risk as "
+            "Critical, High, Medium, or Low."
         )
     if field in {
         "quantity_mt",

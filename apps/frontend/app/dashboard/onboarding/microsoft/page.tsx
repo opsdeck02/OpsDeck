@@ -240,7 +240,7 @@ export default function MicrosoftOnboardingPage() {
         </div>
         <section className="rounded-md border bg-card p-5">
           <p className="text-sm text-mutedForeground">
-            Microsoft 365 auto-sync is included in paid and enterprise plans. Pilot tenants can load continuity signals by CSV or XLSX from the source health page.
+            Microsoft 365 auto-sync is included in paid and enterprise plans. Pilot tenants can load continuity signals by CSV or XLSX from the Upload Center.
           </p>
         </section>
       </div>

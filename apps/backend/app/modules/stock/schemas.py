@@ -143,6 +143,9 @@ class InventoryContinuityResult(BaseModel):
     inbound_uncertain_quantity: Decimal
     physical_inbound_quantity_mt: Decimal = Decimal("0")
     trusted_inbound_protection_mt: Decimal = Decimal("0")
+    physical_inbound_quantity: Decimal = Decimal("0")
+    eta_protective_trusted_inbound_quantity: Decimal = Decimal("0")
+    trusted_but_late_inbound_quantity: Decimal = Decimal("0")
     visibility_uncertain_quantity_mt: Decimal = Decimal("0")
     visibility_confidence: Decimal | None = None
     daily_consumption_rate: Decimal | None
@@ -156,6 +159,7 @@ class InventoryContinuityResult(BaseModel):
     trusted_inbound_quantity: Decimal = Decimal("0")
     uncertain_inbound_quantity: Decimal = Decimal("0")
     trusted_days_of_cover: Decimal | None = None
+    baseline_exhaustion_date: datetime | None = None
     projected_exhaustion_date: datetime | None
     cover_confidence_score: Decimal | None = None
     freshness_status: str = "unknown"

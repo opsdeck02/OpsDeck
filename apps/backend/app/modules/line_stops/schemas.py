@@ -49,6 +49,16 @@ class HistoricalValidationIncidentResult(BaseModel):
     warning_lead_time_days: Decimal | None = None
     predicted_warning_date: datetime | None
     lead_time_gained_hours: Decimal | None
+    status_explanation: str | None = None
+    replay_caveat: str | None = None
+    stock_snapshot_time_used: datetime | None = None
+    available_stock_at_snapshot: Decimal | None = None
+    daily_consumption_used: Decimal | None = None
+    threshold_days_used: Decimal | None = None
+    warning_days_used: Decimal | None = None
+    inbound_quantity_due_before_incident: Decimal = Decimal("0")
+    first_inbound_eta: datetime | None = None
+    missing_data_limitations: list[str] = []
     detection_signals: list[str] = []
     detection_chain: list[str] = []
     recommended_actions_replay: list[str] = []

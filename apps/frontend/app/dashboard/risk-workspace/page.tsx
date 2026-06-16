@@ -12,6 +12,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
 import type {
+  PilotReadinessResponse,
   ShipmentProtectionEvaluation,
   TimePhasedCoverResult,
 } from "@steelops/contracts";
@@ -21,6 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   getMaterialRiskRollups,
+  getPilotReadiness,
   getRiskWorkspace,
   getTenantPlan,
   type RiskWorkspaceResponse,
@@ -105,13 +107,12 @@ export default async function CriticalRiskWorkspacePage({
   const shouldLoadWorkspaceDetail = Boolean(
     activeScenario || searchParams?.material_reference,
   );
-  const [requestedWorkspace, rollups] = await Promise.all([
-    shouldLoadWorkspaceDetail
-      ? getRiskWorkspace(workspaceParams)
-      : Promise.resolve(null),
-    activeScenario
-      ? Promise.resolve([])
-      : getMaterialRiskRollups({ plant_reference: searchParams?.plant_reference }),
+  const requestedWorkspace = shouldLoadWorkspaceDetail
+    ? await getRiskWorkspace(workspaceParams)
+    : null;
+  const [rollups, pilotReadiness] = await Promise.all([
+    getMaterialRiskRollups({ plant_reference: searchParams?.plant_reference }),
+    getPilotReadiness(),
   ]);
   if (shouldCleanStaleSignalSelection(searchParams, requestedWorkspace)) {
     redirect(materialOnlyWorkspaceHref(searchParams));
@@ -126,6 +127,9 @@ export default async function CriticalRiskWorkspacePage({
         demoControlsEnabled={demoControlsEnabled}
         walkthroughControlsEnabled={walkthroughControlsEnabled}
       />
+      {pilotReadiness && !pilotReadiness.safe_to_rely_on ? (
+        <PilotPreliminaryWarning readiness={pilotReadiness} />
+      ) : null}
       {rollups.length > 0 ? (
         <ExposureSelector
           rollups={rollups}
@@ -133,7 +137,9 @@ export default async function CriticalRiskWorkspacePage({
           searchParams={searchParams}
         />
       ) : null}
-      {!workspace && rollups.length === 0 ? <UnavailableState /> : null}
+      {!workspace && rollups.length === 0 ? (
+        <NoRiskState readiness={pilotReadiness} />
+      ) : null}
       {!workspace && rollups.length > 0 ? <SelectMaterialState /> : null}
       {workspace?.is_demo_scenario ? (
         <DemoScenarioNotice
@@ -148,8 +154,23 @@ export default async function CriticalRiskWorkspacePage({
           walkthroughActive={walkthroughActive}
         />
       ) : null}
-      {workspace?.empty ? <EmptyWorkspace /> : null}
+      {workspace?.empty ? <EmptyWorkspace readiness={pilotReadiness} /> : null}
     </main>
+  );
+}
+
+function PilotPreliminaryWarning({
+  readiness,
+}: {
+  readiness: PilotReadinessResponse;
+}) {
+  return (
+    <Card className="min-w-0 max-w-full overflow-hidden border-amber-200 bg-amber-50 shadow-panel">
+      <CardContent className="px-4 py-3 text-sm leading-6 text-amber-900">
+        <span className="font-semibold">Pilot setup is incomplete.</span> Treat these results as
+        preliminary until required data is reviewed. {readiness.safe_to_rely_on_reason}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -189,16 +210,16 @@ function ExposureSelector({
       <Card className="min-w-0 max-w-full overflow-hidden bg-card/90 shadow-panel">
         <CardHeader className="px-4 py-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <CardTitle>Materials at risk</CardTitle>
+            <CardTitle>At-risk materials</CardTitle>
             <span className="text-xs font-semibold text-mutedForeground">
-              {rollups.length} materials / {signalCount} contributing signals
+              {rollups.length} materials / {signalCount} reasons
             </span>
           </div>
         </CardHeader>
         <CardContent className="grid gap-3 px-4 pb-4">
           <div className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-6">
-            <RollupMetric label="Materials At Risk" value={rollups.length} />
-            <RollupMetric label="Contributing Signals" value={signalCount} />
+            <RollupMetric label="At-risk materials" value={rollups.length} />
+            <RollupMetric label="Reasons" value={signalCount} />
             <RollupMetric
               label="Critical Material Count"
               value={severityCounts.critical}
@@ -224,15 +245,21 @@ function ExposureSelector({
                 className={`block min-w-0 max-w-full overflow-hidden border-l-4 px-3 py-2 text-left ring-1 transition hover:bg-slate-50 ${
                   selectedRollup &&
                   materialRollupKey(rollup) === materialRollupKey(selectedRollup)
-                    ? "border-slate-950 bg-slate-50 ring-slate-300"
+                    ? "border-slate-950 bg-slate-50 ring-2 ring-slate-400"
                     : `${severityBorder(rollup.highest_severity)} bg-white ring-slate-900/5`
                 }`}
               >
                 <div className="flex min-w-0 items-center justify-between gap-2">
-                  <SeverityBadge value={rollup.highest_severity} />
+                  <div className="flex items-center gap-1.5">
+                    <SeverityBadge value={rollup.highest_severity} />
+                    {selectedRollup &&
+                    materialRollupKey(rollup) === materialRollupKey(selectedRollup) ? (
+                      <Badge variant="outline">Current focus</Badge>
+                    ) : null}
+                  </div>
                   <span className="shrink-0 text-xs font-semibold text-mutedForeground">
                     {rollup.exception_count}{" "}
-                    {rollup.exception_count === 1 ? "Exception" : "Exceptions"}
+                    {rollup.exception_count === 1 ? "Reason" : "Reasons"}
                   </span>
                 </div>
                 <div className="mt-1.5 flex min-w-0 items-center justify-between gap-2">
@@ -345,6 +372,7 @@ function WorkspaceContent({
               continuity pressure.
             </WalkthroughNote>
           ) : null}
+          <CurrentFocusSummary workspace={workspace} inventory={inventory} />
           <OperationalRiskHero workspace={workspace} inventory={inventory} />
           {walkthroughActive ? (
             <WalkthroughNote>
@@ -410,6 +438,57 @@ function WorkspaceContent({
   );
 }
 
+function CurrentFocusSummary({
+  workspace,
+  inventory,
+}: {
+  workspace: RiskWorkspaceResponse;
+  inventory: SignalInventoryContinuity | null;
+}) {
+  const risk = workspace.selected_risk;
+  const material =
+    risk?.material_reference ?? inventory?.material_reference ?? "This material";
+  const plant = risk?.plant_reference ?? inventory?.plant_reference ?? "this plant";
+  const coverDays = risk?.days_of_cover ?? inventory?.days_of_cover ?? null;
+  const breachDate =
+    workspace.exposure?.estimated_exposure_date ??
+    inventory?.projected_exhaustion_date ??
+    null;
+  const action = risk?.operational_recommendations?.[0]
+    ? actionLabel(risk.operational_recommendations[0].action_type)
+    : "Verify stock, inbound ETA, and supplier recovery plan";
+  const breachText = breachDate
+    ? `Breach expected around ${formatDate(breachDate)}.`
+    : `Breach date unavailable because ${breachUnavailableReason(
+        workspace,
+        inventory,
+      )}.`;
+
+  return (
+    <Card className="min-w-0 max-w-full overflow-hidden border-slate-900/10 bg-white shadow-panel">
+      <CardHeader className="px-4 py-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-mutedForeground">
+              What to worry about today
+            </p>
+            <CardTitle className="mt-1 text-xl">
+              {material} at {plant}
+            </CardTitle>
+          </div>
+          <SeverityBadge value={risk?.severity ?? "unknown"} />
+        </div>
+      </CardHeader>
+      <CardContent className="px-4 pb-4">
+        <p className="text-sm leading-6 text-slate-700">
+          {material} at {plant} has {displayDays(coverDays)} of cover.{" "}
+          {breachText} Recommended action: {action}.
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
 function OperationalRiskHero({
   workspace,
   inventory,
@@ -423,6 +502,7 @@ function OperationalRiskHero({
     exposure?.days_until_exposure ?? risk?.days_of_cover ?? null;
   const threshold = inventory?.threshold_days ?? null;
   const trustedInbound =
+    inventory?.eta_protective_trusted_inbound_quantity ??
     inventory?.trusted_inbound_protection_mt ??
     inventory?.trusted_inbound_quantity;
   const physicalInbound =
@@ -494,7 +574,7 @@ function OperationalRiskHero({
               />
               <SignalMetric
                 icon={<Truck className="h-4 w-4" />}
-                label="Trusted inbound"
+                label="Inbound protecting cover"
                 value={displayQuantity(trustedInbound, inventory?.unit)}
                 helper={`${displayQuantity(physicalInbound, inventory?.unit)} physical`}
                 tone={trustedInboundTone(inventory)}
@@ -603,7 +683,7 @@ function RecommendedActions({ risk }: { risk: SignalRiskCandidate | null }) {
             ))
           ) : (
             <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-mutedForeground ring-1 ring-slate-900/5">
-              No operational action guidance returned for this selected risk.
+              No operational action guidance returned for this current focus.
             </p>
           )}
         </div>
@@ -669,7 +749,7 @@ function WorkspaceFilters({
                 htmlFor="scenario"
                 className="text-xs font-semibold uppercase tracking-wide text-mutedForeground"
               >
-                Pilot scenario
+                Demo-only scenario
               </label>
               <select
                 id="scenario"
@@ -677,7 +757,7 @@ function WorkspaceFilters({
                 defaultValue={searchParams?.scenario ?? ""}
                 className="w-full min-w-0 rounded-lg border bg-card px-3 py-2 text-sm"
               >
-                <option value="">Live workspace</option>
+                <option value="">Customer data view</option>
                 {PILOT_SCENARIOS.map((scenario) => (
                   <option key={scenario.value} value={scenario.value}>
                     {scenario.label}
@@ -746,15 +826,19 @@ function DemoScenarioNotice({
     <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-950">
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-semibold">
-          {workspace.scenario_label ?? "Pilot demo scenario"}
+          Demo-only scenario: {workspace.scenario_label ?? "Pilot demo scenario"}
         </span>
         <Badge className="bg-amber-100 text-amber-900 ring-1 ring-amber-200">
-          Demo data
+          Not a customer data filter
         </Badge>
       </div>
       <p className="mt-1 leading-5">
         {workspace.demo_data_notice ??
-          "Pilot demo scenario - seeded demo data, not live customer operations."}
+          "This scenario uses controlled demo data to explain behavior. It does not replace or filter live customer operations."}
+      </p>
+      <p className="mt-1 leading-5">
+        Demo scenario controls are for walkthroughs only; the At-risk materials
+        list remains visible for operational context.
       </p>
       {walkthroughActive && scenarioNote ? (
         <p className="mt-2 rounded-md bg-white/60 px-2.5 py-1.5 text-xs leading-5 ring-1 ring-amber-200/70">
@@ -850,11 +934,14 @@ function InboundProtectionQuality({
 }) {
   const shipmentQuantities = shipmentQuantityByReference(workspace);
   const aggregatePhysical =
+    inventory?.physical_inbound_quantity ??
     inventory?.physical_inbound_quantity_mt ??
     inventory?.inbound_committed_quantity;
   const aggregateTrusted =
+    inventory?.eta_protective_trusted_inbound_quantity ??
     inventory?.trusted_inbound_protection_mt ??
     inventory?.trusted_inbound_quantity;
+  const aggregateTrustedLate = inventory?.trusted_but_late_inbound_quantity;
   const aggregateUncertain =
     inventory?.visibility_uncertain_quantity_mt ??
     inventory?.uncertain_inbound_quantity;
@@ -867,22 +954,26 @@ function InboundProtectionQuality({
           <CardTitle>Inbound protection quality</CardTitle>
         </div>
         <p className="text-sm leading-5 text-mutedForeground">
-          Separates physical inbound from the portion OpsDeck can trust for
-          continuity protection.
+          Separates physical inbound from shipments that actually protect cover
+          before baseline exhaustion.
         </p>
       </CardHeader>
       <CardContent className="px-4 pb-4">
-        <div className="mb-2 grid gap-1.5 sm:grid-cols-3">
+        <div className="mb-2 grid gap-1.5 sm:grid-cols-4">
           <ContextPill
-            label="Physical inbound exists"
+            label="Physical inbound"
             value={displayQuantity(aggregatePhysical, inventory?.unit)}
           />
           <ContextPill
-            label="Trusted inbound"
+            label="Protecting continuity"
             value={displayQuantity(aggregateTrusted, inventory?.unit)}
           />
           <ContextPill
-            label="Visibility uncertainty"
+            label="Trusted but late"
+            value={displayQuantity(aggregateTrustedLate, inventory?.unit)}
+          />
+          <ContextPill
+            label="Uncertain inbound"
             value={displayQuantity(aggregateUncertain, inventory?.unit)}
           />
         </div>
@@ -898,7 +989,7 @@ function InboundProtectionQuality({
           ))}
           {workspace.shipment_continuity.length === 0 ? (
             <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-mutedForeground ring-1 ring-slate-900/5">
-              No linked inbound movement returned for this selected risk.
+              No linked inbound movement returned for this current focus.
             </p>
           ) : null}
         </div>
@@ -922,11 +1013,13 @@ function InboundProtectionRow({
   const physicalValue = shipment.physical_quantity ?? quantity;
   const trustedValue =
     shipment.protective_quantity ??
-    shipment.trusted_quantity ??
     (totalShipments === 1
-      ? (inventory?.trusted_inbound_protection_mt ??
+      ? (inventory?.eta_protective_trusted_inbound_quantity ??
+        inventory?.trusted_inbound_protection_mt ??
         inventory?.trusted_inbound_quantity)
       : null);
+  const trustedLateValue = shipment.trusted_but_late_quantity;
+  const uncertainValue = shipment.uncertain_quantity;
 
   return (
     <div className={`rounded-lg p-2.5 ring-1 ${quality.className}`}>
@@ -943,28 +1036,40 @@ function InboundProtectionRow({
         </div>
         <Badge variant="outline">{quality.label}</Badge>
       </div>
-      <div className="mt-2 grid gap-1.5 text-sm sm:grid-cols-3">
+      <div className="mt-2 grid gap-1.5 text-sm sm:grid-cols-4">
         <span>Trust {formatLabel(shipment.trust_level ?? "unknown")}</span>
         <span>ETA {formatLabel(shipment.eta_status ?? "unknown")}</span>
         <span>
           Freshness{" "}
           {formatLabel(
+            shipment.tracking_freshness ??
             shipment.freshness_status ?? shipment.tracking_freshness_status,
           )}
         </span>
+        <span>
+          Supplier {formatLabel(shipment.supplier_reliability ?? "unknown")}
+        </span>
       </div>
-      <div className="mt-2 grid gap-1.5 sm:grid-cols-2">
+      <div className="mt-2 grid gap-1.5 sm:grid-cols-2 lg:grid-cols-4">
         <ContextPill
           label="Physical inbound"
           value={displayQuantity(physicalValue, inventory?.unit)}
         />
         <ContextPill
-          label="Protective value"
+          label="Protecting continuity"
           value={
             trustedValue
               ? displayQuantity(trustedValue, inventory?.unit)
               : quality.protectiveValue
           }
+        />
+        <ContextPill
+          label="Trusted but late"
+          value={displayQuantity(trustedLateValue, inventory?.unit)}
+        />
+        <ContextPill
+          label="Uncertain inbound"
+          value={displayQuantity(uncertainValue, inventory?.unit)}
         />
       </div>
       {(shipment.protection_explanation ?? quality.reason) ? (
@@ -1604,11 +1709,19 @@ function InventoryBlock({ item }: { item: SignalInventoryContinuity }) {
         value={displayDays(item.trusted_days_of_cover ?? item.days_of_cover)}
       />
       <ContextPill
-        label="Trusted inbound protection"
-        value={displayQuantity(item.trusted_inbound_protection_mt, item.unit)}
+        label="Protecting inbound"
+        value={displayQuantity(
+          item.eta_protective_trusted_inbound_quantity ??
+            item.trusted_inbound_protection_mt,
+          item.unit,
+        )}
       />
       <ContextPill
-        label="Visibility uncertainty"
+        label="Trusted but late"
+        value={displayQuantity(item.trusted_but_late_inbound_quantity, item.unit)}
+      />
+      <ContextPill
+        label="Uncertain inbound"
         value={displayQuantity(
           item.visibility_uncertain_quantity_mt,
           item.unit,
@@ -1811,6 +1924,20 @@ function operationalHeadline(
 function safeCoverHelper(value?: string | null) {
   if (!value) return "breach timing not available";
   return `coverage threshold breach expected in ${formatNumber(value)} days`;
+}
+
+function breachUnavailableReason(
+  workspace: RiskWorkspaceResponse,
+  inventory: SignalInventoryContinuity | null,
+) {
+  if (!inventory) return "inventory continuity data is unavailable";
+  if (!inventory.daily_consumption_rate) {
+    return "daily consumption is missing";
+  }
+  if (!inventory.threshold_days && !workspace.exposure?.estimated_exposure_date) {
+    return "continuity thresholds are missing";
+  }
+  return "OpsDeck does not have enough timing data for this material";
 }
 
 function safeBreachStatement(
@@ -2038,8 +2165,13 @@ function trustedInboundTone(
   inventory: SignalInventoryContinuity | null,
 ): "default" | "critical" | "warning" {
   if (!inventory) return "default";
-  const physical = numberValue(inventory.physical_inbound_quantity_mt);
-  const trusted = numberValue(inventory.trusted_inbound_protection_mt);
+  const physical = numberValue(
+    inventory.physical_inbound_quantity ?? inventory.physical_inbound_quantity_mt,
+  );
+  const trusted = numberValue(
+    inventory.eta_protective_trusted_inbound_quantity ??
+      inventory.trusted_inbound_protection_mt,
+  );
   if (physical <= 0) return "default";
   const ratio = trusted / physical;
   if (ratio < 0.4) return "critical";
@@ -2123,15 +2255,22 @@ function causalDotClass(index: number, length: number) {
   return "bg-blue-500 text-white";
 }
 
-function UnavailableState() {
+function NoRiskState({
+  readiness,
+}: {
+  readiness: PilotReadinessResponse | null;
+}) {
   return (
     <Card className="min-w-0 max-w-full overflow-hidden bg-card/90 shadow-panel">
       <CardHeader>
-        <CardTitle>Risk workspace unavailable</CardTitle>
+        <CardTitle>No current material continuity risks found</CardTitle>
       </CardHeader>
-      <CardContent className="text-sm text-mutedForeground">
-        OpsDeck could not load the risk workspace. Your signal engine data may
-        still be available in other views.
+      <CardContent className="grid gap-3 text-sm text-mutedForeground">
+        <p>
+          No current material continuity risks found from uploaded stock,
+          threshold, and inbound data.
+        </p>
+        <RiskDataStatus readiness={readiness} />
       </CardContent>
     </Card>
   );
@@ -2144,24 +2283,62 @@ function SelectMaterialState() {
         <CardTitle>Select a material to review detail</CardTitle>
       </CardHeader>
       <CardContent className="text-sm leading-6 text-mutedForeground">
-        Material rollups are ready. Open one material to load focused
-        explainability, recommendations, trust context, and continuity detail.
+        Select a material to see why it is at risk and what action to take.
       </CardContent>
     </Card>
   );
 }
 
-function EmptyWorkspace() {
+function EmptyWorkspace({
+  readiness,
+}: {
+  readiness: PilotReadinessResponse | null;
+}) {
   return (
     <Card className="min-w-0 max-w-full overflow-hidden bg-card/90 shadow-panel">
       <CardHeader>
-        <CardTitle>No active continuity risk matches this view</CardTitle>
+        <CardTitle>No current material continuity risks found</CardTitle>
       </CardHeader>
-      <CardContent className="text-sm leading-6 text-mutedForeground">
-        OpsDeck will show risks here when inventory, inbound movement, or data
-        freshness signals indicate operational exposure.
+      <CardContent className="grid gap-3 text-sm leading-6 text-mutedForeground">
+        <p>
+          No current material continuity risks found from uploaded stock,
+          threshold, and inbound data.
+        </p>
+        <RiskDataStatus readiness={readiness} />
       </CardContent>
     </Card>
+  );
+}
+
+function RiskDataStatus({
+  readiness,
+}: {
+  readiness: PilotReadinessResponse | null;
+}) {
+  const stockCoverReady = Boolean(
+    readiness?.checks.find((check) => check.key === "stock_cover_results")
+      ?.ready,
+  );
+  return (
+    <div className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-5">
+      <ContextPill
+        label="Latest stock upload"
+        value={formatDate(readiness?.last_stock_update_at)}
+      />
+      <ContextPill
+        label="Latest shipment upload"
+        value={formatDate(readiness?.last_movement_update_at)}
+      />
+      <ContextPill
+        label="Threshold status"
+        value={stockCoverReady ? "Available" : "Not confirmed"}
+      />
+      <ContextPill
+        label="Missing consumption rows"
+        value="Not available"
+      />
+      <ContextPill label="Rejected upload rows" value="Not available" />
+    </div>
   );
 }
 

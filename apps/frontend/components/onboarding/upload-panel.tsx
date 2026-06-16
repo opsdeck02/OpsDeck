@@ -89,8 +89,10 @@ type WorkbookSheetConfig = {
 
 export function UploadPanel({
   automatedSourcesEnabled = true,
+  canClearUploadedData = false,
 }: {
   automatedSourcesEnabled?: boolean;
+  canClearUploadedData?: boolean;
 }) {
   const [fileType, setFileType] = useState("shipment");
   const [uploadMode, setUploadMode] = useState<"file" | "url">("file");
@@ -418,7 +420,7 @@ export function UploadPanel({
 
   function rollbackJob(jobId: number) {
     const confirmed = window.confirm(
-      "Rollback only this import job? OpsDeck will delete records created by this import where ownership is safe, and preserve updated pre-existing records.",
+      "Rollback removes records created by this import. Records that were updated from earlier imports are preserved.",
     );
     if (!confirmed) {
       return;
@@ -449,7 +451,7 @@ export function UploadPanel({
 
   function reprocessJob(jobId: number) {
     const confirmed = window.confirm(
-      "Reprocess this import file? OpsDeck will create a new import job using the stored file and mappings.",
+      "Reprocess runs this file again using the current mapping and validation rules.",
     );
     if (!confirmed) {
       return;
@@ -475,10 +477,10 @@ export function UploadPanel({
   }
 
   function clearUploadedData() {
-    const confirmed = window.confirm(
-      "Delete uploaded data for this tenant? This clears shipments, stock snapshots, thresholds, ingestion history, and related exceptions.",
+    const confirmed = window.prompt(
+      "This clears uploaded pilot data for this tenant. This should only be used during setup or reset. Type CLEAR PILOT DATA to continue.",
     );
-    if (!confirmed) {
+    if (confirmed !== "CLEAR PILOT DATA") {
       return;
     }
 
@@ -1499,14 +1501,17 @@ export function UploadPanel({
                   {type.value} template
                 </a>
               ))}
-            <button
-              type="button"
-              onClick={clearUploadedData}
-              disabled={isPending}
-              className="rounded-xl border border-accent px-3 py-2.5 text-sm font-medium text-primary disabled:opacity-60"
-            >
-              Clear signal data
-            </button>
+            {canClearUploadedData ? (
+              <button
+                type="button"
+                onClick={clearUploadedData}
+                disabled={isPending}
+                className="rounded-xl border border-accent px-3 py-2.5 text-sm font-medium text-primary disabled:opacity-60"
+                title="This clears uploaded pilot data for this tenant. This should only be used during setup or reset."
+              >
+                Clear uploaded data
+              </button>
+            ) : null}
           </div>
         </form>
         {error ? (
@@ -1519,53 +1524,69 @@ export function UploadPanel({
             <p className="font-semibold">
               {isWorkbookResult(result)
                 ? "Operational workbook processed"
-                : "Signal load summary"}
+                : "Upload summary"}
             </p>
             <p className="mt-1 text-mutedForeground">
-              OpsDeck received the file, mapped continuity fields, validated
-              rows, and normalized accepted records into the operational signal
-              chain.
+              OpsDeck received the file, mapped continuity fields, validated rows, and
+              summarized whether the data is ready to use.
             </p>
             <div className="mt-3 grid gap-2 md:grid-cols-4">
               <ResultMetric
-                label="Rows detected"
+                label="Rows received"
                 value={result.rows_received}
               />
-              <ResultMetric label="Accepted" value={result.rows_accepted} />
-              <ResultMetric label="Rejected" value={result.rows_rejected} />
+              <ResultMetric label="Rows accepted" value={result.rows_accepted} />
+              <ResultMetric label="Rows rejected" value={result.rows_rejected} />
               <ResultMetric
-                label="Visibility refreshed"
-                value={
-                  result.operational_summary?.refreshed_operational_visibility
-                    ? "Yes"
-                    : "No"
-                }
+                label="Rows updated"
+                value={result.summary_counts.updated}
               />
             </div>
             <div className="mt-3 rounded-xl bg-card p-3">
+              <p className="font-medium">Can OpsDeck safely use this data now?</p>
+              <p className="mt-1 text-sm text-mutedForeground">
+                {result.operational_summary?.safe_to_use_explanation ??
+                  (result.rows_rejected > 0
+                    ? "Not yet. Review rejected rows before relying on risk results."
+                    : "Yes. The accepted rows are available for continuity analysis.")}
+              </p>
+            </div>
+            <div className="mt-3 rounded-xl bg-card p-3">
               <p className="font-medium">OpsDeck understood</p>
-              <div className="mt-2 grid gap-2 text-mutedForeground md:grid-cols-2">
+              <div className="mt-2 grid gap-2 text-mutedForeground md:grid-cols-3">
                 <p>
-                  Plants detected:{" "}
-                  {displayDetected(result.operational_summary?.plants_detected)}
-                </p>
-                <p>
-                  Materials detected:{" "}
+                  New plants created:{" "}
                   {displayDetected(
-                    result.operational_summary?.materials_detected,
+                    result.operational_summary?.new_plants_created,
                   )}
                 </p>
                 <p>
-                  Inbound rows detected:{" "}
+                  New materials created:{" "}
                   {displayDetected(
-                    result.operational_summary?.shipments_detected,
+                    result.operational_summary?.new_materials_created,
                   )}
                 </p>
                 <p>
-                  Reliability sources:{" "}
+                  New suppliers created:{" "}
                   {displayDetected(
-                    result.operational_summary?.suppliers_detected,
+                    result.operational_summary?.new_suppliers_created,
                   )}
+                </p>
+                <p>
+                  Duplicate rows detected:{" "}
+                  {result.operational_summary?.duplicate_rows_detected ?? 0}
+                </p>
+                <p>
+                  Missing ETA rows:{" "}
+                  {result.operational_summary?.missing_eta_count ?? 0}
+                </p>
+                <p>
+                  Missing consumption rows:{" "}
+                  {result.operational_summary?.missing_consumption_count ?? 0}
+                </p>
+                <p>
+                  Missing threshold rows:{" "}
+                  {result.operational_summary?.missing_threshold_count ?? 0}
                 </p>
               </div>
               <p className="mt-2 text-mutedForeground">
@@ -1573,6 +1594,12 @@ export function UploadPanel({
                 {result.summary_counts.updated}, unchanged{" "}
                 {result.summary_counts.unchanged}
               </p>
+              {hasCreatedMasterData(result) ? (
+                <p className="mt-2 rounded-lg bg-amber-50 p-2 text-xs text-amber-900 ring-1 ring-amber-200">
+                  OpsDeck created new master data from this upload. Review these names
+                  before relying on risk results.
+                </p>
+              ) : null}
               {result.operational_summary?.next_recommended_action ? (
                 <p className="mt-2 rounded-lg bg-muted p-2 text-xs">
                   Next: {result.operational_summary.next_recommended_action}
@@ -1985,6 +2012,16 @@ function isWorkbookResult(
   result: UploadResult | WorkbookUploadResult,
 ): result is WorkbookUploadResult {
   return result.file_type === "workbook";
+}
+
+function hasCreatedMasterData(result: UploadResult | WorkbookUploadResult) {
+  const summary = result.operational_summary;
+  return Boolean(
+    summary &&
+      ((summary.new_plants_created ?? []).length > 0 ||
+        (summary.new_materials_created ?? []).length > 0 ||
+        (summary.new_suppliers_created ?? []).length > 0),
+  );
 }
 
 function ResultMetric({

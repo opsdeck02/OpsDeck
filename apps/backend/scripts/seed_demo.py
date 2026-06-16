@@ -86,6 +86,22 @@ LEGACY_SUPPLIER_CODES = ("QCL", "OMC", "EFM", "VPOS")
 LEGACY_SOURCE_NAMES = ("Demo ERP inbound feed", "Continuity inbound source feed")
 
 DEMO_PLANT_CODE = "DEMO-STEEL"
+PILOT_TEMPLATE_PLANT_CODE = "JAM"
+PILOT_TEMPLATE_MATERIAL_CODE = "COKING_COAL"
+PILOT_TEMPLATE_SUPPLIERS = (
+    {
+        "code": "BHP-MA",
+        "name": "BHP Mitsubishi Alliance",
+        "primary_port": "Hay Point",
+        "country_of_origin": "Australia",
+    },
+    {
+        "code": "ABC-MINERALS",
+        "name": "ABC Minerals",
+        "primary_port": "Paradip",
+        "country_of_origin": "India",
+    },
+)
 
 
 @dataclass(frozen=True)
@@ -570,6 +586,80 @@ def upsert_supplier(db: Session, tenant_id: int, config: DemoMaterialConfig) -> 
     return supplier
 
 
+def seed_pilot_template_master_data(db: Session, tenant_id: int) -> None:
+    plant = db.scalar(
+        select(Plant).where(
+            Plant.tenant_id == tenant_id,
+            Plant.code == PILOT_TEMPLATE_PLANT_CODE,
+        )
+    )
+    if plant is None:
+        plant = Plant(
+            tenant_id=tenant_id,
+            code=PILOT_TEMPLATE_PLANT_CODE,
+            name="Jamshedpur Works",
+            location="Jharkhand, India",
+        )
+        db.add(plant)
+        flush_pending(db)
+    else:
+        plant.name = "Jamshedpur Works"
+        plant.location = "Jharkhand, India"
+
+    material = db.scalar(
+        select(Material).where(
+            Material.tenant_id == tenant_id,
+            Material.code == PILOT_TEMPLATE_MATERIAL_CODE,
+        )
+    )
+    if material is None:
+        material = Material(
+            tenant_id=tenant_id,
+            code=PILOT_TEMPLATE_MATERIAL_CODE,
+            name="Coking Coal",
+            category="raw_material",
+            uom="MT",
+        )
+        db.add(material)
+        flush_pending(db)
+    else:
+        material.name = "Coking Coal"
+        material.category = "raw_material"
+        material.uom = "MT"
+
+    for supplier_config in PILOT_TEMPLATE_SUPPLIERS:
+        supplier = db.scalar(
+            select(Supplier).where(
+                Supplier.tenant_id == tenant_id,
+                Supplier.code == supplier_config["code"],
+            )
+        )
+        if supplier is None:
+            supplier = db.scalar(
+                select(Supplier).where(
+                    Supplier.tenant_id == tenant_id,
+                    Supplier.name == supplier_config["name"],
+                )
+            )
+        if supplier is None:
+            supplier = Supplier(
+                tenant_id=tenant_id,
+                code=supplier_config["code"],
+                name=supplier_config["name"],
+            )
+            db.add(supplier)
+            flush_pending(db)
+        supplier.code = supplier_config["code"]
+        supplier.name = supplier_config["name"]
+        supplier.primary_port = supplier_config["primary_port"]
+        supplier.secondary_ports = []
+        supplier.material_categories = ["raw_material"]
+        supplier.country_of_origin = supplier_config["country_of_origin"]
+        supplier.contact_name = "Pilot supply desk"
+        supplier.contact_email = "pilot.supply@demo.opsdeck.local"
+        supplier.is_active = True
+
+
 def seed_full_demo_configuration(db: Session, tenant_id: int, admin_user_id: int) -> None:
     now = datetime.now(UTC).replace(microsecond=0)
     plant = upsert_plant(db, tenant_id)
@@ -587,6 +677,7 @@ def seed_full_demo_configuration(db: Session, tenant_id: int, admin_user_id: int
             config=config,
             now=now,
         )
+    seed_pilot_template_master_data(db, tenant_id)
     seed_onboarding_records(db, tenant_id=tenant_id, admin_user_id=admin_user_id, now=now)
     db.add(
         AuditLog(

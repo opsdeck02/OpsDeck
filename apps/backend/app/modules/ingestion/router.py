@@ -10,6 +10,7 @@ from app.api.dependencies import (
     get_current_user,
     get_db,
     get_request_context,
+    require_admin_access,
     require_operator_access,
 )
 from app.models import IngestionJob, UploadedFile, User
@@ -199,7 +200,7 @@ def reprocess_ingestion_job(
 
 @router.delete("/uploads")
 def clear_uploaded_data(
-    _: Annotated[RequestContext, Depends(require_operator_access)],
+    _: Annotated[RequestContext, Depends(require_admin_access)],
     context: Annotated[RequestContext, Depends(get_request_context)],
     db: Annotated[Session, Depends(get_db)],
 ) -> dict[str, int]:

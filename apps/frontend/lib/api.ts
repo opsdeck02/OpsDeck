@@ -96,6 +96,16 @@ export interface HistoricalValidationIncidentResult {
   warning_lead_time_days: string | null;
   predicted_warning_date: string | null;
   lead_time_gained_hours: string | null;
+  status_explanation: string | null;
+  replay_caveat: string | null;
+  stock_snapshot_time_used: string | null;
+  available_stock_at_snapshot: string | null;
+  daily_consumption_used: string | null;
+  threshold_days_used: string | null;
+  warning_days_used: string | null;
+  inbound_quantity_due_before_incident: string;
+  first_inbound_eta: string | null;
+  missing_data_limitations: string[];
   detection_signals: string[];
   detection_chain: string[];
   recommended_actions_replay: string[];
@@ -357,6 +367,9 @@ export interface SignalInventoryContinuity {
   inbound_uncertain_quantity: string;
   physical_inbound_quantity_mt: string;
   trusted_inbound_protection_mt: string;
+  physical_inbound_quantity: string;
+  eta_protective_trusted_inbound_quantity: string;
+  trusted_but_late_inbound_quantity: string;
   visibility_uncertain_quantity_mt: string;
   visibility_confidence: string | null;
   daily_consumption_rate: string | null;
@@ -370,6 +383,7 @@ export interface SignalInventoryContinuity {
   trusted_inbound_quantity: string;
   uncertain_inbound_quantity: string;
   trusted_days_of_cover: string | null;
+  baseline_exhaustion_date: string | null;
   projected_exhaustion_date: string | null;
   cover_confidence_score: string | null;
   freshness_status: string;
@@ -396,6 +410,9 @@ export interface SignalShipmentContinuity {
   physical_quantity: string | null;
   trusted_quantity: string | null;
   protective_quantity: string | null;
+  trusted_but_late_quantity: string | null;
+  uncertain_quantity: string | null;
+  inbound_bucket: string | null;
   protective_value_label: string | null;
   trust_level: string | null;
   trust_reason: string | null;
@@ -403,6 +420,13 @@ export interface SignalShipmentContinuity {
   movement_condition: string | null;
   eta_status: string | null;
   eta_drift_days: string | null;
+  confidence: string | null;
+  confidence_band: string | null;
+  protection_status: string | null;
+  protection_reason: string | null;
+  eta_deterioration_days: string | null;
+  tracking_freshness: string | null;
+  supplier_reliability: string | null;
   is_currently_protective: boolean | null;
   protection_explanation: string | null;
 }

@@ -4,7 +4,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.api.dependencies import get_db, get_request_context, require_admin_access
+from app.api.dependencies import get_db, get_request_context, require_operator_access
 from app.modules.dashboard.service import build_executive_dashboard, build_pilot_readiness
 from app.modules.stock.service import calculate_stock_cover_summary
 from app.schemas.context import RequestContext
@@ -187,7 +187,7 @@ def export_executive_dashboard(
 
 @router.get("/pilot-readiness", response_model=PilotReadinessResponse)
 def get_pilot_readiness(
-    _: Annotated[RequestContext, Depends(require_admin_access)],
+    _: Annotated[RequestContext, Depends(require_operator_access)],
     context: Annotated[RequestContext, Depends(get_request_context)],
     db: Annotated[Session, Depends(get_db)],
 ) -> PilotReadinessResponse:

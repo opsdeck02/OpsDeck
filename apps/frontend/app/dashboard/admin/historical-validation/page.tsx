@@ -34,9 +34,9 @@ export default async function HistoricalValidationPage() {
     return (
       <Card className="bg-card/90 shadow-panel">
         <CardHeader>
-          <CardTitle>Historical validation unavailable</CardTitle>
+          <CardTitle>Past Incident Analysis unavailable</CardTitle>
           <p className="text-sm text-mutedForeground">
-            OpsDeck could not load the historical validation report for this tenant.
+            OpsDeck could not load the incident replay report for this tenant.
           </p>
         </CardHeader>
       </Card>
@@ -55,20 +55,24 @@ export default async function HistoricalValidationPage() {
           <div className="max-w-3xl">
             <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.18em] text-mutedForeground">
               <FileClock className="h-4 w-4" />
-              Historical Validation
+              Past Incident Analysis
             </div>
             <h1 className="mt-3 text-3xl font-semibold text-foreground">
               Would OpsDeck have seen it before disruption?
             </h1>
             <p className="mt-2 text-sm leading-6 text-mutedForeground">
-              Incident replay for {report.tenant ?? "the active tenant"}.
+              Incident Replay for {report.tenant ?? "the active tenant"}.
               Generated {formatDateTime(report.generated_at)}.
+            </p>
+            <p className="mt-2 rounded-lg bg-slate-50 px-3 py-2 text-sm leading-6 text-mutedForeground ring-1 ring-slate-900/5">
+              This replay uses the historical stock, threshold, and inbound
+              records available to OpsDeck. It is not statistical ML validation.
             </p>
           </div>
           {exportHref ? (
             <a
               href={exportHref}
-              download="historical-validation-report.md"
+              download="incident-replay-report.md"
               className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-800 shadow-sm transition hover:border-primary/40 hover:text-primary"
             >
               <Download className="h-4 w-4" />
@@ -166,7 +170,57 @@ function IncidentTimelineItem({
         </div>
       </CardHeader>
       <CardContent className="grid gap-5">
-        <div className="grid gap-3 md:grid-cols-4">
+        <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm leading-6 text-mutedForeground ring-1 ring-slate-900/5">
+          {incident.status_explanation ?? statusExplanation(detectionResult)}
+        </p>
+        <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
+          <SmallFact
+            label="Incident date"
+            value={formatDate(incident.incident_date)}
+          />
+          <SmallFact
+            label="Stock position"
+            value={
+              incident.available_stock_at_snapshot
+                ? `${incident.available_stock_at_snapshot} MT on ${formatDate(incident.stock_snapshot_time_used)}`
+                : "Unavailable"
+            }
+          />
+          <SmallFact
+            label="Inbound position"
+            value={`${incident.inbound_quantity_due_before_incident} MT before incident`}
+          />
+          <SmallFact
+            label="Threshold"
+            value={
+              incident.threshold_days_used || incident.warning_days_used
+                ? `Critical ${formatDays(incident.threshold_days_used)}, warning ${formatDays(incident.warning_days_used)}`
+                : "Unavailable"
+            }
+          />
+          <SmallFact
+            label="OpsDeck warning date"
+            value={formatDate(incident.predicted_warning_date)}
+          />
+          <SmallFact
+            label="Lead time available"
+            value={formatDays(incident.warning_lead_time_days)}
+          />
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-3">
+          <SmallFact
+            label="Daily consumption used"
+            value={
+              incident.daily_consumption_used
+                ? `${incident.daily_consumption_used} MT/day`
+                : "Unavailable"
+            }
+          />
+          <SmallFact
+            label="First inbound ETA"
+            value={formatDate(incident.first_inbound_eta)}
+          />
           <SmallFact
             label="Line stop duration"
             value={
@@ -175,20 +229,12 @@ function IncidentTimelineItem({
                 : "Unavailable"
             }
           />
-          <SmallFact
-            label="Earliest detection"
-            value={formatDate(incident.earliest_detection_date)}
-          />
-          <SmallFact
-            label="Warning provided"
-            value={formatDays(incident.warning_lead_time_days)}
-          />
-          <SmallFact
-            label="Business impact"
-            value={incident.business_impact ?? "Unavailable"}
-          />
         </div>
 
+        <ReviewSection
+          title="Limitations"
+          items={incident.missing_data_limitations}
+        />
         <ReviewSection title="Detection evidence" items={incident.detection_signals} />
         <ReviewSection title="Detection chain" items={incident.detection_chain} />
         <ReviewSection
@@ -248,6 +294,19 @@ function StatusBadge({ label, tone }: { label: string; tone?: string }) {
       {label}
     </Badge>
   );
+}
+
+function statusExplanation(status: string) {
+  if (status === "DETECTED") {
+    return "OpsDeck would have raised a warning before the incident.";
+  }
+  if (status === "PARTIALLY DETECTED") {
+    return "OpsDeck found some warning signs, but the available data was incomplete or late.";
+  }
+  if (status === "MISSED") {
+    return "OpsDeck would not have warned early enough from the available records.";
+  }
+  return "Replay status is unavailable from the available records.";
 }
 
 function formatLabel(value: string | null) {

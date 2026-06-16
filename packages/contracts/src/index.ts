@@ -277,6 +277,17 @@ export interface PilotReadinessCheck {
   last_updated_at: string | null;
 }
 
+export interface PilotSetupChecklistItem {
+  key: string;
+  label: string;
+  category: string;
+  state: string;
+  detail: string;
+  next_action: string;
+  href: string;
+  blocking: boolean;
+}
+
 export interface PilotReadinessCounts {
   uploaded_files: number;
   ingestion_jobs: number;
@@ -287,12 +298,16 @@ export interface PilotReadinessCounts {
 
 export interface PilotReadinessResponse {
   tenant: string;
+  setup_status: string;
+  safe_to_rely_on: boolean;
+  safe_to_rely_on_reason: string;
   counts: PilotReadinessCounts;
   last_upload_at: string | null;
   last_stock_update_at: string | null;
   last_exception_update_at: string | null;
   last_movement_update_at: string | null;
   checks: PilotReadinessCheck[];
+  setup_checklist: PilotSetupChecklistItem[];
 }
 
 export interface TenantSummary {
@@ -485,6 +500,15 @@ export interface OperationalUnderstandingSummary {
   materials_detected: string[];
   shipments_detected: string[];
   suppliers_detected: string[];
+  new_plants_created: string[];
+  new_materials_created: string[];
+  new_suppliers_created: string[];
+  duplicate_rows_detected: number;
+  missing_eta_count: number;
+  missing_consumption_count: number;
+  missing_threshold_count: number;
+  can_opsdeck_safely_use_data: boolean;
+  safe_to_use_explanation: string | null;
   risks_or_exposures_generated: number | null;
   refreshed_operational_visibility: boolean;
   warnings: string[];

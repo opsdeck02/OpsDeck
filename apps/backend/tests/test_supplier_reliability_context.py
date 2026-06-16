@@ -253,6 +253,33 @@ def test_supplier_modifier_does_not_change_physical_inbound_quantity() -> None:
         assert result.trusted_inbound_quantity < result.physical_inbound_quantity_mt
 
 
+def test_supplier_reliability_reduces_confidence() -> None:
+    with reliability_test_session() as db:
+        ctx = seed_context(db)
+        seed_supplier_samples(
+            db,
+            ctx,
+            plant=ctx.plant,
+            material=ctx.material,
+            count=3,
+            late_hours=72,
+            latest_update_at=NOW - timedelta(hours=48),
+        )
+        shipment = current_shipment(ctx)
+        visibility = calculate_visibility_confidence(shipment, now=NOW)
+
+        reliability = calculate_supplier_reliability_context(
+            db,
+            tenant_id=ctx.tenant.id,
+            shipment=shipment,
+            visibility_result=visibility,
+            now=NOW,
+        )
+
+        assert reliability.reliability_band == "weak"
+        assert reliability.contextual_reliability_score < Decimal("0.50")
+
+
 def test_explainability_includes_scope_sample_and_reasons() -> None:
     with reliability_test_session() as db:
         ctx = seed_context(db)

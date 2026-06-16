@@ -35,7 +35,7 @@ from app.models import (
     User,
 )
 from app.models.enums import OperationalEventFreshnessStatus, OperationalEventType
-from app.modules.auth.constants import LOGISTICS_USER
+from app.modules.auth.constants import LOGISTICS_USER, TENANT_ADMIN
 from app.modules.auth.security import hash_password
 from app.modules.line_stops.service import build_historical_validation_report
 from app.modules.stock.service import calculate_stock_cover_detail
@@ -76,11 +76,18 @@ def client_and_session() -> Generator[tuple[TestClient, sessionmaker[Session]], 
 def seed_ingestion_test_data(db: Session) -> None:
     tenant = Tenant(name="Tenant A", slug="tenant-a")
     role = Role(name=LOGISTICS_USER, description="Logistics")
-    db.add_all([tenant, role])
+    admin_role = Role(name=TENANT_ADMIN, description="Tenant admin")
+    db.add_all([tenant, role, admin_role])
     db.flush()
     user = User(
         email="logistics@test.local",
         full_name="Logistics User",
+        password_hash=hash_password("Password123!"),
+        is_active=True,
+    )
+    admin = User(
+        email="admin@test.local",
+        full_name="Admin User",
         password_hash=hash_password("Password123!"),
         is_active=True,
     )
@@ -92,16 +99,22 @@ def seed_ingestion_test_data(db: Session) -> None:
         category="coal",
         uom="MT",
     )
-    db.add_all([user, plant, material])
+    db.add_all([user, admin, plant, material])
     db.flush()
-    db.add(
+    db.add_all([
         TenantMembership(
             tenant_id=tenant.id,
             user_id=user.id,
             role_id=role.id,
             is_active=True,
-        )
-    )
+        ),
+        TenantMembership(
+            tenant_id=tenant.id,
+            user_id=admin.id,
+            role_id=admin_role.id,
+            is_active=True,
+        ),
+    ])
     db.commit()
 
 
@@ -109,6 +122,16 @@ def login(client: TestClient) -> dict[str, str]:
     response = client.post(
         "/api/v1/auth/login",
         json={"email": "logistics@test.local", "password": "Password123!"},
+    )
+    assert response.status_code == 200, response.json()
+    token = response.json()["access_token"]
+    return {"Authorization": f"Bearer {token}", "X-Tenant-Slug": "tenant-a"}
+
+
+def admin_login(client: TestClient) -> dict[str, str]:
+    response = client.post(
+        "/api/v1/auth/login",
+        json={"email": "admin@test.local", "password": "Password123!"},
     )
     assert response.status_code == 200, response.json()
     token = response.json()["access_token"]
@@ -260,6 +283,187 @@ def test_shipment_upload_deduplicates_detected_supplier_names(
             )
             == 2
         )
+
+
+def test_duplicate_shipment_id_is_reported(
+    client_and_session: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, _ = client_and_session
+    csv_body = "\n".join(
+        [
+            "shipment_id,plant_code,material_code,supplier_name,quantity_mt,"
+            "planned_eta,current_eta,current_state,latest_update_at",
+            "SHP-DUP,JAM,COKING_COAL,Supplier A,10,"
+            "2026-04-20T08:00:00Z,2026-04-21T08:00:00Z,"
+            "in_transit,2026-04-15T09:00:00Z",
+            "SHP-DUP,JAM,COKING_COAL,Supplier A,12,"
+            "2026-04-22T08:00:00Z,2026-04-23T08:00:00Z,"
+            "in_transit,2026-04-16T09:00:00Z",
+        ]
+    )
+
+    response = upload_csv(client, login(client), "shipment", csv_body)
+
+    assert response.status_code == 200, response.json()
+    summary = response.json()["operational_summary"]
+    assert summary["duplicate_rows_detected"] == 1
+    assert any("duplicate row" in warning.lower() for warning in summary["warnings"])
+
+
+def test_duplicate_stock_snapshot_row_is_reported(
+    client_and_session: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, _ = client_and_session
+    csv_body = "\n".join(
+        [
+            "plant_code,material_code,on_hand_mt,quality_held_mt,available_to_consume_mt,daily_consumption_mt,snapshot_time",
+            "JAM,COKING_COAL,10000,1000,9000,500,2026-04-15T08:00:00Z",
+            "JAM,COKING_COAL,10500,1000,9500,500,2026-04-15T08:00:00Z",
+        ]
+    )
+
+    response = upload_csv(client, login(client), "stock", csv_body)
+
+    assert response.status_code == 200, response.json()
+    assert response.json()["operational_summary"]["duplicate_rows_detected"] == 1
+
+
+def test_duplicate_threshold_row_is_reported(
+    client_and_session: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, _ = client_and_session
+    csv_body = "\n".join(
+        [
+            "plant_code,material_code,threshold_days,warning_days",
+            "JAM,COKING_COAL,7,10",
+            "JAM,COKING_COAL,8,11",
+        ]
+    )
+
+    response = upload_csv(client, login(client), "threshold", csv_body)
+
+    assert response.status_code == 200, response.json()
+    assert response.json()["operational_summary"]["duplicate_rows_detected"] == 1
+
+
+def test_auto_created_material_is_reported_in_summary(
+    client_and_session: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, _ = client_and_session
+    csv_body = "\n".join(
+        [
+            "plant_code,material_code,on_hand_mt,quality_held_mt,available_to_consume_mt,daily_consumption_mt,snapshot_time",
+            "JAM,PCI_COAL,10000,1000,9000,500,2026-04-15T08:00:00Z",
+        ]
+    )
+
+    response = upload_csv(client, login(client), "stock", csv_body)
+
+    assert response.status_code == 200, response.json()
+    summary = response.json()["operational_summary"]
+    assert summary["new_materials_created"] == ["PCI_COAL"]
+    assert any("created new master data" in warning for warning in summary["warnings"])
+
+
+def test_seeded_pilot_template_stock_upload_does_not_report_new_master_data(
+    client_and_session: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, _ = client_and_session
+    csv_body = "\n".join(
+        [
+            "plant_code,material_code,on_hand_mt,quality_held_mt,available_to_consume_mt,daily_consumption_mt,snapshot_time",
+            "JAM,COKING_COAL,180000,10000,170000,24000,2026-04-15T08:00:00Z",
+        ]
+    )
+
+    response = upload_csv(client, login(client), "stock", csv_body)
+
+    assert response.status_code == 200, response.json()
+    summary = response.json()["operational_summary"]
+    assert summary["new_plants_created"] == []
+    assert summary["new_materials_created"] == []
+    assert not any("created new master data" in warning for warning in summary["warnings"])
+
+
+def test_missing_eta_gives_human_warning(
+    client_and_session: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, _ = client_and_session
+    csv_body = "\n".join(
+        [
+            "shipment_id,plant_code,material_code,supplier_name,quantity_mt,current_state,latest_update_at",
+            "SHP-NO-ETA,JAM,COKING_COAL,Supplier A,10,in_transit,2026-04-15T09:00:00Z",
+        ]
+    )
+
+    response = upload_csv(client, login(client), "shipment", csv_body)
+
+    assert response.status_code == 400
+    body = response.json()["detail"]
+    summary = body["operational_summary"]
+    assert summary["missing_eta_count"] == 1
+    assert any(
+        "ETA is required because OpsDeck cannot judge" in warning
+        for warning in summary["warnings"]
+    )
+
+
+def test_missing_consumption_gives_setup_warning(
+    client_and_session: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, _ = client_and_session
+    csv_body = "\n".join(
+        [
+            "plant_code,material_code,on_hand_mt,quality_held_mt,available_to_consume_mt,daily_consumption_mt,snapshot_time",
+            "JAM,COKING_COAL,10000,1000,9000,,2026-04-15T08:00:00Z",
+        ]
+    )
+
+    response = upload_csv(client, login(client), "stock", csv_body)
+
+    assert response.status_code == 400
+    summary = response.json()["detail"]["operational_summary"]
+    assert summary["missing_consumption_count"] == 1
+    assert "Daily consumption is required" in summary["warnings"][0]
+
+
+def test_missing_threshold_gives_setup_warning(
+    client_and_session: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, _ = client_and_session
+    csv_body = "\n".join(
+        [
+            "plant_code,material_code,threshold_days,warning_days",
+            "JAM,COKING_COAL,,10",
+        ]
+    )
+
+    response = upload_csv(client, login(client), "threshold", csv_body)
+
+    assert response.status_code == 400
+    summary = response.json()["detail"]["operational_summary"]
+    assert summary["missing_threshold_count"] == 1
+    assert "Thresholds are required" in summary["warnings"][0]
+
+
+def test_indian_style_headers_map_correctly(
+    client_and_session: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, _ = client_and_session
+    csv_body = "\n".join(
+        [
+            "Rake No,Plant,Material,Vendor,Quantity,ETA at Plant,Status,Last Updated",
+            "R-101,JAM,COKING_COAL,Supplier A,100,2026-04-21T08:00:00Z,"
+            "in_transit,2026-04-15T09:00:00Z",
+        ]
+    )
+
+    response = upload_csv(client, login(client), "shipment", csv_body)
+
+    assert response.status_code == 200, response.json()
+    body = response.json()
+    assert body["rows_accepted"] == 1
+    assert body["operational_summary"]["shipments_detected"] == ["R-101"]
 
 
 def test_shipment_upload_missing_supplier_is_rejected_without_broken_supplier(
@@ -1210,11 +1414,20 @@ def test_shipment_upload_can_derive_current_eta_from_delay_days(
         assert shipment.current_eta.isoformat() == "2026-04-22T20:00:00"
 
 
-def test_delete_uploaded_data_clears_tenant_ingestion_artifacts(
+def test_operator_cannot_clear_uploaded_data(
+    client_and_session: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, _ = client_and_session
+    headers = login(client)
+    response = client.delete("/api/v1/ingestion/uploads", headers=headers)
+    assert response.status_code == 403
+
+
+def test_admin_can_clear_uploaded_data(
     client_and_session: tuple[TestClient, sessionmaker[Session]],
 ) -> None:
     client, SessionLocal = client_and_session
-    headers = login(client)
+    headers = admin_login(client)
 
     shipment_response = upload_csv(client, headers, "shipment", shipment_csv("SHP-CLEAR"))
     stock_response = upload_csv(
@@ -1555,7 +1768,7 @@ def test_founder_demo_csv_files_ingest_and_are_import_auditable(
         in shipment_response.json()["operational_summary"]["shipments_detected"]
     )
     shipment_summary = shipment_response.json()["operational_summary"]
-    assert shipment_summary["warnings"] == []
+    assert any("created new master data" in warning for warning in shipment_summary["warnings"])
     assert shipment_summary["supplier_references_total"] >= 1
     assert shipment_summary["supplier_references_linked"] == shipment_summary[
         "supplier_references_total"

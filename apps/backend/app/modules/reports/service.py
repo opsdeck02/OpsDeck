@@ -433,7 +433,7 @@ def executive_report_markdown(
         f"Average Assessment Calibration: {summary.average_assessment_calibration}",
         f"Average Operational Trust: {summary.average_operational_trust}",
         (
-            "Historical Validation Detection Rate: "
+            "Past Incident Analysis Detection Rate: "
             f"{summary.historical_validation_detection_rate or 'N/A'}%"
         ),
         "",
@@ -482,7 +482,8 @@ def executive_report_markdown(
     lines.extend(
         [
             "",
-            "## Historical Validation",
+            "## Past Incident Analysis",
+            "Incident Replay",
             f"Detection Rate: {historical.detection_rate or 'N/A'}%",
             f"Average Warning Lead Time: {historical.average_warning_lead_time_days or 'N/A'} days",
             f"Detected Incidents: {historical.detected_incidents}",

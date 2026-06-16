@@ -148,6 +148,9 @@ class ShipmentContinuityResult(BaseModel):
     physical_quantity: Decimal | None = None
     trusted_quantity: Decimal | None = None
     protective_quantity: Decimal | None = None
+    trusted_but_late_quantity: Decimal | None = None
+    uncertain_quantity: Decimal | None = None
+    inbound_bucket: str | None = None
     protective_value_label: str | None = None
     trust_level: str | None = None
     trust_reason: str | None = None
@@ -155,5 +158,12 @@ class ShipmentContinuityResult(BaseModel):
     movement_condition: str | None = None
     eta_status: str | None = None
     eta_drift_days: Decimal | None = None
+    confidence: Decimal | None = None
+    confidence_band: str | None = None
+    protection_status: str | None = None
+    protection_reason: str | None = None
+    eta_deterioration_days: Decimal | None = None
+    tracking_freshness: str | None = None
+    supplier_reliability: str | None = None
     is_currently_protective: bool | None = None
     protection_explanation: str | None = None

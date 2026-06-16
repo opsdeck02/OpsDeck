@@ -46,10 +46,10 @@ export default async function AdminPage() {
           description="Configure operational continuity thresholds and interruption impact logic."
         />
         <AdminCard
-          href="/dashboard/admin/historical-validation"
+          href="/dashboard/admin/past-incident-analysis"
           icon={<FileClock className="h-4 w-4" />}
-          title="Historical Validation"
-          description="Review whether OpsDeck would have detected past continuity incidents before disruption."
+          title="Past Incident Analysis"
+          description="Incident Replay: review whether OpsDeck would have detected past continuity incidents before disruption."
         />
         <AdminCard
           href="/dashboard/admin/executive-continuity-report"

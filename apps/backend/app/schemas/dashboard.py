@@ -170,6 +170,17 @@ class PilotReadinessCheck(BaseModel):
     last_updated_at: datetime | None
 
 
+class PilotSetupChecklistItem(BaseModel):
+    key: str
+    label: str
+    category: str
+    state: str
+    detail: str
+    next_action: str
+    href: str
+    blocking: bool = False
+
+
 class PilotReadinessCounts(BaseModel):
     uploaded_files: int
     ingestion_jobs: int
@@ -180,9 +191,13 @@ class PilotReadinessCounts(BaseModel):
 
 class PilotReadinessResponse(BaseModel):
     tenant: str
+    setup_status: str = "Pilot setup incomplete"
+    safe_to_rely_on: bool = False
+    safe_to_rely_on_reason: str = "Mandatory pilot setup is incomplete."
     counts: PilotReadinessCounts
     last_upload_at: datetime | None
     last_stock_update_at: datetime | None
     last_exception_update_at: datetime | None
     last_movement_update_at: datetime | None
     checks: list[PilotReadinessCheck]
+    setup_checklist: list[PilotSetupChecklistItem] = []

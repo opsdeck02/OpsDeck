@@ -155,7 +155,8 @@ def test_executive_continuity_report_returns_executive_briefing(
     assert material["why_escalating"]
     assert "Executive Summary" in body["markdown_report"]
     assert "Critical Materials" in body["markdown_report"]
-    assert "Historical Validation" in body["markdown_report"]
+    assert "Past Incident Analysis" in body["markdown_report"]
+    assert "Incident Replay" in body["markdown_report"]
     assert body["pdf_ready_content"] == body["markdown_report"]
 
 

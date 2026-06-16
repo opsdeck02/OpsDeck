@@ -668,7 +668,8 @@ def weekly_digest_body(
                 or ["No immediate executive actions returned."]
             ],
             "",
-            "## Historical Validation Summary",
+            "## Past Incident Analysis Summary",
+            "Incident Replay",
             report.historical_validation.interpretation,
         ]
     )

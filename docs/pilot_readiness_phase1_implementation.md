@@ -49,7 +49,7 @@ The result is surfaced through:
 - stock cover detail response
 - direct stock time-phased API
 - signal-engine inventory continuity response
-- historical validation report
+- Past Incident Analysis report
 
 ## 2. Database Changes
 
@@ -98,7 +98,7 @@ New endpoint:
 GET /api/v1/line-stops/historical-validation?limit=25
 ```
 
-Returns `HistoricalValidationReport`.
+Returns the internal `HistoricalValidationReport` response used by Past Incident Analysis.
 
 ## 4. Backend Implementation
 
@@ -181,7 +181,7 @@ Logic:
 - The onboarding completeness score is reduced when suppliers are not linked.
 - The warning explains that supplier reliability calculations are uncalibrated for those shipments.
 
-### Historical Validation Report V1
+### Past Incident Analysis Report V1
 
 Files:
 
@@ -270,10 +270,9 @@ Pilot data readiness:
 3. Load shipment rows with supplier names.
 4. Create supplier master records before pilot scoring.
 5. Record/import historical incidents for validation.
-6. Call historical validation report and review missed signals.
+6. Call Past Incident Analysis report and review missed signals.
 
 Rollback:
 
 - Code rollback is sufficient.
 - No database rollback is required because no schema changes were introduced.
-

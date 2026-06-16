@@ -48,6 +48,21 @@ def test_days_of_cover_calculation() -> None:
     assert result.trusted_days_of_cover == Decimal("7.08")
 
 
+def test_baseline_exhaustion_date_calculation() -> None:
+    now = datetime(2026, 5, 9, 6, tzinfo=UTC)
+    result = calculate_inventory_continuity(
+        plant_reference="P1",
+        material_reference="M1",
+        on_hand_quantity=Decimal("100"),
+        daily_consumption_rate=Decimal("10"),
+        unit="MT",
+        now=now,
+    )
+
+    assert result.baseline_exhaustion_date == datetime(2026, 5, 19, 6, tzinfo=UTC)
+    assert result.projected_exhaustion_date == result.baseline_exhaustion_date
+
+
 def test_projected_exhaustion_date_calculation() -> None:
     now = datetime(2026, 5, 9, 6, tzinfo=UTC)
     result = calculate_inventory_continuity(
@@ -200,11 +215,93 @@ def test_trusted_inbound_increases_trusted_cover() -> None:
 
         assert result is not None
         assert result.days_of_cover == Decimal("4.00")
-        assert result.physical_inbound_quantity_mt == Decimal("40.00")
-        assert result.trusted_inbound_quantity == Decimal("24.00")
+    assert result.physical_inbound_quantity_mt == Decimal("40.00")
+    assert result.eta_protective_trusted_inbound_quantity == Decimal("24.00")
+    assert result.trusted_but_late_inbound_quantity == Decimal("0.00")
+    assert result.trusted_inbound_quantity == Decimal("24.00")
+    assert result.uncertain_inbound_quantity == Decimal("16.00")
+    assert result.trusted_days_of_cover == Decimal("5.20")
+    assert result.projected_exhaustion_date == datetime(2026, 5, 14, 16, 48, tzinfo=UTC)
+
+
+def test_late_inbound_does_not_extend_cover() -> None:
+    with inventory_test_session() as db:
+        tenant, plant, material = seed_single_inventory_context(db)
+        db.add(
+            Shipment(
+                tenant_id=tenant.id,
+                shipment_id="LATE-IN",
+                material_id=material.id,
+                plant_id=plant.id,
+                supplier_name="Supplier A",
+                quantity_mt=Decimal("40"),
+                planned_eta=datetime(2026, 5, 20, tzinfo=UTC),
+                current_eta=datetime(2026, 5, 20, tzinfo=UTC),
+                current_state=ShipmentState.IN_TRANSIT,
+                source_of_truth="manual_upload",
+                latest_update_at=datetime(2026, 5, 9, 10, tzinfo=UTC),
+            )
+        )
+        db.commit()
+
+        result = calculate_inventory_continuity_for(
+            db,
+            RequestContext(
+                tenant_id=tenant.id,
+                tenant_slug=tenant.slug,
+                role="tenant_admin",
+                user_id=1,
+            ),
+            plant.id,
+            material.id,
+            now=datetime(2026, 5, 9, 12, tzinfo=UTC),
+        )
+
+        assert result is not None
+        assert result.baseline_exhaustion_date == datetime(2026, 5, 13, 12, tzinfo=UTC)
+        assert result.projected_exhaustion_date == result.baseline_exhaustion_date
+        assert result.eta_protective_trusted_inbound_quantity == Decimal("0.00")
+        assert result.trusted_but_late_inbound_quantity == Decimal("24.00")
         assert result.uncertain_inbound_quantity == Decimal("16.00")
-        assert result.trusted_days_of_cover == Decimal("5.20")
-        assert result.projected_exhaustion_date == datetime(2026, 5, 14, 16, 48, tzinfo=UTC)
+
+
+def test_late_inbound_is_classified_as_trusted_but_late() -> None:
+    with inventory_test_session() as db:
+        tenant, plant, material = seed_single_inventory_context(db)
+        db.add(
+            Shipment(
+                tenant_id=tenant.id,
+                shipment_id="LATE-TRUSTED",
+                material_id=material.id,
+                plant_id=plant.id,
+                supplier_name="Supplier A",
+                quantity_mt=Decimal("50"),
+                planned_eta=datetime(2026, 5, 18, tzinfo=UTC),
+                current_eta=datetime(2026, 5, 18, tzinfo=UTC),
+                current_state=ShipmentState.IN_TRANSIT,
+                source_of_truth="manual_upload",
+                latest_update_at=datetime(2026, 5, 9, 10, tzinfo=UTC),
+            )
+        )
+        db.commit()
+
+        result = calculate_inventory_continuity_for(
+            db,
+            RequestContext(
+                tenant_id=tenant.id,
+                tenant_slug=tenant.slug,
+                role="tenant_admin",
+                user_id=1,
+            ),
+            plant.id,
+            material.id,
+            now=datetime(2026, 5, 9, 12, tzinfo=UTC),
+        )
+
+        assert result is not None
+        assert result.physical_inbound_quantity == Decimal("50.00")
+        assert result.eta_protective_trusted_inbound_quantity == Decimal("0.00")
+        assert result.trusted_but_late_inbound_quantity == Decimal("30.00")
 
 
 def test_degraded_or_stale_inbound_is_uncertain() -> None:
@@ -257,13 +354,13 @@ def test_degraded_or_stale_inbound_is_uncertain() -> None:
 
         assert result is not None
         assert result.physical_inbound_quantity_mt == Decimal("50.00")
-        assert result.trusted_inbound_quantity == Decimal("6.50")
-        assert result.uncertain_inbound_quantity == Decimal("43.50")
-        assert result.trusted_days_of_cover == Decimal("4.33")
+        assert result.trusted_inbound_quantity == Decimal("0.00")
+        assert result.uncertain_inbound_quantity == Decimal("50.00")
+        assert result.trusted_days_of_cover == Decimal("4.00")
         assert any("Visibility uncertainty" in warning for warning in result.trust_warnings)
 
 
-def test_low_confidence_inbound_creates_trust_warning() -> None:
+def test_low_confidence_inbound_is_uncertain() -> None:
     with inventory_test_session() as db:
         tenant, plant, material = seed_single_inventory_context(db)
         db.add(
@@ -276,10 +373,10 @@ def test_low_confidence_inbound_creates_trust_warning() -> None:
                 quantity_mt=Decimal("30"),
                 planned_eta=datetime(2026, 5, 10, tzinfo=UTC),
                 current_eta=datetime(2026, 5, 10, tzinfo=UTC),
-                current_state=ShipmentState.IN_TRANSIT,
+                current_state=ShipmentState.DELAYED,
+                current_milestone="blocked exception",
                 source_of_truth="manual_upload",
                 latest_update_at=datetime(2026, 5, 9, 10, tzinfo=UTC),
-                eta_confidence=Decimal("0.40"),
             )
         )
         db.commit()
@@ -299,9 +396,32 @@ def test_low_confidence_inbound_creates_trust_warning() -> None:
 
         assert result is not None
         assert result.physical_inbound_quantity_mt == Decimal("30.00")
-        assert result.trusted_inbound_quantity == Decimal("18.00")
-        assert result.uncertain_inbound_quantity == Decimal("12.00")
+        assert result.eta_protective_trusted_inbound_quantity == Decimal("0.00")
+        assert result.uncertain_inbound_quantity == Decimal("30.00")
         assert any("Visibility uncertainty" in warning for warning in result.trust_warnings)
+
+
+def test_protected_inbound_reconciles_with_shipment_cards() -> None:
+    result = calculate_inventory_continuity(
+        plant_reference="P1",
+        material_reference="M1",
+        on_hand_quantity=Decimal("100"),
+        daily_consumption_rate=Decimal("10"),
+        unit="MT",
+        trusted_inbound_quantity=Decimal("25"),
+        trusted_inbound_protection_mt=Decimal("25"),
+        trusted_but_late_inbound_quantity=Decimal("15"),
+        uncertain_inbound_quantity=Decimal("10"),
+        physical_inbound_quantity_mt=Decimal("50"),
+        now=datetime(2026, 5, 9, tzinfo=UTC),
+    )
+
+    assert (
+        result.eta_protective_trusted_inbound_quantity
+        + result.trusted_but_late_inbound_quantity
+        + result.uncertain_inbound_quantity
+        == result.physical_inbound_quantity
+    )
 
 
 def inventory_test_session():

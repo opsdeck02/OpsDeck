@@ -66,12 +66,13 @@ def test_multiple_inbound_rows_get_distinct_protection_values() -> None:
         shipments = {item.shipment_reference: item for item in workspace.shipment_continuity}
 
         assert shipments["SHIP-STRONG"].protective_value_label == "Strong protection"
-        assert shipments["SHIP-WEAK"].protective_value_label == "Weak protection"
+        assert shipments["SHIP-WEAK"].protective_value_label == "Uncertain inbound"
         assert shipments["SHIP-STRONG"].trusted_quantity != shipments["SHIP-WEAK"].trusted_quantity
         assert shipments["SHIP-WEAK"].trusted_quantity < shipments["SHIP-WEAK"].physical_quantity
+        assert shipments["SHIP-WEAK"].protective_quantity == Decimal("0.00")
 
 
-def test_stale_inbound_is_marked_weak() -> None:
+def test_stale_inbound_is_marked_uncertain() -> None:
     with managed_session() as db:
         ctx = seed_context(db)
         add_stock(db, ctx)
@@ -94,8 +95,9 @@ def test_stale_inbound_is_marked_weak() -> None:
         )
 
         shipment = only_shipment(workspace)
-        assert shipment.protective_value_label == "Weak protection"
-        assert shipment.trust_level == "weak"
+        assert shipment.protective_value_label == "Uncertain inbound"
+        assert shipment.trust_level == "uncertain"
+        assert shipment.protective_quantity == Decimal("0.00")
         assert (
             "degraded" in (shipment.trust_reason or "").lower()
             or shipment.trusted_quantity < shipment.physical_quantity
@@ -117,13 +119,13 @@ def test_inbound_after_projected_exhaustion_is_not_currently_protective() -> Non
         )
 
         shipment = only_shipment(workspace)
-        assert shipment.protective_value_label == "Not currently protective"
+        assert shipment.protective_value_label == "Trusted but late"
         assert shipment.is_currently_protective is False
         assert shipment.protective_quantity == Decimal("0.00")
-        assert "after projected cover loss" in (shipment.protection_explanation or "")
+        assert "after baseline cover loss" in (shipment.protection_explanation or "")
 
 
-def test_missing_inbound_data_returns_unknown_protection_with_explanation() -> None:
+def test_missing_eta_is_uncertain() -> None:
     with managed_session() as db:
         ctx = seed_context(db)
         shipment_model = Shipment(
@@ -168,9 +170,111 @@ def test_missing_inbound_data_returns_unknown_protection_with_explanation() -> N
         assert shipment.physical_quantity == Decimal("100.00")
         assert shipment.trusted_quantity is not None
         assert shipment.protective_value_label == "Unknown protection"
-        assert shipment.trust_level == "unknown"
-        assert shipment.is_currently_protective is None
+        assert shipment.trust_level == "uncertain"
+        assert shipment.is_currently_protective is False
         assert "Current ETA is missing" in (shipment.protection_explanation or "")
+
+
+def test_eta_protection_uses_baseline_exhaustion() -> None:
+    with managed_session() as db:
+        ctx = seed_context(db)
+        add_stock(db, ctx)
+        add_shipment(db, ctx, shipment_id="SHIP-EARLY", current_eta=NOW + timedelta(days=1))
+        add_shipment(db, ctx, shipment_id="SHIP-BASELINE-LATE", current_eta=NOW + timedelta(days=3))
+        db.commit()
+
+        workspace = get_risk_workspace(
+            db,
+            request_context(ctx.tenant),
+            risk_type="days_of_cover_breach",
+            now=NOW,
+        )
+        shipments = {item.shipment_reference: item for item in workspace.shipment_continuity}
+        inventory = workspace.inventory_continuity[0]
+
+        assert inventory.baseline_exhaustion_date == NOW + timedelta(days=2)
+        assert shipments["SHIP-EARLY"].protective_value_label == "Strong protection"
+        assert shipments["SHIP-BASELINE-LATE"].protective_value_label == "Trusted but late"
+        assert shipments["SHIP-BASELINE-LATE"].protective_quantity == Decimal("0.00")
+
+
+def test_protected_inbound_reconciles_with_shipment_cards() -> None:
+    with managed_session() as db:
+        ctx = seed_context(db)
+        add_stock(db, ctx)
+        add_shipment(db, ctx, shipment_id="SHIP-A", current_eta=NOW + timedelta(days=1))
+        add_shipment(db, ctx, shipment_id="SHIP-LATE", current_eta=NOW + timedelta(days=4))
+        add_shipment(
+            db,
+            ctx,
+            shipment_id="SHIP-UNCERTAIN",
+            current_eta=NOW + timedelta(days=1),
+            latest_update_at=NOW - timedelta(hours=30),
+            current_state=ShipmentState.DELAYED,
+            current_milestone="delayed exception",
+        )
+        db.commit()
+
+        workspace = get_risk_workspace(
+            db,
+            request_context(ctx.tenant),
+            plant_reference=ctx.plant.code,
+            material_reference=ctx.material.code,
+            now=NOW,
+        )
+        inventory = workspace.inventory_continuity[0]
+
+        shipments = {item.shipment_reference: item for item in workspace.shipment_continuity}
+        assert set(shipments) == {"SHIP-A", "SHIP-LATE", "SHIP-UNCERTAIN"}
+
+        protected_from_cards = sum_card_quantity(
+            workspace.shipment_continuity,
+            "protective_quantity",
+        )
+        trusted_but_late_from_cards = sum_card_quantity(
+            workspace.shipment_continuity,
+            "trusted_but_late_quantity",
+        )
+        uncertain_from_cards = sum_card_quantity(
+            workspace.shipment_continuity,
+            "uncertain_quantity",
+        )
+
+        assert inventory.eta_protective_trusted_inbound_quantity == protected_from_cards
+        assert inventory.trusted_but_late_inbound_quantity == trusted_but_late_from_cards
+        assert inventory.uncertain_inbound_quantity == uncertain_from_cards
+
+
+def test_material_workspace_keeps_all_bucket_contributing_shipments_visible() -> None:
+    with managed_session() as db:
+        ctx = seed_context(db)
+        add_stock(db, ctx)
+        add_shipment(db, ctx, shipment_id="SHIP-PROTECTIVE", current_eta=NOW + timedelta(days=1))
+        add_shipment(db, ctx, shipment_id="SHIP-LATE", current_eta=NOW + timedelta(days=4))
+        add_shipment(
+            db,
+            ctx,
+            shipment_id="SHIP-UNCERTAIN",
+            current_eta=NOW + timedelta(days=1),
+            latest_update_at=NOW - timedelta(hours=30),
+            current_state=ShipmentState.DELAYED,
+            current_milestone="delayed exception",
+        )
+        db.commit()
+
+        workspace = get_risk_workspace(
+            db,
+            request_context(ctx.tenant),
+            plant_reference=ctx.plant.code,
+            material_reference=ctx.material.code,
+            now=NOW,
+        )
+
+        shipments = {item.shipment_reference: item for item in workspace.shipment_continuity}
+        assert set(shipments) == {"SHIP-PROTECTIVE", "SHIP-LATE", "SHIP-UNCERTAIN"}
+        assert shipments["SHIP-PROTECTIVE"].inbound_bucket == "eta_protective_trusted"
+        assert shipments["SHIP-LATE"].inbound_bucket == "trusted_but_late"
+        assert shipments["SHIP-UNCERTAIN"].inbound_bucket == "uncertain"
 
 
 def test_existing_workspace_response_keeps_legacy_shipment_fields() -> None:
@@ -259,6 +363,7 @@ def add_shipment(
     latest_update_at: datetime | None = None,
     current_state: ShipmentState = ShipmentState.IN_TRANSIT,
     current_milestone: str = "in_transit",
+    eta_confidence: Decimal | None = None,
 ) -> None:
     db.add(
         Shipment(
@@ -276,6 +381,7 @@ def add_shipment(
             source_of_truth="manual_upload",
             latest_update_at=latest_update_at or NOW - timedelta(hours=2),
             last_tracking_update_at=latest_update_at or NOW - timedelta(hours=2),
+            eta_confidence=eta_confidence,
         )
     )
 
@@ -292,3 +398,10 @@ def request_context(tenant: Tenant) -> RequestContext:
 def only_shipment(workspace):
     assert len(workspace.shipment_continuity) == 1
     return workspace.shipment_continuity[0]
+
+
+def sum_card_quantity(shipments, field: str) -> Decimal:
+    return sum(
+        (getattr(item, field) or Decimal("0.00") for item in shipments),
+        Decimal("0.00"),
+    )
