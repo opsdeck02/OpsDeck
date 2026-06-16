@@ -44,6 +44,8 @@ alembic upgrade head
 From `apps/backend`:
 
 ```bash
+export OPSDECK_DEMO_PASSWORD="choose-a-local-demo-password"
+export OPSDECK_SUPERADMIN_PASSWORD="choose-a-local-superadmin-password"
 python scripts/seed_demo.py
 ```
 
@@ -54,11 +56,8 @@ Seeded demo users:
 - `planner@demo.steelops.local`
 - `sponsor@demo.steelops.local`
 
-All seeded users use:
-
-```text
-Password123!
-```
+The seeded tenant users use `OPSDECK_DEMO_PASSWORD`. The seeded superadmin uses
+`OPSDECK_SUPERADMIN_PASSWORD`.
 
 ## 5. Start Backend
 
@@ -124,4 +123,3 @@ cd packages/contracts
 npm run lint
 npm run build
 ```
-

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import secrets
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -49,6 +51,9 @@ from app.modules.auth.constants import (
 )
 from app.modules.auth.security import hash_password
 
+DEMO_PASSWORD = os.getenv("OPSDECK_DEMO_PASSWORD") or secrets.token_urlsafe(18)
+SUPERADMIN_PASSWORD = os.getenv("OPSDECK_SUPERADMIN_PASSWORD") or secrets.token_urlsafe(18)
+
 ROLE_DESCRIPTIONS = {
     TENANT_ADMIN: "Tenant administrator with continuity intelligence access",
     BUYER_USER: "Buyer responsible for supplier continuity and inbound stability",
@@ -90,15 +95,15 @@ PILOT_TEMPLATE_PLANT_CODE = "JAM"
 PILOT_TEMPLATE_MATERIAL_CODE = "COKING_COAL"
 PILOT_TEMPLATE_SUPPLIERS = (
     {
-        "code": "BHP-MA",
-        "name": "BHP Mitsubishi Alliance",
-        "primary_port": "Hay Point",
+        "code": "DEMO-SUPPLIER-A",
+        "name": "DEMO Supplier A",
+        "primary_port": "DEMO Origin A",
         "country_of_origin": "Australia",
     },
     {
         "code": "ABC-MINERALS",
-        "name": "ABC Minerals",
-        "primary_port": "Paradip",
+        "name": "DEMO Supplier B",
+        "primary_port": "DEMO Destination A",
         "country_of_origin": "India",
     },
 )
@@ -161,9 +166,9 @@ DEMO_MATERIALS = (
         name="Imported Coking Coal",
         category="raw_material",
         supplier_code="DEMO-SUPPLIER-COAL-01",
-        supplier_name="Eastern Metallurgical Coal",
+        supplier_name="DEMO Supplier A",
         supplier_origin="Australia",
-        primary_port="Hay Point",
+        primary_port="DEMO Origin A",
         stock_on_hand=Decimal("100"),
         quality_held=Decimal("0"),
         available_stock=Decimal("100"),
@@ -199,8 +204,8 @@ DEMO_MATERIALS = (
         vessel_name="MV Eastern Line",
         imo_number="9876543",
         mmsi="419000123",
-        origin_port="Hay Point",
-        destination_port="Paradip",
+        origin_port="DEMO Origin A",
+        destination_port="DEMO Destination A",
         current_milestone="ocean_transit",
         current_location="Bay of Bengal",
         eta_confidence=Decimal("0.72"),
@@ -210,9 +215,9 @@ DEMO_MATERIALS = (
         name="BF Grade Limestone",
         category="flux",
         supplier_code="DEMO-SUPPLIER-LIME-03",
-        supplier_name="Rourkela Minerals",
+        supplier_name="DEMO Supplier B",
         supplier_origin="India",
-        primary_port="Rourkela",
+        primary_port="DEMO Origin B",
         stock_on_hand=Decimal("8900"),
         quality_held=Decimal("250"),
         available_stock=Decimal("8650"),
@@ -248,10 +253,10 @@ DEMO_MATERIALS = (
         vessel_name=None,
         imo_number=None,
         mmsi=None,
-        origin_port="Rourkela",
-        destination_port="Jamshedpur",
+        origin_port="DEMO Origin B",
+        destination_port="Demo Plant A",
         current_milestone="rail_inland",
-        current_location="Tatanagar approach",
+        current_location="Demo approach",
         eta_confidence=Decimal("0.86"),
     ),
     DemoMaterialConfig(
@@ -261,7 +266,7 @@ DEMO_MATERIALS = (
         supplier_code="DEMO-SUPPLIER-PELLET-02",
         supplier_name="Vizag Pellet Works",
         supplier_origin="India",
-        primary_port="Visakhapatnam",
+        primary_port="DEMO Origin C",
         stock_on_hand=Decimal("11200"),
         quality_held=Decimal("700"),
         available_stock=Decimal("10500"),
@@ -297,8 +302,8 @@ DEMO_MATERIALS = (
         vessel_name=None,
         imo_number=None,
         mmsi=None,
-        origin_port="Visakhapatnam",
-        destination_port="Raipur",
+        origin_port="DEMO Origin C",
+        destination_port="DEMO Plant C",
         current_milestone="rake_departed",
         current_location="Titlagarh",
         eta_confidence=Decimal("0.78"),
@@ -308,9 +313,9 @@ DEMO_MATERIALS = (
         name="High Carbon Ferro Manganese",
         category="alloy",
         supplier_code="DEMO-SUPPLIER-ALLOY-04",
-        supplier_name="Nagpur Alloy House",
+        supplier_name="DEMO Supplier D",
         supplier_origin="India",
-        primary_port="Nagpur",
+        primary_port="DEMO Origin D",
         stock_on_hand=Decimal("420"),
         quality_held=Decimal("20"),
         available_stock=Decimal("400"),
@@ -346,8 +351,8 @@ DEMO_MATERIALS = (
         vessel_name=None,
         imo_number=None,
         mmsi=None,
-        origin_port="Nagpur",
-        destination_port="Raipur",
+        origin_port="DEMO Origin D",
+        destination_port="DEMO Plant C",
         current_milestone="truck_verified",
         current_location="Bhandara",
         eta_confidence=Decimal("0.92"),
@@ -371,13 +376,13 @@ def get_or_create_user(db: Session, email: str, full_name: str) -> User:
     if user:
         user.email = email
         user.full_name = full_name
-        user.password_hash = hash_password("Password123!")
+        user.password_hash = hash_password(DEMO_PASSWORD)
         user.is_active = True
         return user
     user = User(
         email=email,
         full_name=full_name,
-        password_hash=hash_password("Password123!"),
+        password_hash=hash_password(DEMO_PASSWORD),
         is_active=True,
     )
     db.add(user)
@@ -391,14 +396,14 @@ def get_or_create_superadmin(db: Session) -> User:
         user = User(
             email="superadmin@opsdeck.local",
             full_name="OpsDeck Superadmin",
-            password_hash=hash_password("SuperAdmin123!"),
+            password_hash=hash_password(SUPERADMIN_PASSWORD),
             is_active=True,
             is_superadmin=True,
         )
         db.add(user)
         flush_pending(db)
     else:
-        user.password_hash = hash_password("SuperAdmin123!")
+        user.password_hash = hash_password(SUPERADMIN_PASSWORD)
         user.is_active = True
         user.is_superadmin = True
     return user
@@ -526,13 +531,13 @@ def upsert_plant(db: Session, tenant_id: int) -> Plant:
             tenant_id=tenant_id,
             code=DEMO_PLANT_CODE,
             name="Demo Steel Plant - Integrated Works",
-            location="Jamshedpur, Jharkhand, India",
+            location="Demo Location A",
         )
         db.add(plant)
         flush_pending(db)
     else:
         plant.name = "Demo Steel Plant - Integrated Works"
-        plant.location = "Jamshedpur, Jharkhand, India"
+        plant.location = "Demo Location A"
     return plant
 
 
@@ -597,13 +602,13 @@ def seed_pilot_template_master_data(db: Session, tenant_id: int) -> None:
         plant = Plant(
             tenant_id=tenant_id,
             code=PILOT_TEMPLATE_PLANT_CODE,
-            name="Jamshedpur Works",
+            name="Demo Plant A",
             location="Jharkhand, India",
         )
         db.add(plant)
         flush_pending(db)
     else:
-        plant.name = "Jamshedpur Works"
+        plant.name = "Demo Plant A"
         plant.location = "Jharkhand, India"
 
     material = db.scalar(
@@ -935,7 +940,7 @@ def seed_coking_coal_story_shipments(
             "vessel_name": "MV Eastern Line",
             "imo_number": "9876543",
             "mmsi": "419000123",
-            "origin_port": "Hay Point",
+            "origin_port": "DEMO Origin A",
         },
         {
             "shipment_id": "DEMO-COAL-LATE-B",
@@ -955,7 +960,7 @@ def seed_coking_coal_story_shipments(
             "vessel_name": "MV Furnace Bay",
             "imo_number": "9765432",
             "mmsi": "419000456",
-            "origin_port": "Newcastle",
+            "origin_port": "DEMO Origin B",
         },
         {
             "shipment_id": "DEMO-COAL-TOO-LATE-C",
@@ -971,11 +976,11 @@ def seed_coking_coal_story_shipments(
             "delay_days": 0,
             "delay_status": "planned",
             "current_milestone": "fixture_pending",
-            "current_location": "Hay Point",
+            "current_location": "DEMO Origin A",
             "vessel_name": "MV Late Relief",
             "imo_number": "9654321",
             "mmsi": "419000789",
-            "origin_port": "Hay Point",
+            "origin_port": "DEMO Origin A",
         },
     )
     for item in story_shipments:
@@ -1065,7 +1070,7 @@ def seed_historical_validation_demo_incident(
             "delay_days": 3,
             "delay_status": "delayed",
             "vessel_name": "MV Eastern Recovery",
-            "origin_port": "Hay Point",
+            "origin_port": "DEMO Origin A",
         },
         {
             "shipment_id": "DEMO-HIST-COAL-DELAY-02",
@@ -1077,7 +1082,7 @@ def seed_historical_validation_demo_incident(
             "delay_days": 3,
             "delay_status": "delayed",
             "vessel_name": "MV Blast Furnace Relief",
-            "origin_port": "Newcastle",
+            "origin_port": "DEMO Origin B",
         },
     )
     for item in historical_shipments:
@@ -1247,8 +1252,10 @@ def seed() -> None:
             "Prepared demo-steel tenant with complete onboarding, operational configuration, "
             "stock, inbound, supplier, dependency, and trust demo data."
         )
-        print("Demo password for tenant users: Password123!")
-        print("Superadmin login: superadmin@opsdeck.local / SuperAdmin123! (no tenant membership)")
+        print("Demo tenant password was generated for this seed run.")
+        print("Set OPSDECK_DEMO_PASSWORD before running the seed script to choose it explicitly.")
+        print("Superadmin password was generated for this seed run.")
+        print("Set OPSDECK_SUPERADMIN_PASSWORD before running the seed script to choose it explicitly.")
     finally:
         db.close()
 

@@ -147,19 +147,19 @@ def seed_pilot_data(db: Session) -> None:
     admin = User(
         email="admin@pilot.local",
         full_name="Pilot Admin",
-        password_hash=hash_password("Password123!"),
+        password_hash=hash_password("TestOnlyCredential1!"),
         is_active=True,
     )
     operator = User(
         email="operator@pilot.local",
         full_name="Pilot Operator",
-        password_hash=hash_password("Password123!"),
+        password_hash=hash_password("TestOnlyCredential1!"),
         is_active=True,
     )
     sponsor = User(
         email="sponsor@pilot.local",
         full_name="Pilot Sponsor",
-        password_hash=hash_password("Password123!"),
+        password_hash=hash_password("TestOnlyCredential1!"),
         is_active=True,
     )
     db.add_all([admin, operator, sponsor])
@@ -253,7 +253,7 @@ def seed_pilot_data(db: Session) -> None:
                 vessel_name="MV Alpha",
                 imo_number="1234567",
                 mmsi="7777777",
-                origin_port="Paradip",
+                origin_port="DEMO Destination A",
                 destination_port="Plant One",
                 planned_eta=now + timedelta(days=2),
                 current_eta=now + timedelta(days=3),
@@ -357,7 +357,7 @@ def seed_pilot_data(db: Session) -> None:
 def login(client: TestClient, email: str) -> str:
     response = client.post(
         "/api/v1/auth/login",
-        json={"email": email, "password": "Password123!"},
+        json={"email": email, "password": "TestOnlyCredential1!"},
     )
     assert response.status_code == 200
     return str(response.json()["access_token"])

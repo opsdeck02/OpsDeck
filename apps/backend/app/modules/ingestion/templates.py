@@ -8,15 +8,9 @@ TEMPLATES: dict[str, str] = {
                     "material_code",
                     "supplier_name",
                     "quantity_mt",
-                    "planned_eta",
                     "current_eta",
                     "current_state",
                     "latest_update_at",
-                    "vessel_name",
-                    "imo_number",
-                    "mmsi",
-                    "origin_port",
-                    "destination_port",
                     "eta_confidence",
                 ]
             ),
@@ -25,17 +19,11 @@ TEMPLATES: dict[str, str] = {
                     "SHP-COAL-001",
                     "JAM",
                     "COKING_COAL",
-                    "BHP Mitsubishi Alliance",
+                    "DEMO Supplier A",
                     "74000",
-                    "2026-04-20T08:00:00Z",
                     "2026-04-21T08:00:00Z",
                     "in_transit",
                     "2026-04-15T09:00:00Z",
-                    "MV Eastern Furnace",
-                    "9876543",
-                    "419000123",
-                    "Hay Point",
-                    "Paradip",
                     "82.5",
                 ]
             ),
@@ -51,6 +39,12 @@ TEMPLATES: dict[str, str] = {
         [
             "plant_code,material_code,threshold_days,warning_days",
             "JAM,COKING_COAL,7,10",
+        ]
+    ),
+    "consumption": "\n".join(
+        [
+            "plant_code,material_code,daily_consumption_mt,snapshot_time",
+            "JAM,COKING_COAL,24000,2026-04-15T08:00:00Z",
         ]
     ),
 }

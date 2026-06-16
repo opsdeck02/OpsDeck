@@ -88,6 +88,7 @@ Required:
 - `GET /api/v1/ingestion/templates/shipment`
 - `GET /api/v1/ingestion/templates/stock`
 - `GET /api/v1/ingestion/templates/threshold`
+- `GET /api/v1/ingestion/templates/consumption`
 
 ## Known Limitations
 
@@ -97,4 +98,3 @@ Required:
 - Cross-row validation is intentionally minimal.
 - The parser resolves existing plants and materials only; uploads do not create new plant/material master data.
 - XLSX support reads the first worksheet only.
-

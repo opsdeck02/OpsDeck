@@ -23,7 +23,7 @@ def test_tenant_plan_defaults_and_gates_data_sources() -> None:
     override_database(testing_session)
     try:
         client = TestClient(app)
-        admin_token = login(client, "admin@test.local", "Password123!")
+        admin_token = login(client, "admin@test.local", "TestOnlyCredential1!")
 
         plan_response = client.get(
             "/api/v1/tenants/plan",
@@ -74,8 +74,8 @@ def test_superadmin_can_upgrade_tenant_in_place_and_paid_tenant_can_save_data_so
     override_database(testing_session)
     try:
         client = TestClient(app)
-        superadmin_token = login(client, "superadmin@test.local", "SuperAdmin123!")
-        admin_token = login(client, "admin@test.local", "Password123!")
+        superadmin_token = login(client, "superadmin@test.local", "TestOnlyAdminCredential1!")
+        admin_token = login(client, "admin@test.local", "TestOnlyCredential1!")
 
         update_response = client.patch(
             f"/api/v1/tenants/admin/{original_tenant_id}/plan",
@@ -189,21 +189,21 @@ def seed_tenant_data(db: Session, *, plan_tier: str) -> Tenant:
     superadmin = User(
         email="superadmin@test.local",
         full_name="Super Admin",
-        password_hash=hash_password("SuperAdmin123!"),
+        password_hash=hash_password("TestOnlyAdminCredential1!"),
         is_active=True,
         is_superadmin=True,
     )
     tenant_admin = User(
         email="admin@test.local",
         full_name="Tenant Admin",
-        password_hash=hash_password("Password123!"),
+        password_hash=hash_password("TestOnlyCredential1!"),
         is_active=True,
         is_superadmin=False,
     )
     buyer = User(
         email="buyer@test.local",
         full_name="Buyer User",
-        password_hash=hash_password("Password123!"),
+        password_hash=hash_password("TestOnlyCredential1!"),
         is_active=True,
         is_superadmin=False,
     )

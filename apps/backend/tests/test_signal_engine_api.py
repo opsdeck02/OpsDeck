@@ -917,7 +917,7 @@ def seed_signal_engine_data(db: Session) -> None:
     user = User(
         email="ops@test.local",
         full_name="Ops User",
-        password_hash=hash_password("Password123!"),
+        password_hash=hash_password("TestOnlyCredential1!"),
         is_active=True,
     )
     db.add(user)
@@ -1159,7 +1159,7 @@ def refresh_current_visibility_for_m1() -> None:
 def login(client: TestClient) -> str:
     response = client.post(
         "/api/v1/auth/login",
-        json={"email": "ops@test.local", "password": "Password123!"},
+        json={"email": "ops@test.local", "password": "TestOnlyCredential1!"},
     )
     assert response.status_code == 200
     return str(response.json()["access_token"])

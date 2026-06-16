@@ -294,7 +294,7 @@ def test_historical_validation_endpoint_returns_report() -> None:
         with TestClient(app) as client:
             login = client.post(
                 "/api/v1/auth/login",
-                json={"email": "planner@test.local", "password": "Password123!"},
+                json={"email": "planner@test.local", "password": "TestOnlyCredential1!"},
             )
             token = login.json()["access_token"]
             response = client.get(
@@ -398,7 +398,7 @@ def seed_mixed_historical_validation_data(db: Session) -> Tenant:
         tenant_id=tenant.id,
         name="Reliable Supplier",
         code="SUP-1",
-        primary_port="Paradip",
+        primary_port="DEMO Destination A",
         is_active=True,
     )
     db.add_all([plant, supplier, *materials.values()])
@@ -480,7 +480,7 @@ def seed_login_user(db: Session, tenant: Tenant) -> None:
     user = User(
         email="planner@test.local",
         full_name="Planner",
-        password_hash=hash_password("Password123!"),
+        password_hash=hash_password("TestOnlyCredential1!"),
         is_active=True,
     )
     db.add_all([role, user])

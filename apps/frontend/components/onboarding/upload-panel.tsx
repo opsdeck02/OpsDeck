@@ -18,6 +18,7 @@ const fileTypes = [
   { value: "shipment", label: "Inbound continuity feed" },
   { value: "stock", label: "Inventory continuity feed" },
   { value: "threshold", label: "Continuity threshold feed" },
+  { value: "consumption", label: "Consumption update feed" },
   { value: "workbook", label: "Operational workbook (multi-sheet)" },
 ];
 

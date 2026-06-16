@@ -211,7 +211,7 @@ def seed_data(db: Session) -> None:
         user = User(
             email=f"admin-{suffix}@test.local",
             full_name=f"Admin {suffix.upper()}",
-            password_hash=hash_password("Password123!"),
+            password_hash=hash_password("TestOnlyCredential1!"),
             is_active=True,
         )
         plant = Plant(
@@ -243,7 +243,7 @@ def seed_data(db: Session) -> None:
 def auth_headers(client: TestClient, email: str, tenant_slug: str) -> dict[str, str]:
     response = client.post(
         "/api/v1/auth/login",
-        json={"email": email, "password": "Password123!"},
+        json={"email": email, "password": "TestOnlyCredential1!"},
     )
     token = response.json()["access_token"]
     return {"Authorization": f"Bearer {token}", "X-Tenant-Slug": tenant_slug}

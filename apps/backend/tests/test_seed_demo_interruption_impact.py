@@ -103,18 +103,18 @@ def test_seed_demo_includes_pilot_template_master_references(monkeypatch, capsys
             template_supplier = db.scalar(
                 select(Supplier).where(
                     Supplier.tenant_id == tenant.id,
-                    Supplier.name == "BHP Mitsubishi Alliance",
+                    Supplier.name == "DEMO Supplier A",
                 )
             )
             docs_supplier = db.scalar(
                 select(Supplier).where(
                     Supplier.tenant_id == tenant.id,
-                    Supplier.name == "ABC Minerals",
+                    Supplier.name == "DEMO Supplier B",
                 )
             )
 
             assert plant is not None
-            assert plant.name == "Jamshedpur Works"
+            assert plant.name == "Demo Plant A"
             assert material is not None
             assert material.name == "Coking Coal"
             assert template_supplier is not None

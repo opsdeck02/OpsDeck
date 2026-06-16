@@ -56,7 +56,7 @@ def test_supplier_crud_linking_and_performance() -> None:
             json={
                 "name": "Acme Coal",
                 "code": "ACME",
-                "primary_port": "Hay Point",
+                "primary_port": "DEMO Origin A",
                 "material_categories": ["coal"],
             },
         )
@@ -316,13 +316,13 @@ def seed_base(db: Session) -> None:
     user = User(
         email="admin@test.local",
         full_name="Admin",
-        password_hash=hash_password("Password123!"),
+        password_hash=hash_password("TestOnlyCredential1!"),
         is_active=True,
     )
     db.add(user)
     db.flush()
     db.add(TenantMembership(tenant_id=tenant.id, user_id=user.id, role_id=role.id))
-    plant = Plant(tenant_id=tenant.id, code="JAM", name="Jamshedpur", location="IN")
+    plant = Plant(tenant_id=tenant.id, code="JAM", name="Demo Plant A", location="IN")
     material = Material(tenant_id=tenant.id, code="COAL", name="Coking Coal", category="coal")
     db.add_all([plant, material])
     db.flush()
@@ -482,7 +482,7 @@ def seed_supplier_contexts(db: Session) -> None:
 def auth_headers(client: TestClient) -> dict[str, str]:
     response = client.post(
         "/api/v1/auth/login",
-        json={"email": "admin@test.local", "password": "Password123!"},
+        json={"email": "admin@test.local", "password": "TestOnlyCredential1!"},
     )
     assert response.status_code == 200
     return {"Authorization": f"Bearer {response.json()['access_token']}"}

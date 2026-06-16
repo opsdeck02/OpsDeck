@@ -77,13 +77,13 @@ def seed_dashboard_data(db: Session) -> None:
     owner = User(
         email="owner@test.local",
         full_name="Owner User",
-        password_hash=hash_password("Password123!"),
+        password_hash=hash_password("TestOnlyCredential1!"),
         is_active=True,
     )
     viewer = User(
         email="viewer@test.local",
         full_name="Viewer User",
-        password_hash=hash_password("Password123!"),
+        password_hash=hash_password("TestOnlyCredential1!"),
         is_active=True,
     )
     db.add_all([owner, viewer])
@@ -212,7 +212,7 @@ def seed_dashboard_data(db: Session) -> None:
                 vessel_name=None,
                 imo_number=None,
                 mmsi=None,
-                origin_port="Paradip",
+                origin_port="DEMO Destination A",
                 destination_port="Plant Two",
                 planned_eta=now - timedelta(hours=6),
                 current_eta=now + timedelta(hours=6),
@@ -251,7 +251,7 @@ def seed_dashboard_data(db: Session) -> None:
             shipment_id=delayed.id,
             mode="rail",
             carrier_name="Rail Carrier",
-            origin_location="Paradip",
+            origin_location="DEMO Destination A",
             destination_location="Plant Two",
             planned_departure_at=now - timedelta(days=1),
             planned_arrival_at=now - timedelta(hours=12),
@@ -355,7 +355,7 @@ def seed_dashboard_data(db: Session) -> None:
 def auth_headers(client: TestClient) -> dict[str, str]:
     response = client.post(
         "/api/v1/auth/login",
-        json={"email": "viewer@test.local", "password": "Password123!"},
+        json={"email": "viewer@test.local", "password": "TestOnlyCredential1!"},
     )
     token = response.json()["access_token"]
     return {"Authorization": f"Bearer {token}", "X-Tenant-Slug": "tenant-a"}

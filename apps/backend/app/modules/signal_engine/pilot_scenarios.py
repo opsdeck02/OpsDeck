@@ -92,7 +92,7 @@ def seed_ocean_vessel_delay(
         db,
         context,
         plant_code="DEMO-JAM-BF1",
-        plant_name="Jamshedpur Blast Furnace 1",
+        plant_name="Demo Plant A Blast Furnace 1",
         material_code="DEMO-COKING-COAL",
         material_name="Imported Coking Coal",
     )
@@ -309,7 +309,7 @@ def seed_fresh_verified_inbound(
     plant, material = ensure_context(
         db,
         context,
-        plant_code="DEMO-JSW-HSM",
+        plant_code="DEMO-HSM-A",
         plant_name="Hot Strip Mill",
         material_code="DEMO-ZINC",
         material_name="Zinc Ingots",

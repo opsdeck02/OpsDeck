@@ -75,19 +75,19 @@ def seed_exception_data(db: Session) -> None:
     ops_user = User(
         email="ops@test.local",
         full_name="Ops User",
-        password_hash=hash_password("Password123!"),
+        password_hash=hash_password("TestOnlyCredential1!"),
         is_active=True,
     )
     planner_user = User(
         email="planner@test.local",
         full_name="Planner User",
-        password_hash=hash_password("Password123!"),
+        password_hash=hash_password("TestOnlyCredential1!"),
         is_active=True,
     )
     other_tenant_user = User(
         email="other@test.local",
         full_name="Other Tenant User",
-        password_hash=hash_password("Password123!"),
+        password_hash=hash_password("TestOnlyCredential1!"),
         is_active=True,
     )
     db.add_all([ops_user, planner_user, other_tenant_user])
@@ -244,8 +244,8 @@ def seed_exception_data(db: Session) -> None:
         vessel_name="MV Alpha",
         imo_number="1111111",
         mmsi="999999999",
-        origin_port="Hay Point",
-        destination_port="Paradip",
+        origin_port="DEMO Origin A",
+        destination_port="DEMO Destination A",
         planned_eta=now + timedelta(days=1),
         current_eta=now + timedelta(days=3),
         eta_confidence=Decimal("80"),
@@ -263,7 +263,7 @@ def seed_exception_data(db: Session) -> None:
         vessel_name=None,
         imo_number=None,
         mmsi=None,
-        origin_port="Paradip",
+        origin_port="DEMO Destination A",
         destination_port="Plant Three",
         planned_eta=now + timedelta(days=2),
         current_eta=now + timedelta(days=2),
@@ -282,7 +282,7 @@ def seed_exception_data(db: Session) -> None:
         vessel_name=None,
         imo_number=None,
         mmsi=None,
-        origin_port="Paradip",
+        origin_port="DEMO Destination A",
         destination_port="Plant Three",
         planned_eta=now + timedelta(days=1),
         current_eta=now + timedelta(days=1),
@@ -331,7 +331,7 @@ def seed_exception_data(db: Session) -> None:
 def auth_headers(client: TestClient, email: str = "ops@test.local") -> dict[str, str]:
     response = client.post(
         "/api/v1/auth/login",
-        json={"email": email, "password": "Password123!"},
+        json={"email": email, "password": "TestOnlyCredential1!"},
     )
     token = response.json()["access_token"]
     return {"Authorization": f"Bearer {token}", "X-Tenant-Slug": "tenant-a"}

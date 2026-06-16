@@ -273,7 +273,7 @@ def seed_notification_data(db: Session) -> None:
     user = User(
         email="admin@test.local",
         full_name="Admin User",
-        password_hash=hash_password("Password123!"),
+        password_hash=hash_password("TestOnlyCredential1!"),
         is_active=True,
     )
     db.add(user)
@@ -287,7 +287,7 @@ def seed_notification_data(db: Session) -> None:
         )
     )
 
-    plant = Plant(tenant_id=tenant_a.id, code="JAM", name="Jamshedpur", location="Jharkhand")
+    plant = Plant(tenant_id=tenant_a.id, code="JAM", name="Demo Plant A", location="Jharkhand")
     material = Material(
         tenant_id=tenant_a.id,
         code="COKING_COAL",
@@ -372,7 +372,7 @@ def seed_notification_data(db: Session) -> None:
 def auth_headers(client: TestClient) -> dict[str, str]:
     response = client.post(
         "/api/v1/auth/login",
-        json={"email": "admin@test.local", "password": "Password123!"},
+        json={"email": "admin@test.local", "password": "TestOnlyCredential1!"},
     )
     assert response.status_code == 200
     return {

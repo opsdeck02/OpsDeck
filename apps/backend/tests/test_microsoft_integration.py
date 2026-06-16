@@ -434,7 +434,7 @@ def seed_tenant_user(db: Session) -> tuple[Tenant, User]:
     )
     db.add_all(
         [
-            Plant(tenant_id=tenant.id, code="JAM", name="Jamshedpur", location="Jharkhand"),
+            Plant(tenant_id=tenant.id, code="JAM", name="Demo Plant A", location="Jharkhand"),
             Material(
                 tenant_id=tenant.id,
                 code="COKING_COAL",

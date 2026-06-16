@@ -408,7 +408,7 @@ def test_pilot_scenario_false_safety_from_stale_inbound_visibility() -> None:
 
 def test_pilot_scenario_fresh_verified_inbound_stabilizes_risk() -> None:
     with demo_session() as (db, tenant):
-        plant, material = add_context(db, tenant, "JSW-HSM", "ZINC")
+        plant, material = add_context(db, tenant, "DEMO-HSM", "ZINC")
         shipment = add_shipment(
             db,
             tenant,

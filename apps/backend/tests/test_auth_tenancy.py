@@ -59,19 +59,19 @@ def seed_test_data(db: Session) -> None:
     admin = User(
         email="admin@test.local",
         full_name="Admin User",
-        password_hash=hash_password("Password123!"),
+        password_hash=hash_password("TestOnlyCredential1!"),
         is_active=True,
     )
     logistics = User(
         email="logistics@test.local",
         full_name="Logistics User",
-        password_hash=hash_password("Password123!"),
+        password_hash=hash_password("TestOnlyCredential1!"),
         is_active=True,
     )
     sponsor = User(
         email="sponsor@test.local",
         full_name="Sponsor User",
-        password_hash=hash_password("Password123!"),
+        password_hash=hash_password("TestOnlyCredential1!"),
         is_active=True,
     )
     db.add_all([admin, logistics, sponsor])
@@ -164,7 +164,7 @@ def seed_test_data(db: Session) -> None:
 def login(client: TestClient, email: str) -> str:
     response = client.post(
         "/api/v1/auth/login",
-        json={"email": email, "password": "Password123!"},
+        json={"email": email, "password": "TestOnlyCredential1!"},
     )
     assert response.status_code == 200
     return str(response.json()["access_token"])

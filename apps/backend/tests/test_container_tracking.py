@@ -172,7 +172,7 @@ def test_linking_container_updates_shipment_tracking_status(
     body = response.json()
     assert body["container_no"] == "MSCU1234567"
     assert body["current_milestone"] == "Delivered"
-    assert body["current_location"] == "Jamshedpur Plant"
+    assert body["current_location"] == "Demo Plant A"
     assert body["delay_status"] in {"delayed", "on_time", "early"}
 
     with SessionLocal() as db:
@@ -286,7 +286,7 @@ def test_dcsa_link_repeated_payload_does_not_duplicate_events(
                 TrackingEventOut(
                     event_type="Vessel arrival",
                     event_datetime=datetime(2026, 5, 14, 8, tzinfo=UTC),
-                    location_name="Paradip Port",
+                    location_name="Demo Destination Port",
                     location_code="INPRT",
                     transport_mode="ocean",
                     vessel_name="MV Horizon",
@@ -493,7 +493,7 @@ def seed_tracking_data(db: Session) -> None:
     user = User(
         email="ops@test.local",
         full_name="Ops User",
-        password_hash=hash_password("Password123!"),
+        password_hash=hash_password("TestOnlyCredential1!"),
         is_active=True,
     )
     db.add(user)
@@ -507,7 +507,7 @@ def seed_tracking_data(db: Session) -> None:
         )
     )
 
-    plant = Plant(tenant_id=tenant.id, code="JAM", name="Jamshedpur", location="Jharkhand")
+    plant = Plant(tenant_id=tenant.id, code="JAM", name="Demo Plant A", location="Jharkhand")
     material = Material(
         tenant_id=tenant.id,
         code="COAL",
@@ -530,7 +530,7 @@ def seed_tracking_data(db: Session) -> None:
             imo_number=None,
             mmsi=None,
             origin_port="Nhava Sheva",
-            destination_port="Jamshedpur",
+            destination_port="Demo Plant A",
             planned_eta=now + timedelta(days=6),
             current_eta=now + timedelta(days=6),
             eta_confidence=Decimal("80"),
@@ -545,7 +545,7 @@ def seed_tracking_data(db: Session) -> None:
 def auth_headers(client: TestClient) -> dict[str, str]:
     response = client.post(
         "/api/v1/auth/login",
-        json={"email": "ops@test.local", "password": "Password123!"},
+        json={"email": "ops@test.local", "password": "TestOnlyCredential1!"},
     )
     assert response.status_code == 200
     return {

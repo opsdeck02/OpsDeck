@@ -4,7 +4,7 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-steelops}
       POSTGRES_USER: ${POSTGRES_USER:-steelops}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-steelops}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
@@ -32,7 +32,7 @@ services:
     env_file:
       - apps/backend/.env.example
     environment:
-      DATABASE_URL: postgresql+psycopg://steelops:steelops@postgres:5432/steelops
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-steelops}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-steelops}
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/1
     command: >
@@ -56,7 +56,7 @@ services:
     env_file:
       - apps/backend/.env.example
     environment:
-      DATABASE_URL: postgresql+psycopg://steelops:steelops@postgres:5432/steelops
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-steelops}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-steelops}
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/1
     command: celery -A app.workers.celery_app.celery_app worker --loglevel=info

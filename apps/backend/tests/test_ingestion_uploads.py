@@ -41,8 +41,7 @@ from app.modules.line_stops.service import build_historical_validation_report
 from app.modules.stock.service import calculate_stock_cover_detail
 from app.schemas.context import RequestContext
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
-DEMO_DATA_DIR = REPO_ROOT / "docs" / "demo-data"
+FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures" / "ingestion"
 
 
 @pytest.fixture()
@@ -82,16 +81,16 @@ def seed_ingestion_test_data(db: Session) -> None:
     user = User(
         email="logistics@test.local",
         full_name="Logistics User",
-        password_hash=hash_password("Password123!"),
+        password_hash=hash_password("TestOnlyCredential1!"),
         is_active=True,
     )
     admin = User(
         email="admin@test.local",
         full_name="Admin User",
-        password_hash=hash_password("Password123!"),
+        password_hash=hash_password("TestOnlyCredential1!"),
         is_active=True,
     )
-    plant = Plant(tenant_id=tenant.id, code="JAM", name="Jamshedpur", location="Jharkhand")
+    plant = Plant(tenant_id=tenant.id, code="JAM", name="Demo Plant A", location="Jharkhand")
     material = Material(
         tenant_id=tenant.id,
         code="COKING_COAL",
@@ -121,7 +120,7 @@ def seed_ingestion_test_data(db: Session) -> None:
 def login(client: TestClient) -> dict[str, str]:
     response = client.post(
         "/api/v1/auth/login",
-        json={"email": "logistics@test.local", "password": "Password123!"},
+        json={"email": "logistics@test.local", "password": "TestOnlyCredential1!"},
     )
     assert response.status_code == 200, response.json()
     token = response.json()["access_token"]
@@ -131,7 +130,7 @@ def login(client: TestClient) -> dict[str, str]:
 def admin_login(client: TestClient) -> dict[str, str]:
     response = client.post(
         "/api/v1/auth/login",
-        json={"email": "admin@test.local", "password": "Password123!"},
+        json={"email": "admin@test.local", "password": "TestOnlyCredential1!"},
     )
     assert response.status_code == 200, response.json()
     token = response.json()["access_token"]
@@ -383,6 +382,30 @@ def test_seeded_pilot_template_stock_upload_does_not_report_new_master_data(
     assert summary["new_plants_created"] == []
     assert summary["new_materials_created"] == []
     assert not any("created new master data" in warning for warning in summary["warnings"])
+
+
+def test_download_templates_only_include_pilot_critical_columns(
+    client_and_session: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, _ = client_and_session
+    headers = login(client)
+
+    shipment_response = client.get("/api/v1/ingestion/templates/shipment", headers=headers)
+    consumption_response = client.get("/api/v1/ingestion/templates/consumption", headers=headers)
+
+    assert shipment_response.status_code == 200, shipment_response.text
+    shipment_header = shipment_response.text.splitlines()[0]
+    assert shipment_header == (
+        "shipment_id,plant_code,material_code,supplier_name,quantity_mt,current_eta,"
+        "current_state,latest_update_at,eta_confidence"
+    )
+    assert "vessel_name" not in shipment_header
+    assert "imo_number" not in shipment_header
+    assert "origin_port" not in shipment_header
+    assert consumption_response.status_code == 200, consumption_response.text
+    assert consumption_response.text.splitlines()[0] == (
+        "plant_code,material_code,daily_consumption_mt,snapshot_time"
+    )
 
 
 def test_missing_eta_gives_human_warning(
@@ -687,7 +710,7 @@ def test_shipment_upload_creates_unknown_plant(
             [
                 "shipment_id,plant_code,material_code,supplier_name,quantity_mt,"
                 "planned_eta,current_eta,current_state,latest_update_at",
-                "SHP-NEW-PLANT,TATA_JSR_BF1,COKING_COAL,Supplier A,100,"
+                "SHP-NEW-PLANT,DEMO_PLANT_A,COKING_COAL,Supplier A,100,"
                 "2026-05-10T00:00:00Z,2026-05-10T00:00:00Z,in_transit,"
                 "2026-05-06T08:00:00Z",
             ]
@@ -697,10 +720,10 @@ def test_shipment_upload_creates_unknown_plant(
     assert response.status_code == 200, response.json()
     assert response.json()["rows_accepted"] == 1
     with SessionLocal() as db:
-        plant = db.scalar(select(Plant).where(Plant.code == "TATA_JSR_BF1"))
+        plant = db.scalar(select(Plant).where(Plant.code == "DEMO_PLANT_A"))
         shipment = db.scalar(select(Shipment).where(Shipment.shipment_id == "SHP-NEW-PLANT"))
         assert plant is not None
-        assert plant.name == "TATA_JSR_BF1"
+        assert plant.name == "DEMO_PLANT_A"
         assert shipment is not None
         assert shipment.plant_id == plant.id
 
@@ -1215,7 +1238,7 @@ def test_import_job_rollback_is_tenant_scoped(
         user_b = User(
             email="rollback-b@test.local",
             full_name="Tenant B User",
-            password_hash=hash_password("Password123!"),
+            password_hash=hash_password("TestOnlyCredential1!"),
             is_active=True,
         )
         db.add_all([tenant_b, user_b])
@@ -1232,7 +1255,7 @@ def test_import_job_rollback_is_tenant_scoped(
 
     login_response = client.post(
         "/api/v1/auth/login",
-        json={"email": "rollback-b@test.local", "password": "Password123!"},
+        json={"email": "rollback-b@test.local", "password": "TestOnlyCredential1!"},
     )
     assert login_response.status_code == 200
     tenant_b_headers = {
@@ -1272,7 +1295,7 @@ def test_ingestion_history_does_not_leak_between_tenants(
         user_b = User(
             email="tenant-b@test.local",
             full_name="Tenant B User",
-            password_hash=hash_password("Password123!"),
+            password_hash=hash_password("TestOnlyCredential1!"),
             is_active=True,
         )
         db.add_all([tenant_b, user_b])
@@ -1289,7 +1312,7 @@ def test_ingestion_history_does_not_leak_between_tenants(
 
     login_response = client.post(
         "/api/v1/auth/login",
-        json={"email": "tenant-b@test.local", "password": "Password123!"},
+        json={"email": "tenant-b@test.local", "password": "TestOnlyCredential1!"},
     )
     assert login_response.status_code == 200
     tenant_b_headers = {
@@ -1695,7 +1718,7 @@ def test_shipment_current_and_last_eta_map_distinctly(
         [
             "shipment_id,plant_code,material_code,supplier_name,quantity_mt,"
             "origin,planned_eta,current_eta,last_eta,current_state,latest_update_at",
-            "SHP-ETA-MAP,JAM,COKING_COAL,Supplier A,10,Paradip,2026-05-01,"
+            "SHP-ETA-MAP,JAM,COKING_COAL,Supplier A,10,DEMO Destination A,2026-05-01,"
             "2026-05-03,2026-05-02,in_transit,2026-04-29",
         ]
     )
@@ -1738,19 +1761,19 @@ def test_founder_demo_csv_files_ingest_and_are_import_auditable(
         client,
         headers,
         "stock",
-        (DEMO_DATA_DIR / "demo_stock_snapshots.csv").read_text(),
+        (FIXTURE_DIR / "demo_stock_snapshots.csv").read_text(),
     )
     shipment_response = upload_csv(
         client,
         headers,
         "shipment",
-        (DEMO_DATA_DIR / "demo_inbound_shipments.csv").read_text(),
+        (FIXTURE_DIR / "demo_inbound_shipments.csv").read_text(),
     )
     threshold_response = upload_csv(
         client,
         headers,
         "threshold",
-        (DEMO_DATA_DIR / "demo_continuity_thresholds.csv").read_text(),
+        (FIXTURE_DIR / "demo_continuity_thresholds.csv").read_text(),
     )
 
     assert stock_response.status_code == 200, stock_response.json()
@@ -1759,9 +1782,9 @@ def test_founder_demo_csv_files_ingest_and_are_import_auditable(
     assert stock_response.json()["rows_accepted"] == 4
     assert shipment_response.json()["rows_accepted"] == 6
     assert threshold_response.json()["rows_accepted"] == 4
-    assert "DEMO-STEEL" in stock_response.json()["operational_summary"]["plants_detected"]
+    assert "DEMO-PLANT-A" in stock_response.json()["operational_summary"]["plants_detected"]
     assert (
-        "DEMO-COKING-COAL" in shipment_response.json()["operational_summary"]["materials_detected"]
+        "DEMO-MATERIAL-A" in shipment_response.json()["operational_summary"]["materials_detected"]
     )
     assert (
         "DEMO-COAL-PROTECTIVE-A"
@@ -1816,9 +1839,9 @@ def test_demo_coking_coal_upload_story_proves_time_phased_cover_and_history(
         db.add(
             Supplier(
                 tenant_id=tenant.id,
-                code="DEMO-SUPPLIER-COAL-01",
-                name="Eastern Metallurgical Coal",
-                primary_port="Hay Point",
+                code="DEMO-SUPPLIER-A",
+                name="DEMO-SUPPLIER-A",
+                primary_port="DEMO-ORIGIN-A",
                 is_active=True,
             )
         )
@@ -1829,19 +1852,19 @@ def test_demo_coking_coal_upload_story_proves_time_phased_cover_and_history(
         client,
         headers,
         "stock",
-        (DEMO_DATA_DIR / "demo_stock_snapshots.csv").read_text(),
+        (FIXTURE_DIR / "demo_stock_snapshots.csv").read_text(),
     )
     shipment_response = upload_csv(
         client,
         headers,
         "shipment",
-        (DEMO_DATA_DIR / "demo_inbound_shipments.csv").read_text(),
+        (FIXTURE_DIR / "demo_inbound_shipments.csv").read_text(),
     )
     threshold_response = upload_csv(
         client,
         headers,
         "threshold",
-        (DEMO_DATA_DIR / "demo_continuity_thresholds.csv").read_text(),
+        (FIXTURE_DIR / "demo_continuity_thresholds.csv").read_text(),
     )
 
     assert stock_response.status_code == 200, stock_response.json()
@@ -1864,12 +1887,12 @@ def test_demo_coking_coal_upload_story_proves_time_phased_cover_and_history(
         tenant = db.scalar(select(Tenant).where(Tenant.slug == "tenant-a"))
         assert tenant is not None
         plant = db.scalar(
-            select(Plant).where(Plant.tenant_id == tenant.id, Plant.code == "DEMO_STEEL")
+            select(Plant).where(Plant.tenant_id == tenant.id, Plant.code == "DEMO_PLANT_A")
         )
         material = db.scalar(
             select(Material).where(
                 Material.tenant_id == tenant.id,
-                Material.code == "DEMO_COKING_COAL",
+                Material.code == "DEMO_MATERIAL_A",
             )
         )
         assert plant is not None
@@ -1943,13 +1966,13 @@ def test_founder_demo_import_rollback_only_removes_demo_job_records(
         client,
         headers,
         "stock",
-        (DEMO_DATA_DIR / "demo_stock_snapshots.csv").read_text(),
+        (FIXTURE_DIR / "demo_stock_snapshots.csv").read_text(),
     )
     shipment_response = upload_csv(
         client,
         headers,
         "shipment",
-        (DEMO_DATA_DIR / "demo_inbound_shipments.csv").read_text(),
+        (FIXTURE_DIR / "demo_inbound_shipments.csv").read_text(),
     )
     assert stock_response.status_code == 200
     assert shipment_response.status_code == 200
@@ -1983,7 +2006,7 @@ def test_demo_prefixed_upload_rejected_for_non_demo_tenant(
         client,
         headers,
         "shipment",
-        (DEMO_DATA_DIR / "demo_inbound_shipments.csv").read_text(),
+        (FIXTURE_DIR / "demo_inbound_shipments.csv").read_text(),
     )
 
     assert response.status_code == 400, response.json()

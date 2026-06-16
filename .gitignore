@@ -37,3 +37,16 @@ apps/backend/uploaded_files/
 apps/backend/steelops_backend.egg-info/
 apps/backend/steelops.db
 imp/
+
+# Private/commercial material. Keep architecture-level docs in Git, but do not
+# commit pilot audits, strategy docs, demo data, screenshots, or Office decks.
+docs/demo-data/
+docs/screenshots/
+docs/*audit*.md
+docs/*pilot*.md
+docs/*strategy*.md
+docs/*_v1.md
+docs/*.docx
+docs/*.pptx
+*.xlsx
+*.xlsm

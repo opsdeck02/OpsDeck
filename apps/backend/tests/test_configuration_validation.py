@@ -328,7 +328,7 @@ def seed_base(db: Session) -> None:
         user = User(
             email=f"admin-{suffix}@test.local",
             full_name=f"Admin {suffix.upper()}",
-            password_hash=hash_password("Password123!"),
+            password_hash=hash_password("TestOnlyCredential1!"),
             is_active=True,
         )
         db.add_all([tenant, user])
@@ -518,7 +518,7 @@ def shipment_model(
 def auth_headers(client: TestClient, email: str, tenant_slug: str) -> dict[str, str]:
     response = client.post(
         "/api/v1/auth/login",
-        json={"email": email, "password": "Password123!"},
+        json={"email": email, "password": "TestOnlyCredential1!"},
     )
     assert response.status_code == 200
     token = response.json()["access_token"]

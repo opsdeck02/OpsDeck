@@ -69,7 +69,7 @@ def seed_stock_cover_data(db: Session) -> None:
     user = User(
         email="planner@test.local",
         full_name="Planner",
-        password_hash=hash_password("Password123!"),
+        password_hash=hash_password("TestOnlyCredential1!"),
         is_active=True,
     )
     db.add(user)
@@ -272,8 +272,8 @@ def seed_stock_cover_data(db: Session) -> None:
                 vessel_name="MV Ocean",
                 imo_number="1234567",
                 mmsi="7654321",
-                origin_port="Hay Point",
-                destination_port="Paradip",
+                origin_port="DEMO Origin A",
+                destination_port="DEMO Destination A",
                 planned_eta=now + timedelta(days=4),
                 current_eta=now + timedelta(days=4),
                 eta_confidence=Decimal("60"),
@@ -291,7 +291,7 @@ def seed_stock_cover_data(db: Session) -> None:
                 vessel_name=None,
                 imo_number=None,
                 mmsi=None,
-                origin_port="Paradip",
+                origin_port="DEMO Destination A",
                 destination_port="Plant P2",
                 planned_eta=now + timedelta(hours=18),
                 current_eta=now + timedelta(hours=18),
@@ -311,7 +311,7 @@ def seed_stock_cover_data(db: Session) -> None:
                 imo_number="9988776",
                 mmsi="112233445",
                 origin_port="Gladstone",
-                destination_port="Paradip",
+                destination_port="DEMO Destination A",
                 planned_eta=now - timedelta(days=1),
                 current_eta=now - timedelta(days=1),
                 eta_confidence=Decimal("55"),
@@ -349,7 +349,7 @@ def seed_stock_cover_data(db: Session) -> None:
             shipment_id=inland_high.id,
             mode="rail",
             carrier_name="Indian Railways",
-            origin_location="Paradip",
+            origin_location="DEMO Destination A",
             destination_location="Plant P2",
             planned_departure_at=now - timedelta(hours=5),
             planned_arrival_at=now + timedelta(hours=12),
@@ -376,7 +376,7 @@ def seed_stock_cover_data(db: Session) -> None:
 def auth_headers(client: TestClient) -> dict[str, str]:
     response = client.post(
         "/api/v1/auth/login",
-        json={"email": "planner@test.local", "password": "Password123!"},
+        json={"email": "planner@test.local", "password": "TestOnlyCredential1!"},
     )
     token = response.json()["access_token"]
     return {"Authorization": f"Bearer {token}", "X-Tenant-Slug": "tenant-a"}

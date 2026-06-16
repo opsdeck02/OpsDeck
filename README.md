@@ -40,13 +40,9 @@ docker compose up --build
 - Backend API docs: `http://localhost:8000/docs`
 - Backend health: `http://localhost:8000/api/v1/health/live`
 
-Seeded demo login:
-
-- `admin@demo.steelops.local`
-- `logistics@demo.steelops.local`
-- `planner@demo.steelops.local`
-- `sponsor@demo.steelops.local`
-- Password for all seeded users: `Password123!`
+Seeded demo users are created by `apps/backend/scripts/seed_demo.py`.
+Set `OPSDECK_DEMO_PASSWORD` and `OPSDECK_SUPERADMIN_PASSWORD` in your local
+environment before seeding if you need known local credentials.
 
 ## Useful Commands
 
@@ -160,4 +156,3 @@ docs/           Architecture notes
 - The backend modules are intentionally separated so signal ingestion, continuity calculations, rules, exposure mapping, snapshots, and read facades can evolve independently.
 - See `docs/architecture.md` for the architecture note and extension points for AIS/email ingestion.
 - See `docs/erd.md` for the MVP V1 entity relationship diagram and database constraints.
-- See `docs/microsoft-setup.md` for Microsoft Graph OAuth app registration, permissions, and redirect URI setup.

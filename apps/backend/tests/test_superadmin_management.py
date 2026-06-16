@@ -43,7 +43,7 @@ def test_superadmin_can_create_and_delete_tenant_and_tenant_admin_can_manage_use
     app.dependency_overrides[get_db] = override_get_db
     try:
         client = TestClient(app)
-        superadmin_token = login(client, "superadmin@test.local", "SuperAdmin123!")
+        superadmin_token = login(client, "superadmin@test.local", "TestOnlyAdminCredential1!")
 
         create_response = client.post(
             "/api/v1/tenants/admin",
@@ -56,7 +56,7 @@ def test_superadmin_can_create_and_delete_tenant_and_tenant_admin_can_manage_use
                 "admin_user": {
                     "email": "alpha-admin@test.local",
                     "full_name": "Alpha Admin",
-                    "password": "Password123!",
+                    "password": "TestOnlyCredential1!",
                 },
             },
         )
@@ -76,7 +76,7 @@ def test_superadmin_can_create_and_delete_tenant_and_tenant_admin_can_manage_use
         assert list_response.status_code == 200
         assert any(item["slug"] == "alpha-metals" for item in list_response.json())
 
-        admin_token = login(client, "alpha-admin@test.local", "Password123!")
+        admin_token = login(client, "alpha-admin@test.local", "TestOnlyCredential1!")
         create_user_response = client.post(
             "/api/v1/users",
             headers={
@@ -86,7 +86,7 @@ def test_superadmin_can_create_and_delete_tenant_and_tenant_admin_can_manage_use
             json={
                 "email": "buyer1@test.local",
                 "full_name": "Buyer One",
-                "password": "Password123!",
+                "password": "TestOnlyCredential1!",
                 "role": BUYER_USER,
             },
         )
@@ -102,7 +102,7 @@ def test_superadmin_can_create_and_delete_tenant_and_tenant_admin_can_manage_use
             json={
                 "email": "logistics1@test.local",
                 "full_name": "Logistics One",
-                "password": "Password123!",
+                "password": "TestOnlyCredential1!",
                 "role": LOGISTICS_USER,
             },
         )
@@ -173,7 +173,7 @@ def test_tenant_plant_limit_is_enforced_for_setup() -> None:
         tenant_admin = User(
             email="tenant-admin@test.local",
             full_name="Tenant Admin",
-            password_hash=hash_password("Password123!"),
+            password_hash=hash_password("TestOnlyCredential1!"),
             is_active=True,
         )
         db.add(tenant_admin)
@@ -198,7 +198,7 @@ def test_tenant_plant_limit_is_enforced_for_setup() -> None:
     app.dependency_overrides[get_db] = override_get_db
     try:
         client = TestClient(app)
-        admin_token = login(client, "tenant-admin@test.local", "Password123!")
+        admin_token = login(client, "tenant-admin@test.local", "TestOnlyCredential1!")
 
         rejected = client.post(
             "/api/v1/tenants/plants",
@@ -248,7 +248,7 @@ def test_superadmin_can_manually_activate_and_deactivate_tenant() -> None:
     app.dependency_overrides[get_db] = override_get_db
     try:
         client = TestClient(app)
-        superadmin_token = login(client, "superadmin@test.local", "SuperAdmin123!")
+        superadmin_token = login(client, "superadmin@test.local", "TestOnlyAdminCredential1!")
         with testing_session() as db:
             tenant = db.scalar(select(Tenant).where(Tenant.slug == "demo-tenant"))
             assert tenant is not None
@@ -290,7 +290,7 @@ def seed_management_data(db: Session) -> None:
     superadmin = User(
         email="superadmin@test.local",
         full_name="Super Admin",
-        password_hash=hash_password("SuperAdmin123!"),
+        password_hash=hash_password("TestOnlyAdminCredential1!"),
         is_active=True,
         is_superadmin=True,
     )

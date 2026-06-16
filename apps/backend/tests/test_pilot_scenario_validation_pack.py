@@ -383,7 +383,7 @@ def seed_context(db: Session) -> PilotContext:
     tenant = Tenant(name="Pilot Steel", slug="pilot-steel")
     db.add(tenant)
     db.flush()
-    plant = Plant(tenant_id=tenant.id, code="TATA_JSR_BF1", name="Jamshedpur BF1", location="IN")
+    plant = Plant(tenant_id=tenant.id, code="DEMO_PLANT_A", name="Demo Plant A", location="IN")
     material = Material(
         tenant_id=tenant.id,
         code="COKING_COAL",
@@ -438,7 +438,7 @@ def shipment_continuity(shipment: Shipment):
         tracking_updated_at=shipment.last_tracking_update_at or shipment.latest_update_at,
         linked_purchase_order_reference="PO-PILOT-1",
         linked_material_reference="COKING_COAL",
-        linked_plant_reference="TATA_JSR_BF1",
+        linked_plant_reference="DEMO_PLANT_A",
         current_state=shipment.current_state,
         now=NOW,
     )
@@ -467,7 +467,7 @@ def inventory_result(
     daily_consumption = Decimal("10")
     on_hand = days_of_cover * daily_consumption if on_hand is None else on_hand
     return calculate_inventory_continuity(
-        plant_reference="TATA_JSR_BF1",
+        plant_reference="DEMO_PLANT_A",
         material_reference="COKING_COAL",
         on_hand_quantity=on_hand,
         daily_consumption_rate=daily_consumption,

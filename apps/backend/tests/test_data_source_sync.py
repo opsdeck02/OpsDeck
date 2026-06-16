@@ -37,7 +37,7 @@ def test_google_sheets_sync_success_updates_registry_and_ingests_rows(monkeypatc
     override_database(testing_session)
     try:
         client = TestClient(app)
-        token = login(client, "admin@paid.local", "Password123!")
+        token = login(client, "admin@paid.local", "TestOnlyCredential1!")
 
         create_response = client.post(
             "/api/v1/tenants/data-sources",
@@ -95,7 +95,7 @@ def test_excel_online_sync_success_with_xlsx_and_tenant_isolation(monkeypatch) -
     override_database(testing_session)
     try:
         client = TestClient(app)
-        token = login(client, "admin@paid.local", "Password123!")
+        token = login(client, "admin@paid.local", "TestOnlyCredential1!")
 
         create_response = client.post(
             "/api/v1/tenants/data-sources",
@@ -145,7 +145,7 @@ def test_invalid_excel_link_fails_gracefully_and_updates_error_state() -> None:
     override_database(testing_session)
     try:
         client = TestClient(app)
-        token = login(client, "admin@paid.local", "Password123!")
+        token = login(client, "admin@paid.local", "TestOnlyCredential1!")
         create_response = client.post(
             "/api/v1/tenants/data-sources",
             headers=tenant_headers(token, "paid-tenant"),
@@ -188,7 +188,7 @@ def test_pilot_tenant_is_blocked_from_sync_now() -> None:
     override_database(testing_session)
     try:
         client = TestClient(app)
-        token = login(client, "admin@paid.local", "Password123!")
+        token = login(client, "admin@paid.local", "TestOnlyCredential1!")
         create_response = client.post(
             "/api/v1/tenants/data-sources",
             headers=tenant_headers(token, "paid-tenant"),
@@ -244,7 +244,7 @@ def seed_sync_data(db: Session, *, tenant_plan: str) -> None:
     admin = User(
         email="admin@paid.local",
         full_name="Paid Admin",
-        password_hash=hash_password("Password123!"),
+        password_hash=hash_password("TestOnlyCredential1!"),
         is_active=True,
     )
     db.add(admin)

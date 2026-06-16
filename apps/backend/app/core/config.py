@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     app_debug: bool = False
     api_v1_prefix: str = "/api/v1"
     default_tenant_slug: str = "demo-steel"
-    database_url: str = "postgresql+psycopg://steelops:steelops@localhost:5432/steelops"
+    database_url: str = "postgresql+psycopg://localhost:5432/steelops"
     celery_broker_url: str = "redis://localhost:6379/0"
     celery_result_backend: str = "redis://localhost:6379/1"
     secret_key: str

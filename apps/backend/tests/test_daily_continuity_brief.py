@@ -216,7 +216,7 @@ def seed_report_data(db: Session) -> None:
     user = User(
         email="ops@test.local",
         full_name="Ops User",
-        password_hash=hash_password("Password123!"),
+        password_hash=hash_password("TestOnlyCredential1!"),
         is_active=True,
     )
     db.add(user)
@@ -230,7 +230,7 @@ def seed_report_data(db: Session) -> None:
         )
     )
 
-    plant_a = Plant(tenant_id=tenant_a.id, code="JAM", name="Jamshedpur", location="Jharkhand")
+    plant_a = Plant(tenant_id=tenant_a.id, code="JAM", name="Demo Plant A", location="Jharkhand")
     material_a = Material(
         tenant_id=tenant_a.id,
         code="COKING_COAL",
@@ -254,7 +254,7 @@ def seed_report_data(db: Session) -> None:
         shipment_id="INB-PDP-001",
         material_id=material_a.id,
         plant_id=plant_a.id,
-        supplier_name="Paradip Coal Logistics",
+        supplier_name="Demo Logistics Supplier",
         quantity_mt=Decimal("50000"),
         planned_eta=NOW + timedelta(days=1),
         current_eta=NOW + timedelta(days=4),
@@ -317,7 +317,7 @@ def seed_report_data(db: Session) -> None:
             owner_user_id=user.id,
             triggered_at=NOW - timedelta(hours=2),
             due_at=NOW + timedelta(hours=6),
-            next_action="Confirm Paradip discharge window before next shift review.",
+            next_action="Confirm Demo destination discharge window before next shift review.",
             action_status="pending",
         )
     )
@@ -361,7 +361,7 @@ def seed_report_data(db: Session) -> None:
 def auth_headers(client: TestClient) -> dict[str, str]:
     response = client.post(
         "/api/v1/auth/login",
-        json={"email": "ops@test.local", "password": "Password123!"},
+        json={"email": "ops@test.local", "password": "TestOnlyCredential1!"},
     )
     assert response.status_code == 200
     return {

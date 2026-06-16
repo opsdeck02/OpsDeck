@@ -67,7 +67,7 @@ def seed_movements(db: Session) -> None:
     user = User(
         email="ops@test.local",
         full_name="Ops User",
-        password_hash=hash_password("Password123!"),
+        password_hash=hash_password("TestOnlyCredential1!"),
         is_active=True,
     )
     db.add(user)
@@ -81,7 +81,7 @@ def seed_movements(db: Session) -> None:
         )
     )
 
-    plant_a = Plant(tenant_id=tenant_a.id, code="JAM", name="Jamshedpur", location="Jharkhand")
+    plant_a = Plant(tenant_id=tenant_a.id, code="JAM", name="Demo Plant A", location="Jharkhand")
     material_a = Material(
         tenant_id=tenant_a.id,
         code="COAL",
@@ -111,8 +111,8 @@ def seed_movements(db: Session) -> None:
         vessel_name="MV Port",
         imo_number="1111111",
         mmsi="777777777",
-        origin_port="Hay Point",
-        destination_port="Paradip",
+        origin_port="DEMO Origin A",
+        destination_port="DEMO Destination A",
         planned_eta=now + timedelta(days=1),
         current_eta=now + timedelta(days=1),
         eta_confidence=Decimal("80"),
@@ -131,7 +131,7 @@ def seed_movements(db: Session) -> None:
         imo_number="2222222",
         mmsi="666666666",
         origin_port="Gladstone",
-        destination_port="Paradip",
+        destination_port="DEMO Destination A",
         planned_eta=now - timedelta(days=1),
         current_eta=now - timedelta(days=1),
         eta_confidence=Decimal("50"),
@@ -149,7 +149,7 @@ def seed_movements(db: Session) -> None:
         vessel_name=None,
         imo_number=None,
         mmsi=None,
-        origin_port="Paradip",
+        origin_port="DEMO Destination A",
         destination_port="JAM Yard",
         planned_eta=now + timedelta(days=1),
         current_eta=now + timedelta(days=1),
@@ -168,7 +168,7 @@ def seed_movements(db: Session) -> None:
         vessel_name=None,
         imo_number=None,
         mmsi=None,
-        origin_port="Paradip",
+        origin_port="DEMO Destination A",
         destination_port="JAM Yard",
         planned_eta=now - timedelta(hours=12),
         current_eta=now + timedelta(hours=12),
@@ -238,7 +238,7 @@ def seed_movements(db: Session) -> None:
                 shipment_id=inland_ship.id,
                 mode="rail",
                 carrier_name="Indian Railways",
-                origin_location="Paradip",
+                origin_location="DEMO Destination A",
                 destination_location="JAM Yard",
                 planned_departure_at=now - timedelta(hours=8),
                 planned_arrival_at=now + timedelta(hours=12),
@@ -251,7 +251,7 @@ def seed_movements(db: Session) -> None:
                 shipment_id=delayed_inland_ship.id,
                 mode="road",
                 carrier_name="Road Carrier",
-                origin_location="Paradip",
+                origin_location="DEMO Destination A",
                 destination_location="JAM Yard",
                 planned_departure_at=now - timedelta(days=2),
                 planned_arrival_at=now - timedelta(hours=30),
@@ -267,7 +267,7 @@ def seed_movements(db: Session) -> None:
 def auth_headers(client: TestClient) -> dict[str, str]:
     response = client.post(
         "/api/v1/auth/login",
-        json={"email": "ops@test.local", "password": "Password123!"},
+        json={"email": "ops@test.local", "password": "TestOnlyCredential1!"},
     )
     token = response.json()["access_token"]
     return {"Authorization": f"Bearer {token}", "X-Tenant-Slug": "tenant-a"}

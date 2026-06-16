@@ -195,7 +195,7 @@ def add_shipment(db: Session, tenant: Tenant, plant: Plant, material: Material) 
             shipment_id="SHIP-001",
             material_id=material.id,
             plant_id=plant.id,
-            supplier_name="ABC Minerals",
+            supplier_name="DEMO Supplier B",
             quantity_mt=Decimal("500"),
             vessel_name=None,
             imo_number=None,
