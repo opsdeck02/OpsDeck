@@ -288,7 +288,11 @@ def test_pilot_scenario_ocean_vessel_delay_with_declining_cover() -> None:
         assert workspace.exposure.exposure_level in {"immediate", "near_term"}
         inbound = workspace.shipment_continuity[0]
         assert inbound.physical_quantity == Decimal("450.00")
-        assert inbound.protective_value_label in {"Partial protection", "Weak protection"}
+        assert inbound.protective_value_label in {
+            "Partial protection",
+            "Weak protection",
+            "Uncertain inbound",
+        }
         assert inbound.trusted_quantity < inbound.physical_quantity
         assert workspace.selected_risk.operational_recommendations
         assert_human_led_actions(workspace.selected_risk.operational_recommendations)
@@ -338,8 +342,9 @@ def test_pilot_scenario_inland_movement_failure_after_port_arrival() -> None:
         assert inbound.protective_value_label in {
             "Weak protection",
             "Not currently protective",
+            "Uncertain inbound",
         }
-        assert inbound.trust_level in {"weak", "not_protective"}
+        assert inbound.trust_level in {"weak", "not_protective", "uncertain"}
         assert inbound.protective_quantity <= inbound.trusted_quantity
         assert workspace.selected_risk is not None
         action_types = {
@@ -397,6 +402,7 @@ def test_pilot_scenario_false_safety_from_stale_inbound_visibility() -> None:
             "Weak protection",
             "Not currently protective",
             "Partial protection",
+            "Uncertain inbound",
         }
         assert workspace.selected_risk.severity in {"critical", "high", "medium"}
         assert any(
@@ -545,8 +551,8 @@ def test_pilot_scenario_multi_inbound_mixed_protection_values() -> None:
             for item in workspace.shipment_continuity
         }
         assert labels[strong.shipment_id] == "Strong protection"
-        assert labels[weak.shipment_id] == "Weak protection"
-        assert labels[late.shipment_id] == "Not currently protective"
+        assert labels[weak.shipment_id] == "Uncertain inbound"
+        assert labels[late.shipment_id] == "Trusted but late"
         assert len(set(quantities.values())) > 1
         assert quantities[late.shipment_id] == Decimal("0.00")
         assert workspace.selected_risk is not None

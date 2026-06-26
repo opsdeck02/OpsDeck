@@ -543,6 +543,7 @@ export interface SignalShipmentContinuity {
 
 export interface RiskWorkspaceResponse {
   selected_risk: SignalRiskCandidate | null;
+  risk_candidates: SignalRiskCandidate[];
   explainability: SignalRiskExplainability | null;
   exposure: SignalExposureMapping | null;
   assessment_calibration: AssessmentCalibration | null;

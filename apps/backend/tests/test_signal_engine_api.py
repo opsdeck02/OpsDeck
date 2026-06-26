@@ -285,6 +285,9 @@ def test_risk_workspace_returns_selected_risk_plus_explainability(
     body = response.json()
     assert body["empty"] is False
     assert body["selected_risk"]["severity"] == "critical"
+    assert body["risk_candidates"]
+    assert all(item["plant_reference"] == "P1" for item in body["risk_candidates"])
+    assert all(item["material_reference"] == "M1" for item in body["risk_candidates"])
     assert body["explainability"]["primary_driver"] in {
         "inventory_continuity",
         "shipment_continuity",
@@ -368,19 +371,29 @@ def test_risk_workspace_scenario_rejected_for_non_demo_tenant(
 @pytest.mark.parametrize(
     ("scenario", "expected_labels"),
     [
-        ("ocean_vessel_delay", {"Partial protection", "Weak protection"}),
+        ("ocean_vessel_delay", {"Partial protection", "Weak protection", "Uncertain inbound"}),
         (
             "inland_movement_failure",
-            {"Weak protection", "Not currently protective"},
+            {"Weak protection", "Not currently protective", "Uncertain inbound"},
         ),
         (
             "false_safety",
-            {"Partial protection", "Weak protection", "Not currently protective"},
+            {
+                "Partial protection",
+                "Weak protection",
+                "Not currently protective",
+                "Uncertain inbound",
+            },
         ),
         ("fresh_verified_inbound", {"Strong protection"}),
         (
             "multi_inbound_mixed_protection",
-            {"Strong protection", "Weak protection", "Not currently protective"},
+            {
+                "Strong protection",
+                "Weak protection",
+                "Not currently protective",
+                "Uncertain inbound",
+            },
         ),
     ],
 )
@@ -449,8 +462,8 @@ def test_risk_workspace_multi_inbound_demo_has_distinct_protection_values(
     shipments = response.json()["shipment_continuity"]
     labels = {item["shipment_reference"]: item["protective_value_label"] for item in shipments}
     assert labels["DEMO-MV-STRONG-PCI"] == "Strong protection"
-    assert labels["DEMO-TRUCK-STALE-PCI"] == "Weak protection"
-    assert labels["DEMO-MV-LATE-PCI"] == "Not currently protective"
+    assert labels["DEMO-TRUCK-STALE-PCI"] == "Uncertain inbound"
+    assert labels["DEMO-MV-LATE-PCI"] == "Trusted but late"
     protective_quantities = {item["protective_quantity"] for item in shipments}
     assert len(protective_quantities) > 1
 

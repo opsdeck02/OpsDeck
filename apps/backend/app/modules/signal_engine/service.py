@@ -101,6 +101,7 @@ class AssessmentCalibration(BaseModel):
 
 class RiskWorkspaceResponse(BaseModel):
     selected_risk: RiskCandidate | None = None
+    risk_candidates: list[RiskCandidate] = []
     explainability: RiskExplainability | None = None
     exposure: OperationalExposureMapping | None = None
     assessment_calibration: AssessmentCalibration | None = None
@@ -326,6 +327,7 @@ def get_risk_workspace(
     )
     return RiskWorkspaceResponse(
         selected_risk=selected,
+        risk_candidates=candidates,
         explainability=selected.explainability,
         exposure=exposure,
         assessment_calibration=assessment_calibration,
@@ -439,6 +441,7 @@ def empty_workspace(
 ) -> RiskWorkspaceResponse:
     return RiskWorkspaceResponse(
         selected_risk=None,
+        risk_candidates=[],
         explainability=None,
         exposure=None,
         assessment_calibration=None,

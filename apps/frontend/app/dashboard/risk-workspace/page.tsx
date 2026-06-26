@@ -373,6 +373,7 @@ function WorkspaceContent({
             </WalkthroughNote>
           ) : null}
           <CurrentFocusSummary workspace={workspace} inventory={inventory} />
+          <ContributingReasons workspace={workspace} />
           <OperationalRiskHero workspace={workspace} inventory={inventory} />
           {walkthroughActive ? (
             <WalkthroughNote>
@@ -438,6 +439,69 @@ function WorkspaceContent({
   );
 }
 
+function ContributingReasons({ workspace }: { workspace: RiskWorkspaceResponse }) {
+  const candidates =
+    workspace.risk_candidates?.length > 0
+      ? workspace.risk_candidates
+      : workspace.selected_risk
+        ? [workspace.selected_risk]
+        : [];
+  const material =
+    workspace.selected_risk?.material_reference ??
+    candidates[0]?.material_reference ??
+    "selected material";
+
+  return (
+    <Card className="min-w-0 max-w-full overflow-hidden border-slate-900/10 bg-white shadow-panel">
+      <CardHeader className="px-4 py-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-mutedForeground">
+              Contributing reasons
+            </p>
+            <CardTitle className="mt-1 text-lg">
+              Why {material} is at risk
+            </CardTitle>
+          </div>
+          <Badge variant="outline">
+            {candidates.length} {candidates.length === 1 ? "reason" : "reasons"}
+          </Badge>
+        </div>
+      </CardHeader>
+      <CardContent className="grid gap-2 px-4 pb-4">
+        {candidates.length > 0 ? (
+          candidates.map((candidate, index) => (
+            <div
+              key={`${candidate.risk_type}-${candidate.shipment_reference ?? "material"}-${index}`}
+              className="rounded-lg bg-slate-50 p-3 ring-1 ring-slate-900/5"
+            >
+              <div className="flex flex-wrap items-center gap-2">
+                <SeverityBadge value={candidate.severity} />
+                <Badge variant="outline">{formatLabel(candidate.risk_type)}</Badge>
+                {candidate.shipment_reference ? (
+                  <Badge variant="outline">Inbound {candidate.shipment_reference}</Badge>
+                ) : null}
+              </div>
+              <p className="mt-2 text-sm font-semibold text-slate-900">
+                {reasonTitle(candidate)}
+              </p>
+              <ul className="mt-2 grid gap-1 text-sm leading-5 text-mutedForeground">
+                {reasonLines(candidate).map((reason) => (
+                  <li key={reason}>{reason}</li>
+                ))}
+              </ul>
+            </div>
+          ))
+        ) : (
+          <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-mutedForeground ring-1 ring-slate-900/5">
+            No contributing reasons were returned for this material.
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function CurrentFocusSummary({
   workspace,
   inventory,
@@ -487,6 +551,35 @@ function CurrentFocusSummary({
       </CardContent>
     </Card>
   );
+}
+
+function reasonTitle(candidate: SignalRiskCandidate) {
+  if (candidate.explainability?.summary) {
+    return candidate.explainability.summary;
+  }
+  if (candidate.shipment_reference) {
+    return `${formatLabel(candidate.risk_type)} for inbound ${candidate.shipment_reference}`;
+  }
+  return formatLabel(candidate.risk_type);
+}
+
+function reasonLines(candidate: SignalRiskCandidate) {
+  const lines = [
+    ...(candidate.rule_reasons ?? []),
+    ...(candidate.explainability?.reason_chain ?? []),
+  ];
+  const unique = Array.from(new Set(lines.filter(Boolean)));
+  if (unique.length > 0) {
+    return unique.slice(0, 3);
+  }
+  const context = [
+    candidate.days_of_cover ? `Days of cover: ${displayDays(candidate.days_of_cover)}.` : null,
+    candidate.projected_exhaustion_date
+      ? `Projected timing: ${formatDate(candidate.projected_exhaustion_date)}.`
+      : null,
+    candidate.confidence_score ? `Confidence: ${displayPercent(candidate.confidence_score)}.` : null,
+  ].filter(Boolean) as string[];
+  return context.length ? context : ["OpsDeck flagged this as an active continuity exception."];
 }
 
 function OperationalRiskHero({
