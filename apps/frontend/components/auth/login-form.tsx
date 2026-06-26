@@ -25,14 +25,17 @@ export function LoginForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-5">
+    <form onSubmit={handleSubmit} className="space-y-5" autoComplete="on">
       <div className="space-y-2">
         <label className="text-sm font-medium" htmlFor="email">
           Email
         </label>
         <input
           id="email"
+          name="username"
           type="email"
+          autoComplete="username"
+          inputMode="email"
           value={email}
           onChange={(event) => setEmail(event.target.value)}
           placeholder="Enter your email"
@@ -45,7 +48,9 @@ export function LoginForm() {
         </label>
         <input
           id="password"
+          name="password"
           type="password"
+          autoComplete="current-password"
           value={password}
           onChange={(event) => setPassword(event.target.value)}
           placeholder="Enter your password"
