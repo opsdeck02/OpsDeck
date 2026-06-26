@@ -18,8 +18,9 @@ export const dynamic = "force-dynamic";
 export default async function AdminPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
+  if (user.is_superadmin) redirect("/dashboard/superadmin");
   const isTenantAdmin = user.memberships[0]?.role === "tenant_admin";
-  if (!isTenantAdmin && !user.is_superadmin) redirect("/dashboard");
+  if (!isTenantAdmin) redirect("/dashboard");
 
   return (
     <div className="grid gap-4">

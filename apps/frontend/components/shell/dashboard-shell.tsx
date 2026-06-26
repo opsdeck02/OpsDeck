@@ -85,8 +85,8 @@ const navItems: Array<{ href: string; label: string; roles: RoleName[] }> = [
 ];
 
 const superadminNavItems = [
-  { href: "/dashboard/superadmin", label: "Continuity" },
-  { href: "/dashboard/admin", label: "Admin" },
+  { href: "/dashboard/superadmin", label: "Tenant portfolio" },
+  { href: "/dashboard/superadmin", label: "Admin" },
 ];
 
 export function DashboardShell({
