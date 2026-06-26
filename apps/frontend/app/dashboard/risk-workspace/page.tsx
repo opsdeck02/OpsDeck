@@ -373,8 +373,8 @@ function WorkspaceContent({
             </WalkthroughNote>
           ) : null}
           <CurrentFocusSummary workspace={workspace} inventory={inventory} />
-          <ContributingReasons workspace={workspace} />
           <OperationalRiskHero workspace={workspace} inventory={inventory} />
+          <ContributingReasons workspace={workspace} />
           {walkthroughActive ? (
             <WalkthroughNote>
               This explains the operational signals causing the risk, not just a
@@ -382,9 +382,6 @@ function WorkspaceContent({
             </WalkthroughNote>
           ) : null}
           <WhyThisMatters workspace={workspace} />
-          <AssessmentCalibrationCard
-            calibration={workspace.assessment_calibration}
-          />
         </div>
 
         <div className="grid h-fit min-w-0 content-start gap-2.5">
@@ -425,80 +422,22 @@ function WorkspaceContent({
         </summary>
         <div className="mt-3 grid gap-2.5 xl:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
           <OperationalTrustSummary risk={risk} />
+          <AssessmentCalibrationCard
+            calibration={workspace.assessment_calibration}
+          />
+        </div>
+        <div className="mt-2.5 grid gap-2.5 xl:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
           <ContinuitySummary
             inventory={workspace.inventory_continuity}
             shipments={workspace.shipment_continuity}
           />
-        </div>
-        <div className="mt-2.5 grid gap-2.5 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
           <TimelinePanel timeline={workspace.timeline} />
+        </div>
+        <div className="mt-2.5">
           <RelationshipPanel graph={workspace.context_graph} />
         </div>
       </details>
     </>
-  );
-}
-
-function ContributingReasons({ workspace }: { workspace: RiskWorkspaceResponse }) {
-  const candidates =
-    workspace.risk_candidates?.length > 0
-      ? workspace.risk_candidates
-      : workspace.selected_risk
-        ? [workspace.selected_risk]
-        : [];
-  const material =
-    workspace.selected_risk?.material_reference ??
-    candidates[0]?.material_reference ??
-    "selected material";
-
-  return (
-    <Card className="min-w-0 max-w-full overflow-hidden border-slate-900/10 bg-white shadow-panel">
-      <CardHeader className="px-4 py-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-mutedForeground">
-              Contributing reasons
-            </p>
-            <CardTitle className="mt-1 text-lg">
-              Why {material} is at risk
-            </CardTitle>
-          </div>
-          <Badge variant="outline">
-            {candidates.length} {candidates.length === 1 ? "reason" : "reasons"}
-          </Badge>
-        </div>
-      </CardHeader>
-      <CardContent className="grid gap-2 px-4 pb-4">
-        {candidates.length > 0 ? (
-          candidates.map((candidate, index) => (
-            <div
-              key={`${candidate.risk_type}-${candidate.shipment_reference ?? "material"}-${index}`}
-              className="rounded-lg bg-slate-50 p-3 ring-1 ring-slate-900/5"
-            >
-              <div className="flex flex-wrap items-center gap-2">
-                <SeverityBadge value={candidate.severity} />
-                <Badge variant="outline">{formatLabel(candidate.risk_type)}</Badge>
-                {candidate.shipment_reference ? (
-                  <Badge variant="outline">Inbound {candidate.shipment_reference}</Badge>
-                ) : null}
-              </div>
-              <p className="mt-2 text-sm font-semibold text-slate-900">
-                {reasonTitle(candidate)}
-              </p>
-              <ul className="mt-2 grid gap-1 text-sm leading-5 text-mutedForeground">
-                {reasonLines(candidate).map((reason) => (
-                  <li key={reason}>{reason}</li>
-                ))}
-              </ul>
-            </div>
-          ))
-        ) : (
-          <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-mutedForeground ring-1 ring-slate-900/5">
-            No contributing reasons were returned for this material.
-          </p>
-        )}
-      </CardContent>
-    </Card>
   );
 }
 
@@ -580,6 +519,41 @@ function reasonLines(candidate: SignalRiskCandidate) {
     candidate.confidence_score ? `Confidence: ${displayPercent(candidate.confidence_score)}.` : null,
   ].filter(Boolean) as string[];
   return context.length ? context : ["OpsDeck flagged this as an active continuity exception."];
+}
+
+function contributingReasonCandidates(workspace: RiskWorkspaceResponse) {
+  if (workspace.risk_candidates?.length) {
+    return workspace.risk_candidates;
+  }
+  return workspace.selected_risk ? [workspace.selected_risk] : [];
+}
+
+function compactReasonChips(candidates: SignalRiskCandidate[]) {
+  const labels = candidates.map(reasonChipLabel);
+  return Array.from(new Set(labels.filter(Boolean)));
+}
+
+function reasonChipLabel(candidate: SignalRiskCandidate) {
+  const text = [
+    candidate.risk_type,
+    reasonTitle(candidate),
+    ...reasonLines(candidate),
+  ]
+    .join(" ")
+    .toLowerCase();
+
+  if (text.includes("cover")) return "Cover";
+  if (text.includes("eta") || text.includes("arrival")) return "ETA";
+  if (text.includes("supplier")) return "Supplier";
+  if (text.includes("dispatch")) return "Dispatch";
+  if (text.includes("threshold")) return "Threshold";
+  if (text.includes("inbound") || text.includes("shipment")) return "Inbound";
+  if (text.includes("stale") || text.includes("freshness")) return "Freshness";
+  if (text.includes("confidence")) return "Confidence";
+  if (text.includes("trust")) return "Trust";
+  if (text.includes("context")) return "Context";
+  if (text.includes("delay")) return "Delay";
+  return titleCase(formatLabel(candidate.risk_type));
 }
 
 function OperationalRiskHero({
@@ -951,11 +925,99 @@ function WalkthroughNote({ children }: { children: ReactNode }) {
   );
 }
 
+function ContributingReasons({ workspace }: { workspace: RiskWorkspaceResponse }) {
+  const candidates = contributingReasonCandidates(workspace);
+  const chipLabels = compactReasonChips(candidates);
+  const visibleChipLimit = 6;
+  const visibleChips = chipLabels.slice(0, visibleChipLimit);
+  const hiddenCount = Math.max(0, candidates.length - visibleChips.length);
+
+  return (
+    <Card className="min-w-0 max-w-full overflow-hidden">
+      <CardHeader className="px-4 py-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <GitBranch className="h-5 w-5 text-steel-blue" />
+            <CardTitle>Contributing reasons</CardTitle>
+          </div>
+          <Badge variant="outline">
+            {candidates.length} {candidates.length === 1 ? "reason" : "reasons"}
+          </Badge>
+        </div>
+        <p className="text-sm leading-5 text-mutedForeground">
+          Signal breadth OpsDeck is seeing for this material.
+        </p>
+      </CardHeader>
+      <CardContent className="px-4 pb-4">
+        {visibleChips.length > 0 ? (
+          <div className="flex flex-wrap gap-1.5">
+            {visibleChips.map((label) => (
+              <Badge key={label} className="rounded-full">
+                {label}
+              </Badge>
+            ))}
+            {hiddenCount > 0 ? (
+              <Badge variant="outline" className="rounded-full">
+                +{hiddenCount} more
+              </Badge>
+            ) : null}
+          </div>
+        ) : (
+          <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-mutedForeground ring-1 ring-slate-900/5">
+            No contributing exception list was returned for this material.
+          </p>
+        )}
+        {candidates.length > visibleChipLimit ? (
+          <details className="group mt-3 rounded-lg bg-slate-50 px-3 py-2 ring-1 ring-slate-900/5">
+            <summary className="cursor-pointer text-sm font-semibold text-slate-700">
+              <span className="group-open:hidden">Show all</span>
+              <span className="hidden group-open:inline">Show less</span>
+            </summary>
+            <div className="mt-3 grid gap-2">
+              {candidates.map((candidate, index) => (
+                <div
+                  key={`${candidate.risk_type}-${candidate.shipment_reference ?? "material"}-${index}`}
+                  className="rounded-lg bg-white p-3 ring-1 ring-slate-900/5"
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <SeverityBadge value={candidate.severity} />
+                    <Badge variant="outline">
+                      {formatLabel(candidate.risk_type)}
+                    </Badge>
+                    {candidate.shipment_reference ? (
+                      <Badge variant="outline">
+                        Inbound {candidate.shipment_reference}
+                      </Badge>
+                    ) : null}
+                  </div>
+                  <p className="mt-2 text-sm font-semibold text-slate-900">
+                    {reasonTitle(candidate)}
+                  </p>
+                  <ul className="mt-2 grid gap-1 text-sm leading-5 text-mutedForeground">
+                    {reasonLines(candidate).map((reason) => (
+                      <li key={reason}>{reason}</li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          </details>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
 function WhyThisMatters({ workspace }: { workspace: RiskWorkspaceResponse }) {
   const explainability = workspace.explainability;
   const reasonChain =
     explainability?.reason_chain ?? workspace.selected_risk?.rule_reasons ?? [];
   const concreteSignals = escalatingSignals(workspace, reasonChain);
+  const executiveDrivers = priorityOperationalDrivers(
+    workspace,
+    concreteSignals,
+    reasonChain,
+  );
 
   return (
     <Card className="min-w-0 max-w-full overflow-hidden">
@@ -981,7 +1043,7 @@ function WhyThisMatters({ workspace }: { workspace: RiskWorkspaceResponse }) {
           />
         </div>
         <div className="mb-3 grid gap-1.5 sm:grid-cols-2">
-          {concreteSignals.slice(0, 6).map((signal) => (
+          {executiveDrivers.slice(0, 3).map((signal) => (
             <div
               key={signal}
               className="rounded-lg bg-white px-3 py-2 text-sm font-medium leading-5 ring-1 ring-slate-900/5"
@@ -990,29 +1052,11 @@ function WhyThisMatters({ workspace }: { workspace: RiskWorkspaceResponse }) {
             </div>
           ))}
         </div>
-        <div className="relative space-y-0 pl-3">
-          <div className="absolute bottom-6 left-[24px] top-6 w-px bg-gradient-to-b from-red-300 via-amber-300 to-slate-200" />
-          {reasonChain.slice(0, 6).map((reason, index) => (
-            <div
-              key={`${reason}-${index}`}
-              className="relative flex gap-2.5 pb-3"
-            >
-              <span
-                className={`z-10 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${causalDotClass(index, reasonChain.length)}`}
-              >
-                {index + 1}
-              </span>
-              <div className="min-w-0 rounded-lg bg-slate-50 px-3 py-2 ring-1 ring-slate-900/5">
-                <p className="text-sm font-medium leading-5">{reason}</p>
-              </div>
-            </div>
-          ))}
-          {reasonChain.length === 0 ? (
-            <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-mutedForeground ring-1 ring-slate-900/5">
-              No causal signal chain was returned for this selected exposure.
-            </p>
-          ) : null}
-        </div>
+        {executiveDrivers.length === 0 ? (
+          <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-mutedForeground ring-1 ring-slate-900/5">
+            No causal signal chain was returned for this selected exposure.
+          </p>
+        ) : null}
       </CardContent>
     </Card>
   );
@@ -2139,6 +2183,38 @@ function escalatingSignals(
   return Array.from(signals);
 }
 
+function priorityOperationalDrivers(
+  workspace: RiskWorkspaceResponse,
+  concreteSignals: string[],
+  reasonChain: string[],
+) {
+  const risk = workspace.selected_risk;
+  const drivers = [
+    ...concreteSignals,
+    ...(risk?.risk_type ? [formatLabel(risk.risk_type)] : []),
+    ...reasonChain,
+  ];
+  const priority = [
+    "cover",
+    "threshold",
+    "eta",
+    "inbound",
+    "supplier",
+    "stale",
+    "confidence",
+    "trust",
+  ];
+  return Array.from(new Set(drivers.filter(Boolean))).sort((left, right) => {
+    const leftRank = priority.findIndex((token) => left.toLowerCase().includes(token));
+    const rightRank = priority.findIndex((token) => right.toLowerCase().includes(token));
+    return normalizeRank(leftRank) - normalizeRank(rightRank);
+  });
+}
+
+function normalizeRank(rank: number) {
+  return rank === -1 ? 999 : rank;
+}
+
 function inboundProtectionLabel(shipment: SignalShipmentContinuity) {
   if (shipment.protective_value_label) {
     const label = shipment.protective_value_label;
@@ -2342,12 +2418,6 @@ function severityBorder(severity?: string | null) {
   return "border-slate-300";
 }
 
-function causalDotClass(index: number, length: number) {
-  if (index === length - 1) return "bg-red-500 text-white";
-  if (index > 0) return "bg-amber-400 text-slate-950";
-  return "bg-blue-500 text-white";
-}
-
 function NoRiskState({
   readiness,
 }: {
@@ -2445,6 +2515,10 @@ function contextTitle(material?: string | null, plant?: string | null) {
 function formatLabel(value?: string | null) {
   if (!value) return "Unknown";
   return value.replaceAll("_", " ");
+}
+
+function titleCase(value: string) {
+  return value.replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function driverLabel(value?: string | null) {
