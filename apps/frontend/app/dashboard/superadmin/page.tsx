@@ -1,8 +1,9 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 
+import { CustomerHealthTable } from "@/components/admin/customer-health-panel";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { getAllTenants, getCurrentUser } from "@/lib/api";
+import { getAllTenants, getCurrentUser, getCustomerHealthSummaries } from "@/lib/api";
 import { canAccessSuperadmin } from "@/lib/roles";
 
 export const dynamic = "force-dynamic";
@@ -13,7 +14,10 @@ export default async function SuperadminTenantsPage() {
     redirect("/dashboard");
   }
 
-  const tenants = await getAllTenants();
+  const [tenants, customerHealth] = await Promise.all([
+    getAllTenants(),
+    getCustomerHealthSummaries(),
+  ]);
   const activeTenants = tenants.filter((tenant) => tenant.is_active).length;
   const cappedTenants = tenants.filter((tenant) => tenant.max_users !== null).length;
   const totalMappedUsers = tenants.reduce((total, tenant) => total + (tenant.active_user_count ?? 0), 0);
@@ -74,6 +78,8 @@ export default async function SuperadminTenantsPage() {
         </Card>
       </section>
 
+      <CustomerHealthTable items={customerHealth} />
+
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
         {tenants.map((tenant) => (
           <Card key={tenant.id} className="bg-card/90 shadow-panel">
@@ -121,12 +127,20 @@ export default async function SuperadminTenantsPage() {
                 <span>{new Date(tenant.created_at).toLocaleDateString()}</span>
               </div>
               <div className="pt-3">
-                <Link
-                  href={`/dashboard/users?tenant_id=${tenant.id}`}
-                  className="inline-flex rounded-2xl border px-4 py-2 text-xs font-semibold"
-                >
-                  Manage user mapping
-                </Link>
+                <div className="flex flex-wrap gap-2">
+                  <Link
+                    href={`/dashboard/superadmin/tenants/${tenant.id}`}
+                    className="inline-flex rounded-2xl bg-primary px-4 py-2 text-xs font-semibold text-primaryForeground"
+                  >
+                    Open tenant profile
+                  </Link>
+                  <Link
+                    href={`/dashboard/users?tenant_id=${tenant.id}`}
+                    className="inline-flex rounded-2xl border px-4 py-2 text-xs font-semibold"
+                  >
+                    Manage user mapping
+                  </Link>
+                </div>
               </div>
             </CardContent>
           </Card>

@@ -1787,7 +1787,7 @@ def test_founder_demo_csv_files_ingest_and_are_import_auditable(
         "DEMO-MATERIAL-A" in shipment_response.json()["operational_summary"]["materials_detected"]
     )
     assert (
-        "DEMO-COAL-PROTECTIVE-A"
+        "DEMO-MAT-A-PROTECTIVE"
         in shipment_response.json()["operational_summary"]["shipments_detected"]
     )
     shipment_summary = shipment_response.json()["operational_summary"]
@@ -1938,9 +1938,9 @@ def test_demo_coking_coal_upload_story_proves_time_phased_cover_and_history(
         assert cover.current_projected_critical_breach_date is not None
         assert cover.current_projected_interruption_date is not None
         statuses = {item.shipment_id: item.protection_status for item in cover.shipment_evaluations}
-        assert statuses["DEMO-COAL-PROTECTIVE-A"] == "PROTECTIVE"
-        assert statuses["DEMO-COAL-LATE-B"] == "LATE_AFTER_RESERVE"
-        assert statuses["DEMO-COAL-TOO-LATE-C"] == "TOO_LATE"
+        assert statuses["DEMO-MAT-A-PROTECTIVE"] == "PROTECTIVE"
+        assert statuses["DEMO-MAT-A-LATE"] == "LATE_AFTER_RESERVE"
+        assert statuses["DEMO-MAT-A-UNLINKED"] == "TOO_LATE"
         assert "One or more inbound shipments are missing supplier master linkage." not in (
             cover.assumptions_used
         )

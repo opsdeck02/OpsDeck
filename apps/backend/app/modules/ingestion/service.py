@@ -2330,11 +2330,11 @@ def resolve_plant(db: Session, tenant_id: int, value: str) -> Plant:
             item
             for item in plants
             if normalize_text_token(item.code) == normalized_value
-            or normalize_text_token(item.name) == normalized_value
+            or plant_name_matches(item.name, value)
         ),
         None,
     )
-    if plant is None:
+    if plant is None and is_generic_plant_reference(value):
         requested_index = infer_plant_index(value)
         if requested_index is not None:
             plant = next(
@@ -2585,6 +2585,16 @@ def infer_plant_index(value: str) -> int | None:
         return ord(letter_match.group(1)) - ord("a") + 1
 
     return None
+
+
+def is_generic_plant_reference(value: str) -> bool:
+    return bool(re.fullmatch(r"\s*plant[\s_-]*[a-z0-9]+\s*", value.strip(), re.IGNORECASE))
+
+
+def plant_name_matches(existing_name: str | None, uploaded_value: str) -> bool:
+    if not existing_name:
+        return False
+    return " ".join(existing_name.lower().split()) == " ".join(uploaded_value.lower().split())
 
 
 def build_plant_code(value: str) -> str:

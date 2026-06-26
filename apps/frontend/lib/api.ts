@@ -214,6 +214,116 @@ export interface ExecutiveContinuityReport {
   pdf_ready_content: string;
 }
 
+export interface OperationalHistoryMilestone {
+  id: number;
+  tenant_id: number;
+  title: string;
+  description: string | null;
+  milestone_type: string;
+  status: string;
+  occurred_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OperationalHistoryNote {
+  id: number;
+  tenant_id: number;
+  note_type: string;
+  title: string;
+  body: string;
+  attendees: string[] | null;
+  actions: string[] | null;
+  note_date: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OperationalHistoryReportSnapshot {
+  id: number;
+  tenant_id: number;
+  report_type: string;
+  period_start: string | null;
+  period_end: string | null;
+  version: number;
+  title: string;
+  summary: string | null;
+  snapshot_payload: Record<string, unknown>;
+  generated_by_user_id: number | null;
+  generated_at: string;
+  created_at: string;
+}
+
+export interface OperationalHistorySummary {
+  tenant: {
+    id: number;
+    name: string;
+    slug: string;
+    plan_tier: string;
+    is_active: boolean;
+    is_demo_tenant: boolean;
+    created_at: string;
+  };
+  milestone_count: number;
+  note_count: number;
+  report_count: number;
+  latest_report: OperationalHistoryReportSnapshot | null;
+  recent_milestones: OperationalHistoryMilestone[];
+  recent_notes: OperationalHistoryNote[];
+}
+
+export interface ReviewAction {
+  id: number;
+  weekly_review_id: number;
+  description: string;
+  owner: string | null;
+  due_date: string | null;
+  status: string;
+}
+
+export interface WeeklyReview {
+  id: number;
+  tenant_id: number;
+  week_number: number;
+  review_date: string;
+  review_title: string;
+  attendees: string[];
+  meeting_summary: string | null;
+  operational_observations: string[];
+  customer_feedback: string | null;
+  agreed_actions: Record<string, unknown>[];
+  blockers: string | null;
+  next_focus: string | null;
+  created_by_user_id: number | null;
+  created_at: string;
+  updated_at: string;
+  actions: ReviewAction[];
+}
+
+export interface CustomerHealthSummary {
+  tenant_id: number;
+  tenant_name: string;
+  tenant_slug: string;
+  pilot_progress_percent: number;
+  latest_review_date: string | null;
+  weekly_reviews_count: number;
+  open_actions_count: number;
+  completed_actions_count: number;
+  overdue_actions_count: number;
+  milestones_complete_count: number;
+  milestones_total_count: number;
+  reports_generated_count: number;
+  latest_report_generated_at: string | null;
+  has_pilot_report: boolean;
+  has_weekly_reviews: boolean;
+  has_open_blockers: boolean;
+  readiness_status: string;
+  recommendation: string;
+  readiness_reasons: string[];
+  blockers: string[];
+  next_best_actions: string[];
+}
+
 export interface OperationalInterruptionImpact {
   calculation_status: string;
   currency: string;
@@ -816,6 +926,47 @@ export async function getTenantDetails(
 ): Promise<TenantDetail | null> {
   return getAuthenticatedJson<TenantDetail>(
     `/api/v1/tenants/admin/${tenantId}`,
+  );
+}
+
+export async function getOperationalHistorySummary(
+  tenantId: number,
+): Promise<OperationalHistorySummary | null> {
+  return getAuthenticatedJson<OperationalHistorySummary>(
+    `/api/v1/operational-history/tenants/${tenantId}`,
+  );
+}
+
+export async function getOperationalHistoryReports(
+  tenantId: number,
+): Promise<OperationalHistoryReportSnapshot[]> {
+  return (
+    (await getAuthenticatedJson<OperationalHistoryReportSnapshot[]>(
+      `/api/v1/operational-history/tenants/${tenantId}/reports`,
+    )) ?? []
+  );
+}
+
+export async function getWeeklyReviews(tenantId: number): Promise<WeeklyReview[]> {
+  return (
+    (await getAuthenticatedJson<WeeklyReview[]>(
+      `/api/v1/operational-reviews/tenants/${tenantId}/weekly-reviews`,
+    )) ?? []
+  );
+}
+
+export async function getCustomerHealthSummaries(): Promise<CustomerHealthSummary[]> {
+  return (
+    (await getAuthenticatedJson<CustomerHealthSummary[]>("/api/v1/customer-health/tenants")) ??
+    []
+  );
+}
+
+export async function getCustomerHealth(
+  tenantId: number,
+): Promise<CustomerHealthSummary | null> {
+  return getAuthenticatedJson<CustomerHealthSummary>(
+    `/api/v1/customer-health/tenants/${tenantId}`,
   );
 }
 

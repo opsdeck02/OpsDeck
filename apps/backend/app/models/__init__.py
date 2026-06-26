@@ -14,6 +14,13 @@ from app.models.microsoft_data_source import MicrosoftDataSource
 from app.models.microsoft_oauth_state import MicrosoftOAuthState
 from app.models.notification import NotificationDeliveryLog, NotificationSettings
 from app.models.operational_event import OperationalEvent
+from app.models.operational_history import (
+    TenantOperationalMilestone,
+    TenantOperationalNote,
+    TenantReportSnapshot,
+    TenantReviewAction,
+    TenantWeeklyReview,
+)
 from app.models.operations import (
     AuditLog,
     ExceptionCase,
@@ -67,6 +74,11 @@ __all__ = [
     "Supplier",
     "Tenant",
     "TenantMembership",
+    "TenantOperationalMilestone",
+    "TenantOperationalNote",
+    "TenantReportSnapshot",
+    "TenantReviewAction",
+    "TenantWeeklyReview",
     "TrackingEvent",
     "TrackingSource",
     "UploadedFile",
