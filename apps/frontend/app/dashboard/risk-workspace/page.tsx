@@ -41,6 +41,7 @@ type SearchParams = {
   walkthrough?: string;
   risk_type?: string;
   plant_reference?: string;
+  selected_plant_reference?: string;
   material_reference?: string;
   shipment_reference?: string;
   severity?: string;
@@ -94,10 +95,12 @@ export default async function CriticalRiskWorkspacePage({
     : undefined;
   const walkthroughActive =
     walkthroughControlsEnabled && isWalkthroughActive(searchParams);
+  const detailPlantReference =
+    searchParams?.plant_reference ?? searchParams?.selected_plant_reference;
   const workspaceParams = {
     scenario: activeScenario,
     risk_type: searchParams?.risk_type,
-    plant_reference: searchParams?.plant_reference,
+    plant_reference: detailPlantReference,
     material_reference: searchParams?.material_reference,
     shipment_reference: searchParams?.shipment_reference,
     severity: searchParams?.severity,
@@ -187,7 +190,10 @@ function ExposureSelector({
     rollups.find(
       (rollup) =>
         rollup.plant_reference ===
-          (selected?.plant_reference ?? searchParams?.plant_reference ?? null) &&
+          (selected?.plant_reference ??
+            searchParams?.selected_plant_reference ??
+            searchParams?.plant_reference ??
+            null) &&
         rollup.material_reference ===
           (selected?.material_reference ??
             searchParams?.material_reference ??
@@ -317,7 +323,12 @@ function materialWorkspaceHref(
   searchParams?: SearchParams,
 ) {
   const params = new URLSearchParams();
-  setParam(params, "plant_reference", rollup.plant_reference ?? undefined);
+  setParam(params, "plant_reference", searchParams?.plant_reference);
+  setParam(
+    params,
+    "selected_plant_reference",
+    rollup.plant_reference ?? undefined,
+  );
   setParam(params, "material_reference", rollup.material_reference ?? undefined);
   setParam(params, "walkthrough", searchParams?.walkthrough);
   const query = params.toString();
@@ -344,6 +355,11 @@ function shouldCleanStaleSignalSelection(
 function materialOnlyWorkspaceHref(searchParams: SearchParams | undefined) {
   const params = new URLSearchParams();
   setParam(params, "plant_reference", searchParams?.plant_reference);
+  setParam(
+    params,
+    "selected_plant_reference",
+    searchParams?.selected_plant_reference,
+  );
   setParam(params, "material_reference", searchParams?.material_reference);
   setParam(params, "walkthrough", searchParams?.walkthrough);
   const query = params.toString();
@@ -364,53 +380,48 @@ function WorkspaceContent({
 
   return (
     <>
-      <section className="grid min-w-0 items-start gap-2.5 xl:grid-cols-[minmax(0,1.25fr)_minmax(0,0.75fr)]">
-        <div className="grid h-fit min-w-0 content-start gap-2.5">
-          {walkthroughActive ? (
-            <WalkthroughNote>
-              This shows the plant-material combination most likely to create
-              continuity pressure.
-            </WalkthroughNote>
-          ) : null}
-          <CurrentFocusSummary workspace={workspace} inventory={inventory} />
-          <OperationalRiskHero workspace={workspace} inventory={inventory} />
-          <ContributingReasons workspace={workspace} />
-          {walkthroughActive ? (
-            <WalkthroughNote>
-              This explains the operational signals causing the risk, not just a
-              generic score.
-            </WalkthroughNote>
-          ) : null}
-          <WhyThisMatters workspace={workspace} />
-        </div>
-
-        <div className="grid h-fit min-w-0 content-start gap-2.5">
-          {walkthroughActive ? (
-            <WalkthroughNote>
-              This translates current signals into likely operational
-              consequence.
-            </WalkthroughNote>
-          ) : null}
-          <IfNothingChanges workspace={workspace} inventory={inventory} />
-          {walkthroughActive ? (
-            <WalkthroughNote>
-              These are human-led operational actions, not automated
-              procurement.
-            </WalkthroughNote>
-          ) : null}
+      <section className="grid min-w-0 items-start gap-2.5">
+        {walkthroughActive ? (
+          <WalkthroughNote>
+            This shows the plant-material combination most likely to create
+            continuity pressure.
+          </WalkthroughNote>
+        ) : null}
+        <CurrentFocusSummary workspace={workspace} inventory={inventory} />
+        <OperationalRiskHero workspace={workspace} inventory={inventory} />
+        {walkthroughActive ? (
+          <WalkthroughNote>
+            These are human-led operational actions, not automated procurement.
+          </WalkthroughNote>
+        ) : null}
+        {walkthroughActive ? (
+          <WalkthroughNote>
+            This translates current signals into likely operational consequence.
+          </WalkthroughNote>
+        ) : null}
+        <div className="grid min-w-0 items-start gap-2.5 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
           <RecommendedActions risk={risk} />
-          {walkthroughActive ? (
-            <WalkthroughNote>
-              This separates physical inbound from trusted inbound. An inbound
-              shipment only protects continuity if timing, freshness, and
-              confidence are acceptable.
-            </WalkthroughNote>
-          ) : null}
-          <InboundProtectionQuality
-            workspace={workspace}
-            inventory={inventory}
-          />
+          <IfNothingChanges workspace={workspace} inventory={inventory} />
         </div>
+        <ContributingReasons workspace={workspace} />
+        {walkthroughActive ? (
+          <WalkthroughNote>
+            This explains the operational signals causing the risk, not just a
+            generic score.
+          </WalkthroughNote>
+        ) : null}
+        <WhyThisMatters workspace={workspace} />
+        {walkthroughActive ? (
+          <WalkthroughNote>
+            This separates physical inbound from trusted inbound. An inbound
+            shipment only protects continuity if timing, freshness, and
+            confidence are acceptable.
+          </WalkthroughNote>
+        ) : null}
+        <InboundProtectionQuality
+          workspace={workspace}
+          inventory={inventory}
+        />
       </section>
 
       <details className="min-w-0 max-w-full overflow-hidden rounded-lg border bg-white/70 p-3 text-sm ring-1 ring-slate-900/5">
@@ -809,6 +820,13 @@ function WorkspaceFilters({
         <form className="flex w-full min-w-0 max-w-full flex-wrap gap-2">
           {walkthroughActive ? (
             <input type="hidden" name="walkthrough" value="1" />
+          ) : null}
+          {searchParams?.selected_plant_reference ? (
+            <input
+              type="hidden"
+              name="selected_plant_reference"
+              value={searchParams.selected_plant_reference}
+            />
           ) : null}
           {demoControlsEnabled ? (
             <div className="grid min-w-0 flex-1 basis-56 gap-1">
@@ -2377,6 +2395,11 @@ function walkthroughHref(
     includeScenario ? searchParams?.scenario : undefined,
   );
   setParam(params, "plant_reference", searchParams?.plant_reference);
+  setParam(
+    params,
+    "selected_plant_reference",
+    searchParams?.selected_plant_reference,
+  );
   setParam(params, "material_reference", searchParams?.material_reference);
   setParam(params, "shipment_reference", searchParams?.shipment_reference);
   setParam(params, "risk_type", searchParams?.risk_type);
